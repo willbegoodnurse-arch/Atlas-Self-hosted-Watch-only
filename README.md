@@ -57,6 +57,8 @@ cp .env.example .env
 
 Edit `.env` before production use, especially `SESSION_SECRET`.
 
+For development on another computer, see [DEVELOPMENT.md](DEVELOPMENT.md).
+
 ## Docker Compose
 
 ```bash
