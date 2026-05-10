@@ -1,0 +1,134 @@
+# watch wallet
+
+A calm, self-hosted, watch-only Bitcoin web wallet dashboard for your own node.
+
+watch wallet is designed to run on a Raspberry Pi with Docker, alongside services such as Bitcoin Core, Fulcrum, or Mempool. Phase 0 is only the project skeleton: no real wallet import, address derivation, balance lookup, transaction lookup, PSBT, or broadcast features are implemented yet.
+
+## Features
+
+- TypeScript monorepo with npm workspaces
+- `apps/web` Next.js web app shell
+- `apps/api` Node/Fastify API shell
+- `packages/bitcoin` placeholder package for future watch-only Bitcoin utilities
+- `packages/ui` placeholder package for future shared UI primitives
+- Docker Compose draft for Raspberry Pi friendly deployment
+- Security-first documentation for watch-only operation
+
+## Screenshots
+
+Screenshots will be added after the UI phase. Phase 0 intentionally contains only a minimal shell.
+
+## Security Model
+
+watch wallet is a watch-only Bitcoin wallet dashboard.
+It never asks for, stores, or transmits private keys or seed phrases.
+Do not enter your seed phrase or private key anywhere in this application.
+
+Extended public keys such as xpub, ypub, and zpub can reveal your full wallet history.
+By default, watch wallet stores them only in your browser localStorage.
+Protect access to your browser profile and device.
+
+watch wallet은 보기전용 비트코인 지갑 대시보드입니다.
+이 앱은 시드 문구나 개인키를 절대 요구하지 않습니다.
+절대 이 앱에 시드 문구나 개인키를 입력하지 마십시오.
+
+xpub, ypub, zpub은 지갑 전체 거래내역을 노출할 수 있는 민감한 정보입니다.
+watch wallet은 기본적으로 이를 브라우저 localStorage에만 저장합니다.
+기기와 브라우저 프로필 접근 권한을 안전하게 보호하십시오.
+
+The server must not persist seed phrases, private keys, xpubs, ypubs, zpubs, full address lists, transaction memos, or wallet labels. The default operating model is local network, Tailscale, or Tor access. General internet port forwarding is not recommended.
+
+## Installation
+
+Requirements:
+
+- Raspberry Pi or Linux server
+- Docker
+- Docker Compose
+
+Create an environment file:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` before production use, especially `SESSION_SECRET`.
+
+## Docker Compose
+
+```bash
+docker compose up --build
+```
+
+Default ports:
+
+- Web: `http://localhost:3010`
+- API: `http://localhost:3011`
+
+The Compose draft maps the web container's internal port `3000` to `WEB_PORT`, and the API container's internal port `3011` to `API_PORT`.
+
+## First Setup
+
+First setup is planned for Phase 1. It will create one administrator account and enable TOTP 2FA. Phase 0 does not implement authentication yet.
+
+## Adding a Wallet
+
+Wallet registration is planned for Phase 2. The future design is browser-local storage for xpub, ypub, and zpub values. The API should receive only the specific lookup requests needed to query a node or configured backend.
+
+Never enter a seed phrase or private key into watch wallet.
+
+## Supported Networks
+
+Planned networks:
+
+- mainnet
+- testnet
+- signet
+
+## Supported Extended Public Keys
+
+Planned watch-only inputs:
+
+- xpub
+- ypub
+- zpub
+- single address
+- descriptor support in a later phase
+
+## Configuration
+
+Initial environment variables:
+
+```env
+WEB_PORT=3010
+API_PORT=3011
+NEXT_PUBLIC_API_URL=http://localhost:3011
+MEMPOOL_API_URL=http://localhost:8080/api
+FULCRUM_HOST=127.0.0.1
+FULCRUM_PORT=50001
+FULCRUM_TLS_PORT=50002
+FULCRUM_USE_TLS=false
+DEFAULT_NETWORK=mainnet
+DEFAULT_CURRENCY=KRW
+DEFAULT_UNIT=BTC
+```
+
+## Roadmap
+
+- Phase 0: project skeleton, Docker Compose, README, MIT License, security docs
+- Phase 1: administrator setup, password hashing, TOTP 2FA, session handling
+- Phase 2: browser-local xpub, ypub, zpub wallet registration
+- Phase 3: watch-only address derivation
+- Phase 4: balance lookup through Mempool API first
+- Phase 5: transaction history
+- Phase 6: calm Sparrow-inspired dark dashboard UI
+- Phase 7: settings and localStorage export/import
+- Phase 8: PSBT-oriented advanced features without private key handling
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security-sensitive changes must preserve the watch-only model.
+
+## License
+
+MIT License. See [LICENSE](LICENSE).

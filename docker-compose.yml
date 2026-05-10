@@ -1,0 +1,30 @@
+name: watch-wallet
+
+services:
+  watch-wallet-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3011}
+    container_name: watch-wallet-web
+    ports:
+      - "${WEB_PORT:-3010}:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3011}
+    depends_on:
+      - watch-wallet-api
+    restart: unless-stopped
+
+  watch-wallet-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: watch-wallet-api
+    ports:
+      - "${API_PORT:-3011}:3011"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

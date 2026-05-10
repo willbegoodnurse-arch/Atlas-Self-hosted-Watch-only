@@ -1,0 +1,21 @@
+{
+  "name": "watch-wallet",
+  "version": "0.1.0",
+  "description": "A self-hosted watch-only Bitcoin web wallet dashboard.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:web": "npm --workspace @watch-wallet/web run dev",
+    "dev:api": "npm --workspace @watch-wallet/api run dev"
+  }
+}
