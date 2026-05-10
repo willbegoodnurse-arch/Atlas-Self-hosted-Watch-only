@@ -6,13 +6,14 @@ build/
 .env
 .env.local
 .env.production
-.env.*
-!.env.example
 
 data/*
 !data/.gitkeep
 
-npm-debug.log*
-.DS_Store
-*.tsbuildinfo
+apps/api/data/*
+!apps/api/data/.gitkeep
 
+*.log
+npm-debug.log*
+
+*.tsbuildinfo

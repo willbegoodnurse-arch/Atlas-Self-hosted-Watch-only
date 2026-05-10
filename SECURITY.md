@@ -30,6 +30,23 @@ watch wallet은 기본적으로 이를 브라우저 localStorage에만 저장합
 
 xpub, ypub, and zpub values are not signing keys, but they can reveal wallet history and future receive addresses. Treat them as sensitive metadata.
 
+## Future PSBT Sending Model
+
+watch wallet may later support PSBT-based sending and broadcasting, but it must remain a non-signing application.
+
+The planned future flow is:
+
+- Select UTXOs in watch wallet.
+- Enter recipient address, amount, and fee settings.
+- Choose a change address.
+- Create an unsigned PSBT.
+- Sign the PSBT in an external signer such as Nunchuk, Sparrow, or a hardware wallet.
+- Import the signed PSBT back into watch wallet.
+- Extract the raw transaction.
+- Broadcast through the user's own node.
+
+watch wallet must never ask for, store, or transmit seed phrases or private keys. The server must not store raw xpub, ypub, or zpub values.
+
 ## Reporting Vulnerabilities
 
 If this project has a private security advisory channel available, please use it. Otherwise, contact the maintainers privately before opening a public issue with exploit details.
@@ -41,7 +58,6 @@ Please include:
 - Reproduction steps
 - Whether private key, seed phrase, xpub, ypub, zpub, address, or transaction data could be exposed
 
-## Phase 0 Status
+## Phase 1 Status
 
-Phase 0 contains only the project skeleton and does not implement authentication, wallet registration, address derivation, balance lookup, or transaction lookup.
-
+Phase 1 implements administrator authentication only. It does not implement wallet registration, address derivation, balance lookup, transaction lookup, PSBT generation, signing, or broadcast.

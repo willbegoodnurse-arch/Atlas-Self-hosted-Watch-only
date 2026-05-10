@@ -1,4 +1,9 @@
 import Fastify from "fastify";
+import cookie from "@fastify/cookie";
+import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
+import { registerAuthRoutes } from "./auth/routes.js";
+import { authConfig } from "./auth/config.js";
 
 const port = Number(process.env.API_PORT ?? 3011);
 const host = process.env.API_HOST ?? "0.0.0.0";
@@ -8,10 +13,24 @@ const server = Fastify({
   logger: true
 });
 
+await server.register(cors, {
+  credentials: true,
+  origin: authConfig.webOrigins
+});
+
+await server.register(cookie, {
+  secret: authConfig.sessionSecret
+});
+
+await server.register(rateLimit, {
+  max: 120,
+  timeWindow: "1 minute"
+});
+
 server.get("/api/status", async () => ({
   app: appName,
   status: "ok",
-  mode: "phase-0",
+  mode: "phase-1",
   watchOnly: true,
   walletFeaturesEnabled: false,
   storagePolicy: {
@@ -19,6 +38,10 @@ server.get("/api/status", async () => ({
     serverStoresSeedPhrases: false,
     serverStoresPrivateKeys: false
   }
+}));
+
+server.get("/health", async () => ({
+  status: "ok"
 }));
 
 server.get("/api/status/mempool", async () => ({
@@ -33,6 +56,8 @@ server.get("/api/status/fulcrum", async () => ({
   tlsPort: Number(process.env.FULCRUM_TLS_PORT ?? 50002),
   useTls: process.env.FULCRUM_USE_TLS === "true"
 }));
+
+await registerAuthRoutes(server);
 
 try {
   await server.listen({ host, port });

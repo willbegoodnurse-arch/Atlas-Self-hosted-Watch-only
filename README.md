@@ -2,7 +2,7 @@
 
 A calm, self-hosted, watch-only Bitcoin web wallet dashboard for your own node.
 
-watch wallet is designed to run on a Raspberry Pi with Docker, alongside services such as Bitcoin Core, Fulcrum, or Mempool. Phase 0 is only the project skeleton: no real wallet import, address derivation, balance lookup, transaction lookup, PSBT, or broadcast features are implemented yet.
+watch wallet is designed to run on a Raspberry Pi with Docker, alongside services such as Bitcoin Core, Fulcrum, or Mempool. Phase 1 implements administrator authentication only. No wallet import, address derivation, balance lookup, transaction lookup, PSBT generation, or broadcast features are implemented yet.
 
 ## Features
 
@@ -13,6 +13,7 @@ watch wallet is designed to run on a Raspberry Pi with Docker, alongside service
 - `packages/ui` placeholder package for future shared UI primitives
 - Docker Compose draft for Raspberry Pi friendly deployment
 - Security-first documentation for watch-only operation
+- Phase 1 administrator setup, TOTP 2FA, and session shell
 
 ## Screenshots
 
@@ -37,6 +38,8 @@ watch wallet은 기본적으로 이를 브라우저 localStorage에만 저장합
 기기와 브라우저 프로필 접근 권한을 안전하게 보호하십시오.
 
 The server must not persist seed phrases, private keys, xpubs, ypubs, zpubs, full address lists, transaction memos, or wallet labels. The default operating model is local network, Tailscale, or Tor access. General internet port forwarding is not recommended.
+
+Future sending features must use a PSBT-only workflow. watch wallet may later help select UTXOs, set recipients, choose fees, choose change addresses, create PSBTs, import signed PSBTs, extract raw transactions, and broadcast through the user's node. It must not sign transactions itself. Signing must happen in an external signer such as Nunchuk, Sparrow, or a hardware wallet.
 
 ## Installation
 
@@ -69,13 +72,30 @@ The Compose draft maps the web container's internal port `3000` to `WEB_PORT`, a
 
 ## First Setup
 
-First setup is planned for Phase 1. It will create one administrator account and enable TOTP 2FA. Phase 0 does not implement authentication yet.
+Phase 1 first setup creates one administrator account and enables TOTP 2FA. The API stores only authentication metadata in `./data/auth.json`: username, password hash, TOTP secret, 2FA status, and creation time.
 
 ## Adding a Wallet
 
 Wallet registration is planned for Phase 2. The future design is browser-local storage for xpub, ypub, and zpub values. The API should receive only the specific lookup requests needed to query a node or configured backend.
 
 Never enter a seed phrase or private key into watch wallet.
+
+Wallet registration is not part of Phase 1.
+
+## Future PSBT Flow
+
+Future sending support is planned as a PSBT-based coordination flow:
+
+1. Select UTXOs in watch wallet.
+2. Enter recipient address, amount, and fee settings.
+3. Choose a change address.
+4. Create an unsigned PSBT.
+5. Sign the PSBT in Nunchuk, Sparrow, or a hardware wallet.
+6. Import the signed PSBT back into watch wallet.
+7. Extract the raw transaction.
+8. Broadcast through the user's own node.
+
+This project must never request, store, or transmit seed phrases or private keys. The server must not store raw xpub, ypub, or zpub values.
 
 ## Supported Networks
 
@@ -123,7 +143,7 @@ DEFAULT_UNIT=BTC
 - Phase 5: transaction history
 - Phase 6: calm Sparrow-inspired dark dashboard UI
 - Phase 7: settings and localStorage export/import
-- Phase 8: PSBT-oriented advanced features without private key handling
+- Phase 8: PSBT-oriented sending and broadcast workflow without private key handling
 
 ## Contributing
 
