@@ -332,6 +332,29 @@ code {
   margin: 0;
 }
 
+.balance-summary {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #2f343a;
+  border-radius: 8px;
+  background: #111419;
+  padding: 18px;
+}
+
+.balance-summary h2 {
+  margin-bottom: 0;
+}
+
+.balance-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.balance-grid > div {
+  border-top: 1px solid #2f343a;
+  padding-top: 10px;
+}
+
 .tab-row {
   display: flex;
   flex-wrap: wrap;
@@ -455,6 +478,7 @@ dd {
   .vault-status,
   .form-grid,
   .wallet-details,
+  .balance-grid,
   .address-row {
     grid-template-columns: 1fr;
   }

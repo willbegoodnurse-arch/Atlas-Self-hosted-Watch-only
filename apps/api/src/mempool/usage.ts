@@ -16,6 +16,24 @@ export type AddressUsageLookup = {
   mempoolTxCount: number | null;
 };
 
+export type AddressStatsLookup = AddressUsageLookup & {
+  confirmedBalance: number | null;
+  unconfirmedBalance: number | null;
+  totalBalance: number | null;
+};
+
+export type AddressBalanceRecord = AddressUsageRecord & {
+  confirmedBalance: number | null;
+  unconfirmedBalance: number | null;
+  totalBalance: number | null;
+};
+
+export type BalanceSummary = {
+  confirmedBalance: number;
+  unconfirmedBalance: number;
+  totalBalance: number;
+};
+
 export type NextUnusedReceiveResult = {
   nextUnusedReceiveAddress: AddressUsageRecord | null;
   checkedCount: number;
@@ -29,7 +47,7 @@ type FetchAddressStats = (address: string) => Promise<unknown>;
 
 type CacheEntry = {
   expiresAt: number;
-  value: AddressUsageLookup;
+  value: AddressStatsLookup;
 };
 
 const usageCache = new Map<string, CacheEntry>();
@@ -73,6 +91,41 @@ export async function lookupAddressUsageRecords(
 
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
   return { addresses: records, lookupFailed };
+}
+
+export async function lookupAddressBalanceRecords(
+  addresses: DerivedAddress[],
+  options: {
+    fetchAddressStats?: FetchAddressStats;
+    concurrency?: number;
+  } = {}
+): Promise<{ addresses: AddressBalanceRecord[]; lookupFailed: boolean; balance: BalanceSummary }> {
+  const records: AddressBalanceRecord[] = new Array(addresses.length);
+  let lookupFailed = false;
+  let cursor = 0;
+  const workerCount = Math.min(Math.max(options.concurrency ?? 4, 1), addresses.length || 1);
+
+  async function worker() {
+    while (cursor < addresses.length) {
+      const currentIndex = cursor;
+      cursor += 1;
+      const address = addresses[currentIndex];
+      const stats = await lookupAddressStats(address.address, {
+        fetchAddressStats: options.fetchAddressStats
+      });
+      if (stats.usage === "unknown" || stats.totalBalance === null) {
+        lookupFailed = true;
+      }
+      records[currentIndex] = withBalance(address, stats);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return {
+    addresses: records,
+    lookupFailed,
+    balance: aggregateBalance(records)
+  };
 }
 
 export async function discoverNextUnusedReceiveAddress(
@@ -129,21 +182,28 @@ export async function discoverNextUnusedReceiveAddress(
   };
 }
 
-export function classifyMempoolAddressStats(value: unknown): AddressUsageLookup {
+export function classifyMempoolAddressStats(value: unknown): AddressStatsLookup {
   if (!isRecord(value)) {
-    return unknownUsage();
+    return unknownStats();
   }
 
   const chainStats = value.chain_stats;
   const mempoolStats = value.mempool_stats;
   if (!isRecord(chainStats) || !isRecord(mempoolStats)) {
-    return unknownUsage();
+    return unknownStats();
   }
 
   const confirmedTxCount = readNonNegativeInteger(chainStats.tx_count);
   const mempoolTxCount = readNonNegativeInteger(mempoolStats.tx_count);
-  if (confirmedTxCount === null || mempoolTxCount === null) {
-    return unknownUsage();
+  const confirmedBalance = calculateBalance(chainStats);
+  const unconfirmedBalance = calculateBalance(mempoolStats);
+  if (
+    confirmedTxCount === null ||
+    mempoolTxCount === null ||
+    confirmedBalance === null ||
+    unconfirmedBalance === null
+  ) {
+    return unknownStats();
   }
 
   const txCount = confirmedTxCount + mempoolTxCount;
@@ -151,7 +211,30 @@ export function classifyMempoolAddressStats(value: unknown): AddressUsageLookup 
     usage: txCount > 0 ? "used" : "unused",
     txCount,
     confirmedTxCount,
-    mempoolTxCount
+    mempoolTxCount,
+    confirmedBalance,
+    unconfirmedBalance,
+    totalBalance: confirmedBalance + unconfirmedBalance
+  };
+}
+
+export function aggregateBalance(addresses: Array<{
+  confirmedBalance: number | null;
+  unconfirmedBalance: number | null;
+}>): BalanceSummary {
+  const confirmedBalance = addresses.reduce(
+    (sum, address) => sum + (address.confirmedBalance ?? 0),
+    0
+  );
+  const unconfirmedBalance = addresses.reduce(
+    (sum, address) => sum + (address.unconfirmedBalance ?? 0),
+    0
+  );
+
+  return {
+    confirmedBalance,
+    unconfirmedBalance,
+    totalBalance: confirmedBalance + unconfirmedBalance
   };
 }
 
@@ -198,13 +281,22 @@ export async function lookupAddressUsage(
     fetchAddressStats?: FetchAddressStats;
   } = {}
 ): Promise<AddressUsageLookup> {
+  return lookupAddressStats(address, options);
+}
+
+export async function lookupAddressStats(
+  address: string,
+  options: {
+    fetchAddressStats?: FetchAddressStats;
+  } = {}
+): Promise<AddressStatsLookup> {
   let safeRequestUrl: string | null = null;
   try {
     if (options.fetchAddressStats) {
       try {
         return classifyMempoolAddressStats(await options.fetchAddressStats(address));
       } catch {
-        return unknownUsage();
+        return unknownStats();
       }
     }
 
@@ -237,7 +329,7 @@ export async function lookupAddressUsage(
         httpStatus: response.status,
         usage: "unknown"
       });
-      return unknownUsage();
+      return unknownStats();
     }
 
     const lookup = classifyMempoolAddressStats(await response.json());
@@ -261,7 +353,7 @@ export async function lookupAddressUsage(
       error: error instanceof Error ? error.message : String(error),
       usage: "unknown"
     });
-    return unknownUsage();
+    return unknownStats();
   }
 }
 
@@ -275,13 +367,31 @@ function withUsage(address: DerivedAddress, usage: AddressUsageLookup): AddressU
   };
 }
 
-function unknownUsage(): AddressUsageLookup {
+function withBalance(address: DerivedAddress, stats: AddressStatsLookup): AddressBalanceRecord {
+  return {
+    ...withUsage(address, stats),
+    confirmedBalance: stats.confirmedBalance,
+    unconfirmedBalance: stats.unconfirmedBalance,
+    totalBalance: stats.totalBalance
+  };
+}
+
+function unknownStats(): AddressStatsLookup {
   return {
     usage: "unknown",
     txCount: null,
     confirmedTxCount: null,
-    mempoolTxCount: null
+    mempoolTxCount: null,
+    confirmedBalance: null,
+    unconfirmedBalance: null,
+    totalBalance: null
   };
+}
+
+function calculateBalance(stats: Record<string, unknown>): number | null {
+  const funded = readNonNegativeInteger(stats.funded_txo_sum);
+  const spent = readNonNegativeInteger(stats.spent_txo_sum);
+  return funded === null || spent === null ? null : funded - spent;
 }
 
 function sanitizeBaseUrl(value: string): string {

@@ -7,6 +7,7 @@ import path from "node:path";
 import { authConfig } from "../auth/config.js";
 import {
   discoverNextUnusedReceiveAddress,
+  lookupAddressBalanceRecords,
   lookupAddressUsageRecords
 } from "../mempool/usage.js";
 import {
@@ -220,6 +221,33 @@ export async function deriveWalletNextReceiveAddress(id: string) {
   };
 }
 
+export async function deriveWalletBalance(
+  id: string,
+  input: {
+    chain: AddressChain | "both";
+    limit: number;
+  }
+) {
+  const { wallet, result } = deriveWalletAddresses(id, input);
+  const balance = await lookupAddressBalanceRecords(result.addresses);
+  const receiveBalance = balance.addresses.filter((address) => address.chain === "receive");
+  const changeBalance = balance.addresses.filter((address) => address.chain === "change");
+
+  return {
+    wallet,
+    result: {
+      network: result.network,
+      scriptType: result.scriptType,
+      usageStatus: balance.lookupFailed ? "partial" : "ready",
+      lookupFailed: balance.lookupFailed,
+      balance: balance.balance,
+      receiveBalance: sumAddressBalances(receiveBalance),
+      changeBalance: sumAddressBalances(changeBalance),
+      addresses: balance.addresses
+    }
+  };
+}
+
 export function detectExtendedPublicKeyType(value: string): ExtendedPublicKeyType {
   if (value.startsWith("xpub")) {
     return "xpub";
@@ -341,6 +369,28 @@ function isFileNotFoundError(error: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sumAddressBalances(
+  addresses: Array<{
+    confirmedBalance: number | null;
+    unconfirmedBalance: number | null;
+  }>
+) {
+  const confirmedBalance = addresses.reduce(
+    (sum, address) => sum + (address.confirmedBalance ?? 0),
+    0
+  );
+  const unconfirmedBalance = addresses.reduce(
+    (sum, address) => sum + (address.unconfirmedBalance ?? 0),
+    0
+  );
+
+  return {
+    confirmedBalance,
+    unconfirmedBalance,
+    totalBalance: confirmedBalance + unconfirmedBalance
+  };
 }
 
 export class VaultAlreadyInitializedError extends Error {}

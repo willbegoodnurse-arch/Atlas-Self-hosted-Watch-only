@@ -34,7 +34,7 @@ await server.register(rateLimit, {
 server.get("/api/status", async () => ({
   app: appName,
   status: "ok",
-  mode: "phase-4",
+  mode: "phase-5",
   watchOnly: true,
   walletFeaturesEnabled: true,
   storagePolicy: {

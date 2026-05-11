@@ -11,6 +11,7 @@ import {
   deleteWallet,
   deriveWalletAddresses,
   deriveWalletAddressUsage,
+  deriveWalletBalance,
   deriveWalletNextReceiveAddress,
   getVaultStatus,
   initVault,
@@ -235,6 +236,66 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
             lookupFailed: result.lookupFailed
           },
           lookupError: result.lookupFailed ? "usage lookup failed" : null
+        });
+      } catch (error) {
+        return handleVaultError(error, reply);
+      }
+    }
+  );
+
+  server.get<{ Querystring: WalletAddressesQuery; Params: { id: string } }>(
+    "/api/wallets/:id/balance",
+    async (request, reply) => {
+      if (!ensureAuthenticated(request, reply)) {
+        return;
+      }
+
+      const validation = validateAddressesQuery(request.query);
+      if (!validation.ok) {
+        return reply.code(400).send({ error: validation.error });
+      }
+
+      try {
+        const { wallet, result } = await deriveWalletBalance(
+          request.params.id,
+          validation.value
+        );
+        const nextReceive =
+          validation.value.chain === "receive" || validation.value.chain === "both"
+            ? await deriveWalletNextReceiveAddress(request.params.id)
+            : null;
+
+        return reply.send({
+          walletId: wallet.id,
+          network: result.network,
+          scriptType: result.scriptType,
+          usageStatus: result.usageStatus,
+          unit: "sats",
+          confirmedBalance: result.balance.confirmedBalance,
+          unconfirmedBalance: result.balance.unconfirmedBalance,
+          totalBalance: result.balance.totalBalance,
+          receiveBalance: result.receiveBalance,
+          changeBalance: result.changeBalance,
+          addresses: result.addresses,
+          nextUnusedReceiveAddress:
+            nextReceive?.result.nextUnusedReceiveAddress ?? null,
+          discovery: nextReceive
+            ? {
+                checkedCount: nextReceive.result.checkedCount,
+                gapLimit: nextReceive.result.gapLimit,
+                maxDiscoveryLimit: nextReceive.result.maxDiscoveryLimit,
+                complete: nextReceive.result.discoveryComplete
+              }
+            : null,
+          mempool: {
+            ...getMempoolApiConfig(),
+            lookupFailed:
+              result.lookupFailed || Boolean(nextReceive?.result.lookupFailed)
+          },
+          lookupError:
+            result.lookupFailed || nextReceive?.result.lookupFailed
+              ? "balance lookup failed"
+              : null
         });
       } catch (error) {
         return handleVaultError(error, reply);

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  aggregateBalance,
   classifyMempoolAddressStats,
   discoverNextUnusedReceiveAddress,
+  lookupAddressBalanceRecords,
   lookupAddressUsageRecords,
   selectNextUnusedReceiveAddress,
   shouldStopGapDiscovery
@@ -25,15 +27,15 @@ function address(index: number, usage: AddressUsageRecord["usage"] = "unknown"):
 test("classifies mempool stats with any confirmed or mempool tx as used", () => {
   assert.equal(
     classifyMempoolAddressStats({
-      chain_stats: { tx_count: 2 },
-      mempool_stats: { tx_count: 0 }
+      chain_stats: { tx_count: 2, funded_txo_sum: 1, spent_txo_sum: 0 },
+      mempool_stats: { tx_count: 0, funded_txo_sum: 0, spent_txo_sum: 0 }
     }).usage,
     "used"
   );
   assert.equal(
     classifyMempoolAddressStats({
-      chain_stats: { tx_count: 0 },
-      mempool_stats: { tx_count: 1 }
+      chain_stats: { tx_count: 0, funded_txo_sum: 0, spent_txo_sum: 0 },
+      mempool_stats: { tx_count: 1, funded_txo_sum: 1, spent_txo_sum: 0 }
     }).usage,
     "used"
   );
@@ -41,12 +43,51 @@ test("classifies mempool stats with any confirmed or mempool tx as used", () => 
 
 test("classifies zero tx counts as unused", () => {
   const result = classifyMempoolAddressStats({
-    chain_stats: { tx_count: 0 },
-    mempool_stats: { tx_count: 0 }
+    chain_stats: { tx_count: 0, funded_txo_sum: 0, spent_txo_sum: 0 },
+    mempool_stats: { tx_count: 0, funded_txo_sum: 0, spent_txo_sum: 0 }
   });
 
   assert.equal(result.usage, "unused");
   assert.equal(result.txCount, 0);
+});
+
+test("calculates confirmed and unconfirmed address balances from mempool stats", () => {
+  const result = classifyMempoolAddressStats({
+    chain_stats: {
+      tx_count: 2,
+      funded_txo_sum: 150_000,
+      spent_txo_sum: 50_000
+    },
+    mempool_stats: {
+      tx_count: 1,
+      funded_txo_sum: 20_000,
+      spent_txo_sum: 5_000
+    }
+  });
+
+  assert.equal(result.confirmedBalance, 100_000);
+  assert.equal(result.unconfirmedBalance, 15_000);
+  assert.equal(result.totalBalance, 115_000);
+});
+
+test("treats an empty address as zero balance", () => {
+  const result = classifyMempoolAddressStats({
+    chain_stats: {
+      tx_count: 0,
+      funded_txo_sum: 0,
+      spent_txo_sum: 0
+    },
+    mempool_stats: {
+      tx_count: 0,
+      funded_txo_sum: 0,
+      spent_txo_sum: 0
+    }
+  });
+
+  assert.equal(result.usage, "unused");
+  assert.equal(result.confirmedBalance, 0);
+  assert.equal(result.unconfirmedBalance, 0);
+  assert.equal(result.totalBalance, 0);
 });
 
 test("classifies malformed API payloads as unknown", () => {
@@ -74,6 +115,83 @@ test("marks individual address lookup failures as unknown without throwing", asy
 
   assert.equal(result.lookupFailed, true);
   assert.equal(result.addresses[0]?.usage, "unknown");
+});
+
+test("aggregates address balances into wallet totals", async () => {
+  const result = await lookupAddressBalanceRecords(
+    [
+      {
+        chain: "receive",
+        index: 0,
+        path: "m/84'/0'/0'/0/0",
+        address: "bc1qbalance0",
+        usage: "unknown"
+      },
+      {
+        chain: "change",
+        index: 0,
+        path: "m/84'/0'/0'/1/0",
+        address: "bc1qbalance1",
+        usage: "unknown"
+      }
+    ],
+    {
+      fetchAddressStats: async (candidate) => ({
+        chain_stats: {
+          tx_count: 1,
+          funded_txo_sum: candidate.endsWith("0") ? 40_000 : 7_000,
+          spent_txo_sum: candidate.endsWith("0") ? 10_000 : 2_000
+        },
+        mempool_stats: {
+          tx_count: 0,
+          funded_txo_sum: candidate.endsWith("0") ? 3_000 : 0,
+          spent_txo_sum: 0
+        }
+      })
+    }
+  );
+
+  assert.equal(result.lookupFailed, false);
+  assert.deepEqual(result.balance, {
+    confirmedBalance: 35_000,
+    unconfirmedBalance: 3_000,
+    totalBalance: 38_000
+  });
+});
+
+test("keeps failed balance lookups graceful and excludes unknown balances from totals", async () => {
+  const result = await lookupAddressBalanceRecords(
+    [
+      {
+        chain: "receive",
+        index: 0,
+        path: "m/84'/0'/0'/0/0",
+        address: "bc1qbalancefailure",
+        usage: "unknown"
+      }
+    ],
+    {
+      fetchAddressStats: async () => {
+        throw new Error("mempool unavailable");
+      }
+    }
+  );
+
+  assert.equal(result.lookupFailed, true);
+  assert.equal(result.addresses[0]?.usage, "unknown");
+  assert.deepEqual(result.balance, {
+    confirmedBalance: 0,
+    unconfirmedBalance: 0,
+    totalBalance: 0
+  });
+});
+
+test("aggregates an empty wallet balance to zero", () => {
+  assert.deepEqual(aggregateBalance([]), {
+    confirmedBalance: 0,
+    unconfirmedBalance: 0,
+    totalBalance: 0
+  });
 });
 
 test("selects the address after the highest used receive index", () => {
@@ -121,8 +239,16 @@ test("discovers next unused receive address and stops after the configured gap",
     fetchAddressStats: async (candidate) => {
       const used = candidate.endsWith("0") || candidate.endsWith("2");
       return {
-        chain_stats: { tx_count: used ? 1 : 0 },
-        mempool_stats: { tx_count: 0 }
+        chain_stats: {
+          tx_count: used ? 1 : 0,
+          funded_txo_sum: used ? 1 : 0,
+          spent_txo_sum: 0
+        },
+        mempool_stats: {
+          tx_count: 0,
+          funded_txo_sum: 0,
+          spent_txo_sum: 0
+        }
       };
     }
   });

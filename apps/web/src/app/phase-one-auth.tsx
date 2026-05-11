@@ -47,13 +47,28 @@ type DerivedAddress = {
   txCount?: number | null;
   confirmedTxCount?: number | null;
   mempoolTxCount?: number | null;
+  confirmedBalance?: number | null;
+  unconfirmedBalance?: number | null;
+  totalBalance?: number | null;
 };
 
-type WalletAddressesResponse = {
+type BalanceSummary = {
+  confirmedBalance: number;
+  unconfirmedBalance: number;
+  totalBalance: number;
+};
+
+type WalletBalanceResponse = {
   walletId: string;
   network: WalletRecord["network"];
   scriptType: WalletRecord["scriptType"];
   usageStatus: "unknown" | "partial" | "ready";
+  unit: "sats";
+  confirmedBalance: number;
+  unconfirmedBalance: number;
+  totalBalance: number;
+  receiveBalance?: BalanceSummary;
+  changeBalance?: BalanceSummary;
   addresses: DerivedAddress[];
   nextUnusedReceiveAddress?: DerivedAddress | null;
   lookupError?: string | null;
@@ -1161,6 +1176,10 @@ function WalletAddressPanel({
   const [usageTab, setUsageTab] = useState<"all" | "used" | "unused" | "unknown">("all");
   const [addresses, setAddresses] = useState<DerivedAddress[]>([]);
   const [nextReceiveAddress, setNextReceiveAddress] = useState<DerivedAddress | null>(null);
+  const [balance, setBalance] = useState<BalanceSummary | null>(null);
+  const [receiveBalance, setReceiveBalance] = useState<BalanceSummary | null>(null);
+  const [changeBalance, setChangeBalance] = useState<BalanceSummary | null>(null);
+  const [balanceUnit, setBalanceUnit] = useState<"sats" | "btc">("sats");
   const [usageLookupNote, setUsageLookupNote] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1198,17 +1217,27 @@ function WalletAddressPanel({
     setMessage("");
 
     try {
-      const response = await apiRequest<WalletAddressesResponse>(
+      const response = await apiRequest<WalletBalanceResponse>(
         apiUrl,
-        `/api/wallets/${wallet.id}/address-usage?chain=${chain}&limit=${wallet.gapLimit}`
+        `/api/wallets/${wallet.id}/balance?chain=${chain}&limit=${wallet.gapLimit}`
       );
       setAddresses(response.addresses);
       setNextReceiveAddress(response.nextUnusedReceiveAddress ?? null);
+      setBalance({
+        confirmedBalance: response.confirmedBalance,
+        unconfirmedBalance: response.unconfirmedBalance,
+        totalBalance: response.totalBalance
+      });
+      setReceiveBalance(response.receiveBalance ?? null);
+      setChangeBalance(response.changeBalance ?? null);
       setUsageLookupNote(response.lookupError ?? "");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to look up address usage");
+      setMessage(error instanceof Error ? error.message : "Unable to look up wallet balance");
       setAddresses([]);
       setNextReceiveAddress(null);
+      setBalance(null);
+      setReceiveBalance(null);
+      setChangeBalance(null);
       setUsageLookupNote("");
     } finally {
       setLoading(false);
@@ -1243,6 +1272,49 @@ function WalletAddressPanel({
 
       {message ? <p className="status-message">{message}</p> : null}
       {usageLookupNote ? <p className="status-message">{usageLookupNote}; unknown addresses are still shown.</p> : null}
+
+      <div className="balance-summary">
+        <div className="wallet-card-header">
+          <div>
+            <p className="eyebrow">Balance</p>
+            <h2>{formatBalance(balance?.totalBalance ?? 0, balanceUnit)}</h2>
+          </div>
+          <div className="tab-row">
+            <button
+              className={balanceUnit === "sats" ? "compact-button" : "secondary-button compact-button"}
+              type="button"
+              onClick={() => setBalanceUnit("sats")}
+            >
+              sats
+            </button>
+            <button
+              className={balanceUnit === "btc" ? "compact-button" : "secondary-button compact-button"}
+              type="button"
+              onClick={() => setBalanceUnit("btc")}
+            >
+              BTC
+            </button>
+          </div>
+        </div>
+        <dl className="balance-grid">
+          <div>
+            <dt>Confirmed</dt>
+            <dd>{formatBalance(balance?.confirmedBalance ?? 0, balanceUnit)}</dd>
+          </div>
+          <div>
+            <dt>Unconfirmed</dt>
+            <dd>{formatBalance(balance?.unconfirmedBalance ?? 0, balanceUnit)}</dd>
+          </div>
+          <div>
+            <dt>Receive</dt>
+            <dd>{formatBalance(receiveBalance?.totalBalance ?? 0, balanceUnit)}</dd>
+          </div>
+          <div>
+            <dt>Change</dt>
+            <dd>{formatBalance(changeBalance?.totalBalance ?? 0, balanceUnit)}</dd>
+          </div>
+        </dl>
+      </div>
 
       <div className="next-address-placeholder">
         <dt>Next unused receive address</dt>
@@ -1334,13 +1406,14 @@ function WalletAddressPanel({
         </button>
       </div>
 
-      {loading ? <p className="muted">Looking up address usage...</p> : null}
+      {loading ? <p className="muted">Looking up wallet balance...</p> : null}
       {!loading && visibleAddresses.length === 0 ? (
         <p className="muted">{emptyUsageMessage}</p>
       ) : null}
       {receiveAddresses.length ? (
         <AddressTable
           addresses={receiveAddresses}
+          balanceUnit={balanceUnit}
           title="Receive addresses"
           onShowQr={setQrAddress}
         />
@@ -1348,6 +1421,7 @@ function WalletAddressPanel({
       {changeAddresses.length ? (
         <AddressTable
           addresses={changeAddresses}
+          balanceUnit={balanceUnit}
           title="Change addresses"
           onShowQr={setQrAddress}
         />
@@ -1373,10 +1447,12 @@ function WalletAddressPanel({
 
 function AddressTable({
   addresses,
+  balanceUnit,
   title,
   onShowQr
 }: {
   addresses: DerivedAddress[];
+  balanceUnit: "sats" | "btc";
   title: string;
   onShowQr: (address: string) => void;
 }) {
@@ -1397,6 +1473,9 @@ function AddressTable({
               <span className={`usage-pill usage-${address.usage}`}>{address.usage}</span>
               <span className="muted">
                 txCount: {address.txCount === null || address.txCount === undefined ? "unknown" : address.txCount}
+              </span>
+              <span className="muted">
+                balance: {formatNullableBalance(address.totalBalance, balanceUnit)}
               </span>
             </div>
             <div className="button-row">
@@ -1428,22 +1507,34 @@ function getEmptyUsageMessage({
   unknownAddressCount: number;
 }): string {
   if (usageTab === "unused" && usageLookupFailed) {
-    return "********";
+    return "Usage lookup failed; addresses are unknown and are not counted as unused.";
   }
 
   if (usageTab === "unused" && unknownAddressCount > 0) {
-    return "********";
+    return "No confirmed unused addresses to show. Unknown addresses are listed separately.";
   }
 
   if (usageTab === "unknown") {
-    return "********";
+    return "No unknown addresses to show.";
   }
 
   if (usageTab === "used") {
-    return "********";
+    return "No used addresses to show for this filter.";
   }
 
   return "No addresses to show for this filter.";
+}
+
+function formatNullableBalance(value: number | null | undefined, unit: "sats" | "btc"): string {
+  return value === null || value === undefined ? "unknown" : formatBalance(value, unit);
+}
+
+function formatBalance(sats: number, unit: "sats" | "btc"): string {
+  if (unit === "btc") {
+    return `${(sats / 100_000_000).toFixed(8)} BTC`;
+  }
+
+  return `${new Intl.NumberFormat("en-US").format(sats)} sats`;
 }
 
 function extractExtendedPublicKey(value: string): string | null {

@@ -2,7 +2,7 @@
 
 A calm, self-hosted, watch-only Bitcoin web wallet dashboard for your own node.
 
-watch wallet is designed to run on a Raspberry Pi with Docker, alongside services such as Bitcoin Core, Fulcrum, or Mempool. Phase 4 implements administrator authentication, encrypted watch-only wallet registration, address derivation, QR display, and Mempool-based address usage lookup. Balance lookup, transaction lookup, PSBT generation, and broadcast features are not implemented yet.
+watch wallet is designed to run on a Raspberry Pi with Docker, alongside services such as Bitcoin Core, Fulcrum, or Mempool. Phase 5 implements administrator authentication, encrypted watch-only wallet registration, address derivation, QR display, Mempool-based address usage lookup, and wallet balance summaries. Transaction lookup, PSBT generation, and broadcast features are not implemented yet.
 
 ## Features
 
@@ -17,6 +17,7 @@ watch wallet is designed to run on a Raspberry Pi with Docker, alongside service
 - Phase 2 encrypted wallet vault with xpub, ypub, and zpub registration
 - Phase 3 receive/change address derivation with address QR display
 - Phase 4 Mempool API address usage lookup and next unused receive address discovery
+- Phase 5 confirmed and unconfirmed balance summaries in sats or BTC
 
 ## Screenshots
 
@@ -85,7 +86,7 @@ Wallet registration stores watch-only xpub, ypub, and zpub values in encrypted s
 
 Never enter a seed phrase or private key into watch wallet.
 
-Wallet registration is part of Phase 2. Phase 3 derives receive/change addresses in memory on request. Phase 4 checks those watch-only public addresses against the configured Mempool API to classify usage and find the next unused receive address. Derived address lists and usage results are not written to disk.
+Wallet registration is part of Phase 2. Phase 3 derives receive/change addresses in memory on request. Phase 4 checks those watch-only public addresses against the configured Mempool API to classify usage and find the next unused receive address. Phase 5 calculates confirmed and unconfirmed balances from Mempool address stats. Derived address lists, usage results, and balance results are not written to disk.
 
 ## Future PSBT Flow
 
@@ -146,7 +147,7 @@ DEFAULT_UNIT=BTC
 - Phase 2: encrypted server-side xpub, ypub, zpub wallet registration
 - Phase 3: watch-only address derivation
 - Phase 4: Mempool API address usage lookup and next unused receive address
-- Phase 5: balance lookup and transaction history preparation
+- Phase 5: Mempool API balance lookup with confirmed/unconfirmed wallet summary
 - Phase 6: calm Sparrow-inspired dark dashboard UI
 - Phase 7: settings and encrypted wallet backup/import
 - Phase 8: PSBT-oriented sending and broadcast workflow without private key handling
