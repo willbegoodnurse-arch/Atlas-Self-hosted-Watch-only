@@ -1,14 +1,43 @@
-export type ExtendedPublicKeyType = "xpub" | "ypub" | "zpub";
+export type ExtendedPublicKeyType = "xpub" | "ypub" | "zpub" | "tpub" | "upub" | "vpub";
 export type BitcoinNetwork = "mainnet" | "testnet" | "signet";
-export type ScriptType = "p2pkh" | "p2sh-p2wpkh" | "p2wpkh";
+export type ScriptType = "legacy" | "nested-segwit" | "native-segwit" | "taproot" | "unknown";
+export type SourceDevice =
+  | "coldcard"
+  | "keystone"
+  | "seedsigner"
+  | "krux"
+  | "passport-core"
+  | "ledger"
+  | "trezor"
+  | "jade"
+  | "sparrow"
+  | "specter"
+  | "other"
+  | "unknown";
+export type ImportFormat =
+  | "plain-xpub"
+  | "slip132"
+  | "descriptor"
+  | "key-expression"
+  | "coldcard-json"
+  | "crypto-account-ur"
+  | "ur-xpub"
+  | "passport-setup-qr"
+  | "unknown";
 
 export type WalletRecord = {
   id: string;
   name: string;
   extendedPublicKey: string;
   type: ExtendedPublicKeyType;
+  sourceDevice: SourceDevice;
   network: BitcoinNetwork;
   scriptType: ScriptType;
+  accountPath: string | null;
+  masterFingerprint: string | null;
+  importFormat: ImportFormat;
+  rawImport: string | null;
+  notes: string | null;
   derivationPath: string;
   gapLimit: number;
   createdAt: string;

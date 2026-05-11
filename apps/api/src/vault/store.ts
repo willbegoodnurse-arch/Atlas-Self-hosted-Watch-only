@@ -11,6 +11,12 @@ import {
   lookupAddressUsageRecords
 } from "../mempool/usage.js";
 import {
+  accountPathFor,
+  defaultScriptTypeForExistingKey,
+  detectExtendedPublicKeyType,
+  parseWalletImport
+} from "./import-parser.js";
+import {
   createVaultEnvelope,
   encryptVaultWithKey,
   unlockVaultEnvelope
@@ -18,7 +24,9 @@ import {
 import type {
   BitcoinNetwork,
   ExtendedPublicKeyType,
+  ImportFormat,
   ScriptType,
+  SourceDevice,
   VaultEnvelope,
   VaultPlaintext,
   WalletRecord
@@ -63,6 +71,7 @@ export async function initVault(vaultPassword: string): Promise<void> {
 export async function unlockVault(vaultPassword: string): Promise<void> {
   const envelope = await readVaultEnvelope();
   const { plaintext, key } = await unlockVaultEnvelope(vaultPassword, envelope);
+  plaintext.wallets = plaintext.wallets.map(normalizeWalletRecord);
   unlockedVault?.key.fill(0);
   unlockedVault = {
     key,
@@ -82,21 +91,40 @@ export function listWallets(): WalletRecord[] {
 
 export async function addWallet(input: {
   name: string;
-  extendedPublicKey: string;
+  importText: string;
   network: BitcoinNetwork;
+  sourceDevice?: SourceDevice;
+  scriptType?: ScriptType;
+  notes?: string | null;
   gapLimit: number;
 }): Promise<WalletRecord> {
   const vault = requireUnlockedVault();
-  const type = detectExtendedPublicKeyType(input.extendedPublicKey);
+  const parsed = parseWalletImport({
+    importText: input.importText,
+    sourceDevice: input.sourceDevice,
+    network: input.network,
+    scriptType: input.scriptType,
+    notes: input.notes
+  });
+  if (!parsed.extendedPublicKey || !parsed.type) {
+    throw new InvalidWalletInputError(parsed.unsupportedReason ?? "Import did not contain a supported extended public key");
+  }
+
   const now = new Date().toISOString();
   const wallet: WalletRecord = {
     id: `wallet_${crypto.randomUUID()}`,
     name: input.name,
-    extendedPublicKey: input.extendedPublicKey,
-    type,
-    network: input.network,
-    scriptType: scriptTypeForKeyType(type),
-    derivationPath: derivationPathFor(type, input.network),
+    extendedPublicKey: parsed.extendedPublicKey,
+    type: parsed.type,
+    sourceDevice: parsed.sourceDevice,
+    network: parsed.network,
+    scriptType: parsed.scriptType,
+    accountPath: parsed.accountPath,
+    masterFingerprint: parsed.masterFingerprint,
+    importFormat: parsed.importFormat,
+    rawImport: parsed.rawImport,
+    notes: parsed.notes,
+    derivationPath: parsed.accountPath ?? derivationPathFor(parsed.type, parsed.network, parsed.scriptType),
     gapLimit: input.gapLimit,
     createdAt: now,
     updatedAt: now
@@ -162,6 +190,8 @@ export function deriveWalletAddresses(
     result: deriveAddresses({
       extendedPublicKey: wallet.extendedPublicKey,
       type: wallet.type,
+      scriptType: derivableScriptType(wallet),
+      accountPath: wallet.accountPath ?? wallet.derivationPath,
       network: wallet.network,
       chain: input.chain,
       limit: input.limit
@@ -201,6 +231,8 @@ export async function deriveWalletNextReceiveAddress(id: string) {
   const result = deriveAddresses({
     extendedPublicKey: wallet.extendedPublicKey,
     type: wallet.type,
+    scriptType: derivableScriptType(wallet),
+    accountPath: wallet.accountPath ?? wallet.derivationPath,
     network: wallet.network,
     chain: "receive",
     limit: maxDiscoveryLimit
@@ -248,37 +280,94 @@ export async function deriveWalletBalance(
   };
 }
 
-export function detectExtendedPublicKeyType(value: string): ExtendedPublicKeyType {
-  if (value.startsWith("xpub")) {
-    return "xpub";
-  }
-  if (value.startsWith("ypub")) {
-    return "ypub";
-  }
-  if (value.startsWith("zpub")) {
-    return "zpub";
-  }
-
-  throw new InvalidWalletInputError("Extended public key must start with xpub, ypub, or zpub");
-}
-
 export function derivationPathFor(
   type: ExtendedPublicKeyType,
-  network: BitcoinNetwork
+  network: BitcoinNetwork,
+  scriptType: ScriptType = defaultScriptTypeForExistingKey(type)
 ): string {
-  const coinType = network === "mainnet" ? "0" : "1";
-  const purpose = type === "xpub" ? "44" : type === "ypub" ? "49" : "84";
-  return `m/${purpose}'/${coinType}'/0'`;
+  return accountPathFor(scriptType, network) ?? accountPathFor(defaultScriptTypeForExistingKey(type), network) ?? "m/84'/0'/0'";
 }
 
 export function scriptTypeForKeyType(type: ExtendedPublicKeyType): ScriptType {
-  if (type === "xpub") {
-    return "p2pkh";
+  return defaultScriptTypeForExistingKey(type);
+}
+
+export function normalizeWalletRecord(value: WalletRecord): WalletRecord {
+  const legacyScriptType = normalizeLegacyScriptType(value.scriptType);
+  const type = value.type ?? detectExtendedPublicKeyType(value.extendedPublicKey);
+  const network = value.network ?? "mainnet";
+  const scriptType = legacyScriptType ?? defaultScriptTypeForExistingKey(value.extendedPublicKey);
+  const accountPath = value.accountPath ?? value.derivationPath ?? accountPathFor(scriptType, network);
+
+  return {
+    ...value,
+    type,
+    sourceDevice: normalizeSourceDevice(value.sourceDevice),
+    network,
+    scriptType,
+    accountPath,
+    masterFingerprint: normalizeFingerprint(value.masterFingerprint),
+    importFormat: normalizeImportFormat(value.importFormat) ?? importFormatForExistingKey(type),
+    rawImport: typeof value.rawImport === "string" ? value.rawImport : null,
+    notes: typeof value.notes === "string" ? value.notes : null,
+    derivationPath: value.derivationPath ?? accountPath ?? derivationPathFor(type, network, scriptType),
+    gapLimit: value.gapLimit
+  };
+}
+
+function derivableScriptType(wallet: WalletRecord): "legacy" | "nested-segwit" | "native-segwit" {
+  if (
+    wallet.scriptType !== "legacy" &&
+    wallet.scriptType !== "nested-segwit" &&
+    wallet.scriptType !== "native-segwit"
+  ) {
+    throw new InvalidWalletInputError(
+      wallet.scriptType === "taproot"
+        ? "Taproot metadata is stored, but taproot address derivation is not supported yet"
+        : "Script type is unknown; edit the wallet import metadata before deriving addresses"
+    );
   }
-  if (type === "ypub") {
-    return "p2sh-p2wpkh";
+  return wallet.scriptType;
+}
+
+function normalizeLegacyScriptType(value: unknown): ScriptType | null {
+  if (value === "p2pkh" || value === "legacy") {
+    return "legacy";
   }
-  return "p2wpkh";
+  if (value === "p2sh-p2wpkh" || value === "nested-segwit") {
+    return "nested-segwit";
+  }
+  if (value === "p2wpkh" || value === "native-segwit") {
+    return "native-segwit";
+  }
+  if (value === "taproot" || value === "unknown") {
+    return value;
+  }
+  return null;
+}
+
+function normalizeSourceDevice(value: unknown): SourceDevice {
+  const devices: SourceDevice[] = [
+    "coldcard", "keystone", "seedsigner", "krux", "passport-core", "ledger",
+    "trezor", "jade", "sparrow", "specter", "other", "unknown"
+  ];
+  return devices.includes(value as SourceDevice) ? value as SourceDevice : "unknown";
+}
+
+function normalizeImportFormat(value: unknown): ImportFormat | null {
+  const formats: ImportFormat[] = [
+    "plain-xpub", "slip132", "descriptor", "key-expression", "coldcard-json",
+    "crypto-account-ur", "ur-xpub", "passport-setup-qr", "unknown"
+  ];
+  return formats.includes(value as ImportFormat) ? value as ImportFormat : null;
+}
+
+function normalizeFingerprint(value: unknown): string | null {
+  return typeof value === "string" && /^[0-9a-fA-F]{8}$/.test(value) ? value.toLowerCase() : null;
+}
+
+function importFormatForExistingKey(type: ExtendedPublicKeyType): ImportFormat {
+  return type === "xpub" || type === "tpub" ? "plain-xpub" : "slip132";
 }
 
 async function saveUnlockedVault(): Promise<void> {

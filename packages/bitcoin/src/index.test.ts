@@ -23,7 +23,7 @@ describe("deriveAddresses", () => {
       limit: 3
     });
 
-    assert.equal(result.scriptType, "p2wpkh");
+    assert.equal(result.scriptType, "native-segwit");
     assert.deepEqual(
       result.addresses.map((address) => address.address),
       [
@@ -42,7 +42,7 @@ describe("deriveAddresses", () => {
       limit: 1
     });
 
-    assert.equal(result.scriptType, "p2sh-p2wpkh");
+    assert.equal(result.scriptType, "nested-segwit");
     assert.equal(result.addresses[0]?.address, "3ESJPhmPgV6kpDXG173xsSqgY9hDYYwtZj");
   });
 
@@ -54,7 +54,7 @@ describe("deriveAddresses", () => {
       limit: 1
     });
 
-    assert.equal(result.scriptType, "p2pkh");
+    assert.equal(result.scriptType, "legacy");
     assert.equal(result.addresses[0]?.address, "12Etsmqp76ToVNfBZbfwMmhixqc19J7X8g");
   });
 
@@ -97,6 +97,22 @@ describe("deriveAddresses", () => {
       /Invalid extended public key/
     );
 
-    assert.throws(() => detectExtendedPublicKeyKind("not-a-watch-key"), /xpub, ypub, or zpub/);
+    assert.throws(() => detectExtendedPublicKeyKind("not-a-watch-key"), /xpub, ypub, zpub/);
+  });
+
+  it("allows xpub material to derive native SegWit when metadata confirms it", () => {
+    const result = deriveAddresses({
+      extendedPublicKey: testVectors.xpub,
+      type: "xpub",
+      scriptType: "native-segwit",
+      accountPath: "m/84'/0'/0'",
+      network: "mainnet",
+      chain: "receive",
+      limit: 1
+    });
+
+    assert.equal(result.scriptType, "native-segwit");
+    assert.match(result.addresses[0]?.address ?? "", /^bc1q/);
+    assert.equal(result.addresses[0]?.path, "m/84'/0'/0'/0/0");
   });
 });

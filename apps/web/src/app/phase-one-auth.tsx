@@ -29,14 +29,46 @@ type WalletRecord = {
   id: string;
   name: string;
   extendedPublicKey: string;
-  type: "xpub" | "ypub" | "zpub";
+  type: ExtendedPublicKeyType;
+  sourceDevice: SourceDevice;
   network: "mainnet" | "testnet" | "signet";
-  scriptType: "p2pkh" | "p2sh-p2wpkh" | "p2wpkh";
+  scriptType: WalletScriptType;
+  accountPath: string | null;
+  masterFingerprint: string | null;
+  importFormat: ImportFormat;
+  rawImport: string | null;
+  notes: string | null;
   derivationPath: string;
   gapLimit: number;
   createdAt: string;
   updatedAt: string;
 };
+
+type ExtendedPublicKeyType = "xpub" | "ypub" | "zpub" | "tpub" | "upub" | "vpub";
+type SourceDevice =
+  | "coldcard"
+  | "keystone"
+  | "seedsigner"
+  | "krux"
+  | "passport-core"
+  | "ledger"
+  | "trezor"
+  | "jade"
+  | "sparrow"
+  | "specter"
+  | "other"
+  | "unknown";
+type WalletScriptType = "legacy" | "nested-segwit" | "native-segwit" | "taproot" | "unknown";
+type ImportFormat =
+  | "plain-xpub"
+  | "slip132"
+  | "descriptor"
+  | "key-expression"
+  | "coldcard-json"
+  | "crypto-account-ur"
+  | "ur-xpub"
+  | "passport-setup-qr"
+  | "unknown";
 
 type DerivedAddress = {
   chain: "receive" | "change";
@@ -662,8 +694,11 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
 
   async function handleCreateWallet(input: {
     name: string;
-    extendedPublicKey: string;
+    importText: string;
     network: WalletRecord["network"];
+    sourceDevice: SourceDevice;
+    scriptType: WalletScriptType;
+    notes: string | null;
     gapLimit: number;
   }) {
     setBusy(true);
@@ -906,23 +941,36 @@ function WalletCreateForm({
   busy: boolean;
   onSubmit: (input: {
     name: string;
-    extendedPublicKey: string;
+    importText: string;
     network: WalletRecord["network"];
+    sourceDevice: SourceDevice;
+    scriptType: WalletScriptType;
+    notes: string | null;
     gapLimit: number;
   }) => void;
 }) {
   const [name, setName] = useState("");
-  const [extendedPublicKey, setExtendedPublicKey] = useState("");
+  const [importText, setImportText] = useState("");
+  const [sourceDevice, setSourceDevice] = useState<SourceDevice>("unknown");
   const [network, setNetwork] = useState<WalletRecord["network"]>("mainnet");
+  const [scriptType, setScriptType] = useState<WalletScriptType>("unknown");
+  const [notes, setNotes] = useState("");
+  const [importMethod, setImportMethod] = useState<"paste" | "file" | "qr">("paste");
   const [gapLimit, setGapLimit] = useState(20);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerMessage, setScannerMessage] = useState("");
   const scannerControls = useRef<IScannerControls | null>(null);
   const scannerVideo = useRef<HTMLVideoElement | null>(null);
-  const detected = useMemo(() => detectWalletMetadata(extendedPublicKey, network), [
-    extendedPublicKey,
-    network
+  const detected = useMemo(() => detectImportMetadata(importText, network, sourceDevice), [
+    importText,
+    network,
+    sourceDevice
   ]);
+  const effectiveScriptType = scriptType !== "unknown" ? scriptType : detected.scriptType;
+  const canSave =
+    Boolean(detected.extendedPublicKey) &&
+    !detected.privateInput &&
+    effectiveScriptType !== "unknown";
 
   useEffect(() => {
     return () => {
@@ -930,17 +978,40 @@ function WalletCreateForm({
     };
   }, []);
 
+  useEffect(() => {
+    if (detected.network && detected.network !== network) {
+      setNetwork(detected.network);
+    }
+    if (detected.scriptType !== "unknown") {
+      setScriptType(detected.scriptType);
+    }
+  }, [detected.network, detected.scriptType]);
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onSubmit({
       name,
-      extendedPublicKey,
+      importText,
       network,
+      sourceDevice,
+      scriptType: effectiveScriptType,
+      notes: notes.trim() || null,
       gapLimit
     });
     setName("");
-    setExtendedPublicKey("");
+    setImportText("");
+    setSourceDevice("unknown");
+    setScriptType("unknown");
+    setNotes("");
     setGapLimit(20);
+  }
+
+  async function handleFileImport(file: File | undefined) {
+    if (!file) {
+      return;
+    }
+    setImportText(await file.text());
+    setImportMethod("file");
   }
 
   async function startScanner() {
@@ -965,19 +1036,20 @@ function WalletCreateForm({
             return;
           }
 
-          const scannedKey = extractExtendedPublicKey(result.getText());
-          if (!scannedKey) {
-            setScannerMessage("QR did not contain a valid xpub, ypub, or zpub.");
+          const scannedValue = result.getText();
+          const scanPreview = detectImportMetadata(scannedValue, network, sourceDevice);
+          if (!scanPreview.extendedPublicKey && !scanPreview.importFormat.startsWith("ur")) {
+            setScannerMessage("QR did not contain a supported xpub, descriptor, key expression, JSON, or UR payload.");
             return;
           }
 
-          setExtendedPublicKey(scannedKey);
-          setScannerMessage("Extended public key scanned.");
+          setImportText(scannedValue);
+          setScannerMessage(scanPreview.unsupportedReason ?? "Watch-only import QR scanned.");
           stopScanner();
           setScannerOpen(false);
         }
       );
-      setScannerMessage("Point the camera at an xpub, ypub, or zpub QR.");
+      setScannerMessage("Point the camera at a static xpub, descriptor, key expression, JSON, or UR QR.");
     } catch (error) {
       stopScanner();
       setScannerMessage(error instanceof Error ? error.message : "Unable to start QR scanner.");
@@ -1004,10 +1076,26 @@ function WalletCreateForm({
   return (
     <form className="form-stack vault-section" onSubmit={handleSubmit}>
       <h2>Register wallet</h2>
+      <p className="muted">
+        Extended public keys and descriptors reveal wallet history. Store locally and do not share.
+      </p>
       <div className="form-grid">
         <label>
           <span>Wallet name</span>
           <input required value={name} onChange={(event) => setName(event.target.value)} />
+        </label>
+        <label>
+          <span>Source device</span>
+          <select
+            value={sourceDevice}
+            onChange={(event) => setSourceDevice(event.target.value as SourceDevice)}
+          >
+            {sourceDeviceOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           <span>Network</span>
@@ -1020,10 +1108,49 @@ function WalletCreateForm({
             <option value="signet">signet</option>
           </select>
         </label>
+        <label>
+          <span>Script type</span>
+          <select
+            value={scriptType}
+            onChange={(event) => setScriptType(event.target.value as WalletScriptType)}
+          >
+            <option value="unknown">unknown / confirm manually</option>
+            <option value="legacy">legacy</option>
+            <option value="nested-segwit">nested segwit</option>
+            <option value="native-segwit">native segwit</option>
+            <option value="taproot">taproot</option>
+          </select>
+        </label>
+      </div>
+      <div className="tab-row">
+        <button
+          className={importMethod === "paste" ? "compact-button" : "secondary-button compact-button"}
+          type="button"
+          onClick={() => setImportMethod("paste")}
+        >
+          Paste
+        </button>
+        <button
+          className={importMethod === "file" ? "compact-button" : "secondary-button compact-button"}
+          type="button"
+          onClick={() => setImportMethod("file")}
+        >
+          File
+        </button>
+        <button
+          className={importMethod === "qr" ? "compact-button" : "secondary-button compact-button"}
+          type="button"
+          onClick={() => {
+            setImportMethod("qr");
+            void startScanner();
+          }}
+        >
+          QR Scan
+        </button>
       </div>
       <label>
         <span className="field-header">
-          <span>Extended public key</span>
+          <span>Import payload</span>
           <button
             className="secondary-button compact-button"
             type="button"
@@ -1032,26 +1159,42 @@ function WalletCreateForm({
             Scan QR
           </button>
         </span>
-        <input
+        <textarea
           autoComplete="off"
+          className="import-textarea"
           required
           spellCheck={false}
-          value={extendedPublicKey}
-          onChange={(event) => setExtendedPublicKey(event.target.value)}
+          value={importText}
+          onChange={(event) => setImportText(event.target.value)}
+          placeholder="Paste xpub/ypub/zpub/tpub/upub/vpub, [fingerprint/path]xpub, descriptor, JSON, or UR text"
         />
       </label>
+      {importMethod === "file" ? (
+        <label>
+          <span>Import file</span>
+          <input
+            accept=".json,.txt,.descriptor,text/plain,application/json"
+            type="file"
+            onChange={(event) => void handleFileImport(event.target.files?.[0])}
+          />
+        </label>
+      ) : null}
       <div className="form-grid">
         <label>
-          <span>Detected type</span>
-          <input readOnly value={detected?.type ?? "Waiting for xpub, ypub, or zpub"} />
+          <span>Detected key</span>
+          <input readOnly value={detected.type ?? "Waiting for watch-only import"} />
         </label>
         <label>
-          <span>Derivation path</span>
-          <input readOnly value={detected?.derivationPath ?? ""} />
+          <span>Account path</span>
+          <input readOnly value={detected.accountPath ?? ""} />
         </label>
         <label>
-          <span>Script type</span>
-          <input readOnly value={detected?.scriptType ?? ""} />
+          <span>Fingerprint</span>
+          <input readOnly value={detected.masterFingerprint ?? "not provided"} />
+        </label>
+        <label>
+          <span>Import format</span>
+          <input readOnly value={detected.importFormat} />
         </label>
         <label>
           <span>Gap limit</span>
@@ -1064,8 +1207,22 @@ function WalletCreateForm({
             onChange={(event) => setGapLimit(Number(event.target.value))}
           />
         </label>
+        <label>
+          <span>Notes</span>
+          <input value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </label>
       </div>
-      <button disabled={busy || !detected} type="submit">
+      <DeviceGuidance sourceDevice={sourceDevice} />
+      {detected.privateInput ? <p className="status-message">{watchOnlyImportError}</p> : null}
+      {detected.warnings.length ? (
+        <div className="terminal-panel import-preview">
+          {detected.warnings.map((warning) => (
+            <p className="muted" key={warning}>{warning}</p>
+          ))}
+        </div>
+      ) : null}
+      {detected.unsupportedReason ? <p className="status-message">{detected.unsupportedReason}</p> : null}
+      <button disabled={busy || !canSave} type="submit">
         Save wallet
       </button>
       {scannerOpen ? (
@@ -1083,6 +1240,48 @@ function WalletCreateForm({
         </div>
       ) : null}
     </form>
+  );
+}
+
+const watchOnlyImportError =
+  "This is a watch-only wallet. Private keys or seed phrases must never be imported.";
+
+const sourceDeviceOptions: Array<{ value: SourceDevice; label: string }> = [
+  { value: "coldcard", label: "Coldcard" },
+  { value: "keystone", label: "Keystone" },
+  { value: "seedsigner", label: "SeedSigner" },
+  { value: "krux", label: "Krux" },
+  { value: "passport-core", label: "Passport Core" },
+  { value: "ledger", label: "Ledger" },
+  { value: "trezor", label: "Trezor" },
+  { value: "jade", label: "Jade" },
+  { value: "sparrow", label: "Sparrow" },
+  { value: "specter", label: "Specter" },
+  { value: "other", label: "Other" },
+  { value: "unknown", label: "Unknown" }
+];
+
+function DeviceGuidance({ sourceDevice }: { sourceDevice: SourceDevice }) {
+  const guidance: Record<SourceDevice, string> = {
+    coldcard: "Coldcard: use Export Wallet > Descriptor or Generic JSON. Confirm XFP, account path, xpub/zpub, and script type.",
+    keystone: "Keystone: descriptor file import is preferred. crypto-account QR is detected, but full UR decoding is not complete yet.",
+    seedsigner: "SeedSigner: use Export Xpub > Sparrow or a plain xpub/UR xpub QR. Animated UR frames are detected but not fully decoded yet.",
+    krux: "Krux: import extended public key QR or SD text, then verify fingerprint, derivation, and script type match the device.",
+    "passport-core": "Passport Core: use Pair Wallet > Sparrow > Single Sig, descriptor, or xpub export. Verify the first receive address on Passport.",
+    ledger: "Ledger: import an account xpub or descriptor only. Never paste seed words or private keys.",
+    trezor: "Trezor: import an account xpub or descriptor only. Confirm script type and account path on-device.",
+    jade: "Jade: import the account xpub or descriptor, then verify the first receive address on-device.",
+    sparrow: "Sparrow: descriptor or key expression exports preserve fingerprint and path best.",
+    specter: "Specter: descriptor exports preserve fingerprint, script, and account path best.",
+    other: "Other device: prefer descriptor or [fingerprint/path]xpub import when available.",
+    unknown: "Unknown source: confirm source device, script type, account path, and first receive address before receiving funds."
+  };
+
+  return (
+    <div className="terminal-panel import-preview">
+      <p className="terminal-heading">&gt; IMPORT GUIDANCE</p>
+      <p className="muted">{guidance[sourceDevice]}</p>
+    </div>
   );
 }
 
@@ -1219,7 +1418,7 @@ function WalletCard({
             </a>
           </h2>
           <p className="muted">
-            {wallet.network} / {wallet.type} / {wallet.scriptType}
+            {deviceLabel(wallet.sourceDevice)} / {wallet.network} / {wallet.type} / {wallet.scriptType}
           </p>
         </div>
         <div className="button-row">
@@ -1331,6 +1530,7 @@ function WalletCard({
 }
 
 function WalletDetailView({ apiUrl, wallet }: { apiUrl: string; wallet: WalletRecord }) {
+  const warnings = walletSafetyWarnings(wallet);
   return (
     <div className="wallet-detail-page">
       <div className="wallet-detail-header terminal-panel">
@@ -1339,10 +1539,20 @@ function WalletDetailView({ apiUrl, wallet }: { apiUrl: string; wallet: WalletRe
           <h2>{wallet.name}</h2>
           <div className="terminal-statusline">
             <span className="phase-pill">{wallet.type.toUpperCase()}</span>
+            <span className="terminal-meta">source: {deviceLabel(wallet.sourceDevice)}</span>
             <span className="terminal-meta">network: {wallet.network}</span>
             <span className="terminal-meta">script: {wallet.scriptType}</span>
-            <span className="terminal-meta">path: {wallet.derivationPath}</span>
+            <span className="terminal-meta">account: {wallet.accountPath ?? wallet.derivationPath ?? "not provided"}</span>
+            <span className="terminal-meta">fingerprint: {wallet.masterFingerprint ?? "not provided"}</span>
+            <span className="terminal-meta">format: {wallet.importFormat ?? "unknown"}</span>
           </div>
+          {warnings.length ? (
+            <div className="terminal-panel import-preview">
+              {warnings.map((warning) => (
+                <p className="muted" key={warning}>{warning}</p>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
       <WalletAddressPanel apiUrl={apiUrl} wallet={wallet} />
@@ -1462,7 +1672,7 @@ function WalletAddressPanel({
           <p className="terminal-heading">&gt; ADDRESS SET</p>
           <h2>{wallet.name}</h2>
           <p className="muted technical-line">
-            path: {wallet.derivationPath}/* / network: {wallet.network} / unit: {balanceUnit}
+            source: {deviceLabel(wallet.sourceDevice)} / path: {wallet.accountPath ?? wallet.derivationPath}/* / network: {wallet.network} / unit: {balanceUnit}
           </p>
         </div>
         <button className="secondary-button compact-button" type="button" onClick={() => void refreshAddresses()}>
@@ -1527,12 +1737,14 @@ function WalletAddressPanel({
         {nextReceiveAddress ? (
           <dd>
             <span className="terminal-meta">wallet: {wallet.name}</span>
+            <span className="terminal-meta">source: {deviceLabel(wallet.sourceDevice)}</span>
+            <span className="terminal-meta">chain: receive / index: {nextReceiveAddress.index}</span>
             <span className={`usage-pill usage-${nextReceiveAddress.usage}`}>
               {nextReceiveAddress.usage}
             </span>
             <code>{nextReceiveAddress.address}</code>
             <span>{nextReceiveAddress.path}</span>
-            <span className="muted">Verify wallet name before sharing this receive address.</span>
+            <span className="muted">Verify wallet name, source device, and path on your cold wallet before receiving funds.</span>
             <div className="button-row">
               <button
                 className="secondary-button compact-button"
@@ -1653,6 +1865,14 @@ function WalletAddressPanel({
               <div>
                 <dt>Wallet</dt>
                 <dd>{wallet.name}</dd>
+              </div>
+              <div>
+                <dt>Source</dt>
+                <dd>{deviceLabel(wallet.sourceDevice)}</dd>
+              </div>
+              <div>
+                <dt>Network</dt>
+                <dd>{wallet.network}</dd>
               </div>
               <div>
                 <dt>Chain / index</dt>
@@ -1787,40 +2007,238 @@ function formatBalance(sats: number, unit: "sats" | "btc"): string {
 }
 
 function extractExtendedPublicKey(value: string): string | null {
-  const normalized = value.trim();
-  const exactMatch = normalized.match(/^(xpub|ypub|zpub)[1-9A-HJ-NP-Za-km-z]{40,}$/);
-  if (exactMatch) {
-    return normalized;
-  }
-
-  const embeddedMatch = normalized.match(/\b(xpub|ypub|zpub)[1-9A-HJ-NP-Za-km-z]{40,}\b/);
+  const embeddedMatch = value.match(/\b(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,}\b/);
   return embeddedMatch?.[0] ?? null;
 }
 
-function detectWalletMetadata(
-  extendedPublicKey: string,
-  network: WalletRecord["network"]
-): Pick<WalletRecord, "type" | "scriptType" | "derivationPath"> | null {
-  const trimmed = extendedPublicKey.trim();
-  const type = trimmed.startsWith("xpub")
-    ? "xpub"
-    : trimmed.startsWith("ypub")
-      ? "ypub"
-      : trimmed.startsWith("zpub")
-        ? "zpub"
-        : null;
-
-  if (!type) {
-    return null;
+function detectImportMetadata(
+  importText: string,
+  network: WalletRecord["network"],
+  sourceDevice: SourceDevice
+): {
+  extendedPublicKey: string | null;
+  type: ExtendedPublicKeyType | null;
+  network: WalletRecord["network"] | null;
+  scriptType: WalletScriptType;
+  accountPath: string | null;
+  masterFingerprint: string | null;
+  importFormat: ImportFormat;
+  privateInput: boolean;
+  warnings: string[];
+  unsupportedReason: string | null;
+} {
+  const trimmed = importText.trim();
+  if (!trimmed) {
+    return emptyImportDetection();
+  }
+  if (looksPrivateImport(trimmed)) {
+    return {
+      ...emptyImportDetection(),
+      privateInput: true,
+      warnings: [],
+      unsupportedReason: watchOnlyImportError
+    };
   }
 
-  const coinType = network === "mainnet" ? "0" : "1";
-  const purpose = type === "xpub" ? "44" : type === "ypub" ? "49" : "84";
+  const json = parseImportJson(trimmed);
+  if (json) {
+    const xfp = stringField(json, "xfp") ?? stringField(json, "fingerprint");
+    const candidate =
+      jsonImportCandidate(json, "bip84", "native-segwit") ??
+      jsonImportCandidate(json, "bip49", "nested-segwit") ??
+      jsonImportCandidate(json, "bip44", "legacy") ??
+      jsonImportCandidate(json, "xpub", "unknown");
+    return {
+      extendedPublicKey: candidate?.key ?? null,
+      type: candidate?.key ? candidate.key.slice(0, 4) as ExtendedPublicKeyType : null,
+      network: candidate?.key ? networkForKey(candidate.key) : null,
+      scriptType: candidate?.scriptType ?? "unknown",
+      accountPath: candidate?.accountPath ?? null,
+      masterFingerprint: xfp?.toLowerCase() ?? null,
+      importFormat: "coldcard-json",
+      privateInput: false,
+      warnings: candidate ? [] : ["JSON detected, but no supported watch-only extended public key was found."],
+      unsupportedReason: candidate ? null : "Unsupported JSON export"
+    };
+  }
+
+  const ur = trimmed.toLowerCase();
+  if (ur.startsWith("ur:")) {
+    const key = extractExtendedPublicKey(trimmed);
+    return {
+      extendedPublicKey: key,
+      type: key ? key.slice(0, 4) as ExtendedPublicKeyType : null,
+      network: key ? networkForKey(key) : network,
+      scriptType: key ? scriptTypeForKey(key) : "unknown",
+      accountPath: null,
+      masterFingerprint: null,
+      importFormat: ur.startsWith("ur:crypto-account")
+        ? sourceDevice === "passport-core"
+          ? "passport-setup-qr"
+          : "crypto-account-ur"
+        : "ur-xpub",
+      privateInput: false,
+      warnings: ["UR payload detected. Animated UR/BCUR decoding is not fully supported yet."],
+      unsupportedReason: key ? null : "UR decoding unsupported yet. Use descriptor/file/paste xpub import."
+    };
+  }
+
+  const descriptorScript = descriptorScriptType(trimmed);
+  if (descriptorScript) {
+    const key = extractExtendedPublicKey(trimmed);
+    const origin = trimmed.match(/\[([0-9a-fA-F]{8})(?:\/([^\]]+))?\]/);
+    return {
+      extendedPublicKey: key,
+      type: key ? key.slice(0, 4) as ExtendedPublicKeyType : null,
+      network: key ? networkForKey(key) : network,
+      scriptType: descriptorScript,
+      accountPath: origin?.[2] ? normalizeAccountPath(origin[2]) : accountPathFor(descriptorScript, network),
+      masterFingerprint: origin?.[1]?.toLowerCase() ?? null,
+      importFormat: "descriptor",
+      privateInput: false,
+      warnings: descriptorScript === "taproot" ? ["Taproot metadata can be stored, but taproot address derivation is not supported yet."] : [],
+      unsupportedReason: key ? null : "Descriptor does not contain a supported extended public key."
+    };
+  }
+
+  const keyExpression = trimmed.match(/^\[([0-9a-fA-F]{8})(?:\/([^\]]+))?\]((xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,})/);
+  if (keyExpression) {
+    const key = keyExpression[3] ?? "";
+    return {
+      extendedPublicKey: key,
+      type: key.slice(0, 4) as ExtendedPublicKeyType,
+      network: networkForKey(key),
+      scriptType: scriptTypeForKey(key),
+      accountPath: keyExpression[2] ? normalizeAccountPath(keyExpression[2]) : accountPathFor(scriptTypeForKey(key), network),
+      masterFingerprint: keyExpression[1]?.toLowerCase() ?? null,
+      importFormat: "key-expression",
+      privateInput: false,
+      warnings: scriptTypeForKey(key) === "unknown" ? ["xpub/tpub detected. Confirm script type before receiving funds."] : [],
+      unsupportedReason: null
+    };
+  }
+
+  const key = extractExtendedPublicKey(trimmed);
+  if (key) {
+    const scriptType = scriptTypeForKey(key);
+    return {
+      extendedPublicKey: key,
+      type: key.slice(0, 4) as ExtendedPublicKeyType,
+      network: networkForKey(key),
+      scriptType,
+      accountPath: accountPathFor(scriptType, networkForKey(key) ?? network),
+      masterFingerprint: null,
+      importFormat: key.startsWith("xpub") || key.startsWith("tpub") ? "plain-xpub" : "slip132",
+      privateInput: false,
+      warnings: scriptType === "unknown" ? ["xpub/tpub detected. Confirm script type before receiving funds."] : [],
+      unsupportedReason: null
+    };
+  }
+
   return {
-    type,
-    scriptType: type === "xpub" ? "p2pkh" : type === "ypub" ? "p2sh-p2wpkh" : "p2wpkh",
-    derivationPath: `m/${purpose}'/${coinType}'/0'`
+    ...emptyImportDetection(),
+    importFormat: "unknown",
+    warnings: ["No supported watch-only import payload detected."],
+    unsupportedReason: "Unsupported import format"
   };
+}
+
+function emptyImportDetection() {
+  return {
+    extendedPublicKey: null,
+    type: null,
+    network: null,
+    scriptType: "unknown" as const,
+    accountPath: null,
+    masterFingerprint: null,
+    importFormat: "unknown" as const,
+    privateInput: false,
+    warnings: [],
+    unsupportedReason: null
+  };
+}
+
+function looksPrivateImport(value: string): boolean {
+  const lower = value.trim().toLowerCase();
+  const words = lower.match(/\b[a-z]{3,10}\b/g) ?? [];
+  return /\b(xprv|yprv|zprv|tprv|uprv|vprv)[1-9a-hj-np-z]+\b/i.test(value) ||
+    /\b[5KL][1-9A-HJ-NP-Za-km-z]{50,51}\b/.test(value) ||
+    /(wif|privatekey|private_key|privkey|seed phrase|mnemonic)/i.test(value) ||
+    ((words.length === 12 || words.length === 18 || words.length === 24) && lower === words.join(" "));
+}
+
+function descriptorScriptType(value: string): WalletScriptType | null {
+  const descriptor = value.replace(/#[a-z0-9]+$/i, "");
+  if (descriptor.startsWith("sh(wpkh(")) return "nested-segwit";
+  if (descriptor.startsWith("wpkh(")) return "native-segwit";
+  if (descriptor.startsWith("pkh(")) return "legacy";
+  if (descriptor.startsWith("tr(")) return "taproot";
+  return null;
+}
+
+function scriptTypeForKey(value: string): WalletScriptType {
+  if (value.startsWith("ypub") || value.startsWith("upub")) return "nested-segwit";
+  if (value.startsWith("zpub") || value.startsWith("vpub")) return "native-segwit";
+  return "unknown";
+}
+
+function networkForKey(value: string): WalletRecord["network"] {
+  return value.startsWith("tpub") || value.startsWith("upub") || value.startsWith("vpub")
+    ? "testnet"
+    : "mainnet";
+}
+
+function accountPathFor(scriptType: WalletScriptType, network: WalletRecord["network"]): string | null {
+  const coinType = network === "mainnet" ? "0" : "1";
+  if (scriptType === "legacy") return `m/44'/${coinType}'/0'`;
+  if (scriptType === "nested-segwit") return `m/49'/${coinType}'/0'`;
+  if (scriptType === "native-segwit") return `m/84'/${coinType}'/0'`;
+  if (scriptType === "taproot") return `m/86'/${coinType}'/0'`;
+  return null;
+}
+
+function normalizeAccountPath(value: string): string {
+  return `m/${value.replace(/h/gi, "'").replace(/^m\//, "")}`;
+}
+
+function parseImportJson(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function jsonImportCandidate(
+  value: Record<string, unknown>,
+  field: string,
+  scriptType: WalletScriptType
+): { key: string; scriptType: WalletScriptType; accountPath: string | null } | null {
+  const candidate = value[field];
+  if (typeof candidate === "string") {
+    const key = extractExtendedPublicKey(candidate);
+    return key ? { key, scriptType, accountPath: accountPathFor(scriptType, networkForKey(key)) } : null;
+  }
+  if (typeof candidate === "object" && candidate !== null && !Array.isArray(candidate)) {
+    const record = candidate as Record<string, unknown>;
+    const key = extractExtendedPublicKey(String(record.xpub ?? record.ypub ?? record.zpub ?? ""));
+    const path = typeof record.deriv === "string"
+      ? record.deriv
+      : typeof record.derivation === "string"
+        ? record.derivation
+        : typeof record.path === "string"
+          ? record.path
+          : null;
+    return key ? { key, scriptType, accountPath: path ? normalizeAccountPath(path) : accountPathFor(scriptType, networkForKey(key)) } : null;
+  }
+  return null;
+}
+
+function stringField(value: Record<string, unknown>, field: string): string | null {
+  return typeof value[field] === "string" ? value[field] as string : null;
 }
 
 function maskExtendedPublicKey(value: string): string {
@@ -1829,6 +2247,30 @@ function maskExtendedPublicKey(value: string): string {
   }
 
   return `${value.slice(0, 8)}...${value.slice(-8)}`;
+}
+
+function deviceLabel(sourceDevice: SourceDevice): string {
+  return sourceDeviceOptions.find((option) => option.value === sourceDevice)?.label ?? "Unknown";
+}
+
+function walletSafetyWarnings(wallet: WalletRecord): string[] {
+  const warnings: string[] = [];
+  if ((wallet.type === "zpub" || wallet.type === "vpub") && wallet.scriptType !== "native-segwit") {
+    warnings.push("zpub/vpub usually maps to native SegWit. Verify script type before receiving funds.");
+  }
+  if ((wallet.type === "ypub" || wallet.type === "upub") && wallet.scriptType !== "nested-segwit") {
+    warnings.push("ypub/upub usually maps to nested SegWit. Verify script type before receiving funds.");
+  }
+  if ((wallet.type === "xpub" || wallet.type === "tpub") && wallet.scriptType !== "legacy") {
+    warnings.push("xpub/tpub can be used with multiple policies. Verify the receive address on your cold wallet.");
+  }
+  if (wallet.scriptType === "taproot") {
+    warnings.push("Taproot metadata is stored, but taproot address derivation is not supported in this phase.");
+  }
+  if (wallet.importFormat === "crypto-account-ur" || wallet.importFormat === "passport-setup-qr" || wallet.importFormat === "ur-xpub") {
+    warnings.push("UR payloads are detected, but animated UR/BCUR decoding is not complete yet. Prefer descriptor/file import.");
+  }
+  return warnings;
 }
 
 async function apiRequest<T = unknown>(

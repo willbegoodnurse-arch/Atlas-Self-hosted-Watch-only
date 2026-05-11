@@ -5,9 +5,9 @@ import * as ecc from "tiny-secp256k1";
 
 export type BitcoinNetwork = "mainnet" | "testnet" | "signet";
 
-export type ExtendedPublicKeyKind = "xpub" | "ypub" | "zpub";
+export type ExtendedPublicKeyKind = "xpub" | "ypub" | "zpub" | "tpub" | "upub" | "vpub";
 
-export type ScriptType = "p2pkh" | "p2sh-p2wpkh" | "p2wpkh";
+export type ScriptType = "legacy" | "nested-segwit" | "native-segwit";
 
 export type AddressChain = "receive" | "change";
 
@@ -22,6 +22,8 @@ export type DerivedAddress = {
 export type DeriveAddressesInput = {
   extendedPublicKey: string;
   type?: ExtendedPublicKeyKind;
+  scriptType?: ScriptType;
+  accountPath?: string | null;
   network: BitcoinNetwork;
   chain: AddressChain | "both";
   limit: number;
@@ -40,7 +42,15 @@ const bip32 = BIP32Factory(ecc);
 const extendedPublicKeyVersions: Record<ExtendedPublicKeyKind, Buffer> = {
   xpub: Buffer.from("0488b21e", "hex"),
   ypub: Buffer.from("049d7cb2", "hex"),
-  zpub: Buffer.from("04b24746", "hex")
+  zpub: Buffer.from("04b24746", "hex"),
+  tpub: Buffer.from("043587cf", "hex"),
+  upub: Buffer.from("044a5262", "hex"),
+  vpub: Buffer.from("045f1cf6", "hex")
+};
+
+const canonicalPublicKeyVersions: Record<"mainnet" | "testnet", Buffer> = {
+  mainnet: extendedPublicKeyVersions.xpub,
+  testnet: extendedPublicKeyVersions.tpub
 };
 
 export const watchOnlyStoragePolicy = {
@@ -52,11 +62,11 @@ export const watchOnlyStoragePolicy = {
 
 export function deriveAddresses(input: DeriveAddressesInput): DeriveAddressesResult {
   const type = input.type ?? detectExtendedPublicKeyKind(input.extendedPublicKey);
-  const scriptType = scriptTypeForExtendedPublicKey(type);
+  const scriptType = input.scriptType ?? scriptTypeForExtendedPublicKey(type);
   const limit = sanitizeLimit(input.limit);
   const startIndex = sanitizeStartIndex(input.startIndex ?? 0);
-  const accountPath = accountDerivationPath(type, input.network);
-  const accountNode = parseAccountExtendedPublicKey(input.extendedPublicKey, type);
+  const accountPath = input.accountPath ?? accountDerivationPath(scriptType, input.network);
+  const accountNode = parseAccountExtendedPublicKey(input.extendedPublicKey, type, input.network);
   const network = bitcoinNetwork(input.network);
   const chains = input.chain === "both" ? (["receive", "change"] as const) : [input.chain];
 
@@ -97,38 +107,55 @@ export function detectExtendedPublicKeyKind(value: string): ExtendedPublicKeyKin
   if (value.startsWith("zpub")) {
     return "zpub";
   }
+  if (value.startsWith("tpub")) {
+    return "tpub";
+  }
+  if (value.startsWith("upub")) {
+    return "upub";
+  }
+  if (value.startsWith("vpub")) {
+    return "vpub";
+  }
 
-  throw new Error("Extended public key must start with xpub, ypub, or zpub");
+  throw new Error("Extended public key must start with xpub, ypub, zpub, tpub, upub, or vpub");
 }
 
 export function accountDerivationPath(
-  type: ExtendedPublicKeyKind,
+  scriptType: ScriptType,
   network: BitcoinNetwork
 ): string {
   const coinType = network === "mainnet" ? "0" : "1";
-  const purpose = type === "xpub" ? "44" : type === "ypub" ? "49" : "84";
+  const purpose = scriptType === "legacy" ? "44" : scriptType === "nested-segwit" ? "49" : "84";
   return `m/${purpose}'/${coinType}'/0'`;
 }
 
 export function scriptTypeForExtendedPublicKey(type: ExtendedPublicKeyKind): ScriptType {
-  if (type === "xpub") {
-    return "p2pkh";
+  if (type === "xpub" || type === "tpub") {
+    return "legacy";
   }
-  if (type === "ypub") {
-    return "p2sh-p2wpkh";
+  if (type === "ypub" || type === "upub") {
+    return "nested-segwit";
   }
-  return "p2wpkh";
+  return "native-segwit";
 }
 
-function parseAccountExtendedPublicKey(value: string, type: ExtendedPublicKeyKind) {
+function parseAccountExtendedPublicKey(
+  value: string,
+  type: ExtendedPublicKeyKind,
+  network: BitcoinNetwork
+) {
   try {
-    return bip32.fromBase58(convertToXpubVersion(value, type), bitcoin.networks.bitcoin);
+    return bip32.fromBase58(convertToCanonicalVersion(value, type, network), bitcoinNetwork(network));
   } catch {
     throw new Error("Invalid extended public key");
   }
 }
 
-function convertToXpubVersion(value: string, type: ExtendedPublicKeyKind): string {
+function convertToCanonicalVersion(
+  value: string,
+  type: ExtendedPublicKeyKind,
+  network: BitcoinNetwork
+): string {
   const decoded = Buffer.from(bs58check.decode(value));
   if (decoded.length !== 78) {
     throw new Error("Invalid extended public key length");
@@ -139,8 +166,7 @@ function convertToXpubVersion(value: string, type: ExtendedPublicKeyKind): strin
     throw new Error(`Extended public key version does not match ${type}`);
   }
 
-  expectedVersion.copy(decoded, 0);
-  extendedPublicKeyVersions.xpub.copy(decoded, 0);
+  canonicalPublicKeyVersions[network === "mainnet" ? "mainnet" : "testnet"].copy(decoded, 0);
   return bs58check.encode(decoded);
 }
 
@@ -149,11 +175,11 @@ function paymentAddress(
   scriptType: ScriptType,
   network: bitcoin.Network
 ): string {
-  if (scriptType === "p2pkh") {
+  if (scriptType === "legacy") {
     return requireAddress(bitcoin.payments.p2pkh({ pubkey, network }).address);
   }
 
-  if (scriptType === "p2sh-p2wpkh") {
+  if (scriptType === "nested-segwit") {
     return requireAddress(
       bitcoin.payments.p2sh({
         redeem: bitcoin.payments.p2wpkh({ pubkey, network }),

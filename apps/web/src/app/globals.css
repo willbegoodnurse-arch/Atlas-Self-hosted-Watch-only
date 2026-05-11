@@ -31,6 +31,7 @@ body {
 
 button,
 input,
+textarea,
 select {
   font: inherit;
 }
@@ -172,6 +173,7 @@ dt {
 }
 
 input,
+textarea,
 select {
   width: 100%;
   border: 1px solid var(--line);
@@ -183,9 +185,15 @@ select {
 }
 
 input:focus,
+textarea:focus,
 select:focus {
   border-color: var(--green);
   box-shadow: 0 0 0 2px rgb(120 230 163 / 14%);
+}
+
+.import-textarea {
+  min-height: 150px;
+  resize: vertical;
 }
 
 button {

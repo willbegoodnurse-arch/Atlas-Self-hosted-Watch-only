@@ -17,11 +17,10 @@ import {
   initVault,
   listWallets,
   lockVault,
-  detectExtendedPublicKeyType,
   unlockVault,
   updateWallet
 } from "./store.js";
-import type { BitcoinNetwork } from "./types.js";
+import type { BitcoinNetwork, ScriptType, SourceDevice } from "./types.js";
 
 type VaultPasswordBody = {
   vaultPassword?: string;
@@ -30,8 +29,12 @@ type VaultPasswordBody = {
 type WalletCreateBody = {
   name?: string;
   extendedPublicKey?: string;
+  importText?: string;
+  sourceDevice?: string;
+  scriptType?: string;
   network?: string;
   gapLimit?: number;
+  notes?: string | null;
 };
 
 type WalletPatchBody = {
@@ -347,8 +350,11 @@ function validateCreateWalletBody(body: WalletCreateBody | undefined):
       ok: true;
       value: {
         name: string;
-        extendedPublicKey: string;
+        importText: string;
         network: BitcoinNetwork;
+        sourceDevice: SourceDevice;
+        scriptType: ScriptType;
+        notes: string | null;
         gapLimit: number;
       };
     }
@@ -358,18 +364,9 @@ function validateCreateWalletBody(body: WalletCreateBody | undefined):
     return { ok: false, error: "Wallet name must be 1-80 characters" };
   }
 
-  const extendedPublicKey = sanitizeExtendedPublicKey(body?.extendedPublicKey);
-  if (!extendedPublicKey) {
-    return { ok: false, error: "Extended public key must be a valid xpub, ypub, or zpub value" };
-  }
-
-  try {
-    detectExtendedPublicKeyType(extendedPublicKey);
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Invalid extended public key"
-    };
+  const importText = sanitizeImportText(body?.importText ?? body?.extendedPublicKey);
+  if (!importText) {
+    return { ok: false, error: "Import text must contain an xpub, descriptor, key expression, JSON, or UR payload" };
   }
 
   const network = sanitizeNetwork(body?.network);
@@ -382,12 +379,18 @@ function validateCreateWalletBody(body: WalletCreateBody | undefined):
     return { ok: false, error: "Gap limit must be an integer from 1 to 200" };
   }
 
+  const sourceDevice = sanitizeSourceDevice(body?.sourceDevice);
+  const scriptType = sanitizeScriptType(body?.scriptType);
+
   return {
     ok: true,
     value: {
       name,
-      extendedPublicKey,
+      importText,
       network,
+      sourceDevice,
+      scriptType,
+      notes: sanitizeNotes(body?.notes),
       gapLimit
     }
   };
@@ -468,13 +471,13 @@ function sanitizeWalletName(value: unknown): string | null {
   return trimmed.length >= 1 && trimmed.length <= 80 ? trimmed : null;
 }
 
-function sanitizeExtendedPublicKey(value: unknown): string | null {
+function sanitizeImportText(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
   }
 
   const trimmed = value.trim();
-  if (trimmed.length < 16 || trimmed.length > 256 || !/^[1-9A-HJ-NP-Za-km-z]+$/.test(trimmed)) {
+  if (trimmed.length < 8 || trimmed.length > 12000) {
     return null;
   }
 
@@ -483,6 +486,29 @@ function sanitizeExtendedPublicKey(value: unknown): string | null {
 
 function sanitizeNetwork(value: unknown): BitcoinNetwork | null {
   return value === "mainnet" || value === "testnet" || value === "signet" ? value : null;
+}
+
+function sanitizeSourceDevice(value: unknown): SourceDevice {
+  const sourceDevice = typeof value === "string" ? value : "unknown";
+  const allowed: SourceDevice[] = [
+    "coldcard", "keystone", "seedsigner", "krux", "passport-core", "ledger",
+    "trezor", "jade", "sparrow", "specter", "other", "unknown"
+  ];
+  return allowed.includes(sourceDevice as SourceDevice) ? sourceDevice as SourceDevice : "unknown";
+}
+
+function sanitizeScriptType(value: unknown): ScriptType {
+  const scriptType = typeof value === "string" ? value : "unknown";
+  const allowed: ScriptType[] = ["legacy", "nested-segwit", "native-segwit", "taproot", "unknown"];
+  return allowed.includes(scriptType as ScriptType) ? scriptType as ScriptType : "unknown";
+}
+
+function sanitizeNotes(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 500) : null;
 }
 
 function sanitizeGapLimit(value: unknown): number | null {
