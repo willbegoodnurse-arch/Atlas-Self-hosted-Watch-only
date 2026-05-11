@@ -2,7 +2,7 @@
 
 A calm, self-hosted, watch-only Bitcoin web wallet dashboard for your own node.
 
-watch wallet is designed to run on a Raspberry Pi with Docker, alongside services such as Bitcoin Core, Fulcrum, or Mempool. Phase 1 implements administrator authentication only. No wallet import, address derivation, balance lookup, transaction lookup, PSBT generation, or broadcast features are implemented yet.
+watch wallet is designed to run on a Raspberry Pi with Docker, alongside services such as Bitcoin Core, Fulcrum, or Mempool. Phase 2 implements administrator authentication and encrypted watch-only wallet registration. Address derivation, balance lookup, transaction lookup, PSBT generation, and broadcast features are not implemented yet.
 
 ## Features
 
@@ -14,6 +14,7 @@ watch wallet is designed to run on a Raspberry Pi with Docker, alongside service
 - Docker Compose draft for Raspberry Pi friendly deployment
 - Security-first documentation for watch-only operation
 - Phase 1 administrator setup, TOTP 2FA, and session shell
+- Phase 2 encrypted wallet vault with xpub, ypub, and zpub registration
 
 ## Screenshots
 
@@ -26,18 +27,18 @@ It never asks for, stores, or transmits private keys or seed phrases.
 Do not enter your seed phrase or private key anywhere in this application.
 
 Extended public keys such as xpub, ypub, and zpub can reveal your full wallet history.
-By default, watch wallet stores them only in your browser localStorage.
-Protect access to your browser profile and device.
+watch wallet stores them only in an encrypted server-side wallet store.
+Protect access to the Raspberry Pi, browser profile, and device.
 
 watch wallet은 보기전용 비트코인 지갑 대시보드입니다.
 이 앱은 시드 문구나 개인키를 절대 요구하지 않습니다.
 절대 이 앱에 시드 문구나 개인키를 입력하지 마십시오.
 
 xpub, ypub, zpub은 지갑 전체 거래내역을 노출할 수 있는 민감한 정보입니다.
-watch wallet은 기본적으로 이를 브라우저 localStorage에만 저장합니다.
-기기와 브라우저 프로필 접근 권한을 안전하게 보호하십시오.
+watch wallet은 이를 Raspberry Pi 서버의 암호화된 지갑 저장소에만 저장합니다.
+Raspberry Pi, 기기, 브라우저 프로필 접근 권한을 안전하게 보호하십시오.
 
-The server must not persist seed phrases, private keys, xpubs, ypubs, zpubs, full address lists, transaction memos, or wallet labels. The default operating model is local network, Tailscale, or Tor access. General internet port forwarding is not recommended.
+The server must not persist seed phrases, private keys, raw xpubs, raw ypubs, raw zpubs, full address lists, transaction memos, or wallet labels. The default operating model is local network, Tailscale, or Tor access. General internet port forwarding is not recommended.
 
 Future sending features must use a PSBT-only workflow. watch wallet may later help select UTXOs, set recipients, choose fees, choose change addresses, create PSBTs, import signed PSBTs, extract raw transactions, and broadcast through the user's node. It must not sign transactions itself. Signing must happen in an external signer such as Nunchuk, Sparrow, or a hardware wallet.
 
@@ -74,15 +75,15 @@ The Compose draft maps the web container's internal port `3000` to `WEB_PORT`, a
 
 ## First Setup
 
-Phase 1 first setup creates one administrator account and enables TOTP 2FA. The API stores only authentication metadata in `./data/auth.json`: username, password hash, TOTP secret, 2FA status, and creation time.
+Phase 1 first setup creates one administrator account and enables TOTP 2FA. The API stores only authentication metadata in `apps/api/data/auth.json`: username, password hash, TOTP secret, 2FA status, and creation time.
 
 ## Adding a Wallet
 
-Wallet registration is planned for Phase 2. The future design is browser-local storage for xpub, ypub, and zpub values. The API should receive only the specific lookup requests needed to query a node or configured backend.
+Wallet registration stores watch-only xpub, ypub, and zpub values in encrypted server-side storage at `apps/api/data/wallets.enc`. The API must never persist seed phrases, private keys, or raw xpub, ypub, or zpub values.
 
 Never enter a seed phrase or private key into watch wallet.
 
-Wallet registration is not part of Phase 1.
+Wallet registration is part of Phase 2. Address derivation and balance lookup are planned for later phases.
 
 ## Future PSBT Flow
 
@@ -139,12 +140,12 @@ DEFAULT_UNIT=BTC
 
 - Phase 0: project skeleton, Docker Compose, README, MIT License, security docs
 - Phase 1: administrator setup, password hashing, TOTP 2FA, session handling
-- Phase 2: browser-local xpub, ypub, zpub wallet registration
+- Phase 2: encrypted server-side xpub, ypub, zpub wallet registration
 - Phase 3: watch-only address derivation
 - Phase 4: balance lookup through Mempool API first
 - Phase 5: transaction history
 - Phase 6: calm Sparrow-inspired dark dashboard UI
-- Phase 7: settings and localStorage export/import
+- Phase 7: settings and encrypted wallet backup/import
 - Phase 8: PSBT-oriented sending and broadcast workflow without private key handling
 
 ## Contributing

@@ -26,5 +26,5 @@ services:
     env_file:
       - .env
     volumes:
-      - ./data:/app/data
+      - ./apps/api/data:/app/apps/api/data
     restart: unless-stopped

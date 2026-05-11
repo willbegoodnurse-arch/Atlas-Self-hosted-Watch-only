@@ -78,16 +78,24 @@ npm run build
 Phase 1 stores local authentication data in:
 
 ```text
-data/auth.json
+apps/api/data/auth.json
 ```
 
 This file is ignored by Git. It is device-local and should not be copied into the repository.
+
+Phase 2 stores encrypted wallet vault data in:
+
+```text
+apps/api/data/wallets.enc
+```
+
+This file is also ignored by Git. It must contain only encrypted vault data.
 
 ## Security Boundaries
 
 - Do not add seed phrase input.
 - Do not add private key input.
 - Do not store raw xpub, ypub, or zpub values on the server.
-- Phase 1 is authentication only.
+- Store watch-only wallet records only inside the encrypted vault.
 - Future sending features must use unsigned PSBTs and external signers.
 

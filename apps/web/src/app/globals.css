@@ -18,7 +18,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -35,6 +36,10 @@ input {
   border-radius: 8px;
   background: #171a1f;
   padding: 32px;
+}
+
+.app-panel {
+  width: min(1120px, 100%);
 }
 
 .brand-row {
@@ -134,7 +139,18 @@ input {
   outline: none;
 }
 
-input:focus {
+select {
+  width: 100%;
+  border: 1px solid #3b424d;
+  border-radius: 6px;
+  background: #101215;
+  color: #f3f4f6;
+  padding: 12px 13px;
+  outline: none;
+}
+
+input:focus,
+select:focus {
   border-color: #d3a950;
   box-shadow: 0 0 0 3px rgb(211 169 80 / 18%);
 }
@@ -159,6 +175,23 @@ button:disabled {
   color: #f2d89a;
 }
 
+.auth-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.danger-button {
+  border-color: #7f3838;
+  background: #3a1d1d;
+  color: #ffd4d4;
+}
+
+.compact-button {
+  padding: 8px 10px;
+}
+
 .qr-box {
   display: grid;
   justify-items: center;
@@ -175,6 +208,95 @@ button:disabled {
 .dashboard-shell {
   display: grid;
   gap: 22px;
+}
+
+.toolbar-row,
+.wallet-card-header,
+.button-row,
+.key-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbar-row,
+.wallet-card-header {
+  justify-content: space-between;
+}
+
+.toolbar-row p,
+.wallet-card h2,
+.wallet-card p {
+  margin-bottom: 0;
+}
+
+.button-row {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.vault-workspace {
+  display: grid;
+  gap: 22px;
+}
+
+.vault-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 16px;
+  border: 1px solid #2f343a;
+  border-radius: 8px;
+  background: #111419;
+  padding: 18px;
+}
+
+.vault-section {
+  border-top: 1px solid #2f343a;
+  padding-top: 22px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.edit-grid {
+  margin-top: 18px;
+  align-items: end;
+}
+
+.wallet-list {
+  display: grid;
+  gap: 16px;
+}
+
+.wallet-card {
+  display: grid;
+  gap: 18px;
+  border: 1px solid #2f343a;
+  border-radius: 8px;
+  background: #111419;
+  padding: 18px;
+}
+
+.wallet-details {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.wallet-details > div:last-child {
+  grid-column: 1 / -1;
+}
+
+.key-row {
+  flex-wrap: wrap;
+}
+
+code {
+  color: #f3f4f6;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  overflow-wrap: anywhere;
 }
 
 dl {
@@ -200,5 +322,20 @@ dd {
 
   .brand-row {
     display: grid;
+  }
+
+  .toolbar-row,
+  .wallet-card-header {
+    display: grid;
+  }
+
+  .vault-status,
+  .form-grid,
+  .wallet-details {
+    grid-template-columns: 1fr;
+  }
+
+  .vault-status {
+    align-items: stretch;
   }
 }
