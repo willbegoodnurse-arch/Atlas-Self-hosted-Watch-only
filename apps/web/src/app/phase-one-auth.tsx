@@ -85,14 +85,24 @@ type WalletBalanceResponse = {
   };
 };
 
+type MempoolStatusResponse = {
+  status: "online" | "offline";
+  mode: string;
+  url: string;
+  tipHeight: number | null;
+  cacheTtlSeconds: number;
+};
+
 type ViewState = "loading" | "setup" | "verify-totp" | "login" | "dashboard";
 type AuthMode = "signup" | "signin";
+type StatusKind = "online" | "locked" | "degraded" | "offline";
 
 type AuthShellProps = {
   apiUrl: string;
+  initialWalletId?: string | null;
 };
 
-export function AuthShell({ apiUrl }: AuthShellProps) {
+export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
   const [view, setView] = useState<ViewState>("loading");
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>("signup");
@@ -251,13 +261,16 @@ export function AuthShell({ apiUrl }: AuthShellProps) {
         <div className="brand-row">
           <div>
             <p className="eyebrow">watch wallet</p>
-            <h1>{view === "dashboard" ? "Wallets" : "Secure access"}</h1>
+            <h1>{view === "dashboard" ? (initialWalletId ? "Wallet detail" : "Wallets") : "Secure access"}</h1>
           </div>
-          <span className="phase-pill">{view === "dashboard" ? "Phase 2" : "Phase 1"}</span>
+          <span className="phase-pill">{view === "dashboard" ? "PHASE 6" : "AUTH NODE"}</span>
         </div>
 
         {message ? <p className="status-message">{message}</p> : null}
         <p className="api-diagnostic">API: {apiUrl}</p>
+        {view !== "loading" ? (
+          <p className="terminal-mantra">Self-hosted watch-only Bitcoin terminal. We are all Satoshi.</p>
+        ) : null}
 
         {view === "loading" ? <p className="muted">Checking session...</p> : null}
         {view === "setup" || view === "login" ? (
@@ -300,6 +313,7 @@ export function AuthShell({ apiUrl }: AuthShellProps) {
           <DashboardShell
             apiUrl={apiUrl}
             busy={busy}
+            initialWalletId={initialWalletId}
             session={session}
             onLogout={handleLogout}
           />
@@ -334,6 +348,27 @@ function AuthModeSwitch({
       >
         Sign in
       </button>
+    </div>
+  );
+}
+
+function StatusBadge({
+  label,
+  status
+}: {
+  label: string;
+  status: StatusKind;
+}) {
+  return <span className={`status-badge status-${status}`}>[{label}: {status.toUpperCase()}]</span>;
+}
+
+function TerminalSkeleton({ label, rows }: { label: string; rows: number }) {
+  return (
+    <div className="terminal-panel skeleton-panel" aria-busy="true">
+      <p className="terminal-heading">&gt; {label}</p>
+      {Array.from({ length: rows }, (_, index) => (
+        <span className="skeleton-line" key={index} />
+      ))}
     </div>
   );
 }
@@ -501,11 +536,13 @@ function LoginForm({
 function DashboardShell({
   apiUrl,
   busy,
+  initialWalletId,
   session,
   onLogout
 }: {
   apiUrl: string;
   busy: boolean;
+  initialWalletId?: string | null;
   session: SessionResponse | null;
   onLogout: () => void;
 }) {
@@ -513,21 +550,30 @@ function DashboardShell({
     <div className="dashboard-shell">
       <div className="toolbar-row">
         <p className="muted">Signed in as {session?.user?.username ?? "admin"}</p>
-        <button className="secondary-button compact-button" disabled={busy} type="button" onClick={onLogout}>
-          Log out
-        </button>
+        <div className="button-row">
+          {initialWalletId ? (
+            <a className="secondary-button compact-button" href="/">
+              Back to dashboard
+            </a>
+          ) : null}
+          <button className="secondary-button compact-button" disabled={busy} type="button" onClick={onLogout}>
+            Log out
+          </button>
+        </div>
       </div>
-      <VaultWorkspace apiUrl={apiUrl} />
+      <VaultWorkspace apiUrl={apiUrl} initialWalletId={initialWalletId} />
     </div>
   );
 }
 
-function VaultWorkspace({ apiUrl }: { apiUrl: string }) {
+function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; initialWalletId?: string | null }) {
   const [status, setStatus] = useState<VaultStatus | null>(null);
+  const [mempoolStatus, setMempoolStatus] = useState<MempoolStatusResponse | null>(null);
+  const [mempoolStatusError, setMempoolStatusError] = useState("");
   const [wallets, setWallets] = useState<WalletRecord[]>([]);
-  const [selectedWalletId, setSelectedWalletId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const detailWalletId = initialWalletId ? decodeURIComponent(initialWalletId) : null;
 
   useEffect(() => {
     void refreshVault();
@@ -537,20 +583,28 @@ function VaultWorkspace({ apiUrl }: { apiUrl: string }) {
     setMessage("");
 
     try {
+      void refreshMempoolStatus();
       const nextStatus = await apiRequest<VaultStatus>(apiUrl, "/api/vault/status");
       setStatus(nextStatus);
       if (nextStatus.unlocked) {
         const response = await apiRequest<{ wallets: WalletRecord[] }>(apiUrl, "/api/wallets");
         setWallets(response.wallets);
-        setSelectedWalletId((current) =>
-          current && response.wallets.some((wallet) => wallet.id === current) ? current : null
-        );
       } else {
         setWallets([]);
-        setSelectedWalletId(null);
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to load vault");
+    }
+  }
+
+  async function refreshMempoolStatus() {
+    try {
+      const response = await apiRequest<MempoolStatusResponse>(apiUrl, "/api/status/mempool");
+      setMempoolStatus(response);
+      setMempoolStatusError("");
+    } catch (error) {
+      setMempoolStatus(null);
+      setMempoolStatusError(error instanceof Error ? error.message : "Mempool status unavailable");
     }
   }
 
@@ -621,7 +675,6 @@ function VaultWorkspace({ apiUrl }: { apiUrl: string }) {
         body: JSON.stringify(input)
       });
       setWallets((current) => [...current, response.wallet]);
-      setSelectedWalletId(response.wallet.id);
       setStatus((current) =>
         current ? { ...current, walletCount: (current.walletCount ?? 0) + 1 } : current
       );
@@ -665,12 +718,14 @@ function VaultWorkspace({ apiUrl }: { apiUrl: string }) {
         method: "DELETE"
       });
       setWallets((current) => current.filter((wallet) => wallet.id !== id));
-      setSelectedWalletId((current) => (current === id ? null : current));
       setStatus((current) =>
         current ? { ...current, walletCount: Math.max((current.walletCount ?? 1) - 1, 0) } : current
       );
       await refreshVault();
       setMessage("Wallet deleted");
+      if (detailWalletId === id) {
+        window.location.assign("/");
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Wallet delete failed");
     } finally {
@@ -679,16 +734,27 @@ function VaultWorkspace({ apiUrl }: { apiUrl: string }) {
   }
 
   if (!status) {
-    return <p className="muted">Loading vault...</p>;
+    return <TerminalSkeleton label="LOADING VAULT" rows={3} />;
   }
 
-  const selectedWallet =
-    selectedWalletId ? wallets.find((wallet) => wallet.id === selectedWalletId) ?? null : null;
+  const detailWallet =
+    detailWalletId ? wallets.find((wallet) => wallet.id === detailWalletId) ?? null : null;
+  const vaultBadgeStatus: StatusKind = status.unlocked ? "online" : status.initialized ? "locked" : "offline";
+  const mempoolBadgeStatus: StatusKind =
+    mempoolStatus?.status === "online" ? "online" : mempoolStatusError ? "offline" : "degraded";
 
   return (
     <div className="vault-workspace">
       {message ? <p className="status-message">{message}</p> : null}
-      <div className="vault-status">
+      <div className="terminal-statusline">
+        <StatusBadge label="VAULT" status={vaultBadgeStatus} />
+        <StatusBadge label="MEMPOOL" status={mempoolBadgeStatus} />
+        <span className="terminal-meta">mode: {mempoolStatus?.mode ?? "mempool"}</span>
+        <span className="terminal-meta">
+          tip: {mempoolStatus?.tipHeight ? new Intl.NumberFormat("en-US").format(mempoolStatus.tipHeight) : "unknown"}
+        </span>
+      </div>
+      <div className="vault-status terminal-panel">
         <div>
           <dt>Vault</dt>
           <dd>{status.initialized ? (status.unlocked ? "Unlocked" : "Locked") : "Not initialized"}</dd>
@@ -709,18 +775,32 @@ function VaultWorkspace({ apiUrl }: { apiUrl: string }) {
         <VaultUnlockForm busy={busy} onSubmit={handleUnlock} />
       ) : null}
       {status.initialized && status.unlocked ? (
+        detailWalletId ? (
+          detailWallet ? (
+            <WalletDetailView apiUrl={apiUrl} wallet={detailWallet} />
+          ) : (
+            <div className="terminal-panel empty-state">
+              <p className="terminal-heading">&gt; WALLET NOT FOUND</p>
+              <p className="muted">This vault does not contain the requested wallet.</p>
+              <a className="secondary-button compact-button" href="/">
+                Back to dashboard
+              </a>
+            </div>
+          )
+        ) : (
         <>
           <WalletCreateForm busy={busy} onSubmit={handleCreateWallet} />
           <WalletList
+            apiUrl={apiUrl}
             busy={busy}
-            selectedWalletId={selectedWalletId}
+            mempoolBadgeStatus={mempoolBadgeStatus}
+            vaultBadgeStatus={vaultBadgeStatus}
             wallets={wallets}
             onDelete={handleDeleteWallet}
-            onSelect={setSelectedWalletId}
             onUpdate={handleUpdateWallet}
           />
-          {selectedWallet ? <WalletAddressPanel apiUrl={apiUrl} wallet={selectedWallet} /> : null}
         </>
+        )
       ) : null}
     </div>
   );
@@ -1007,34 +1087,43 @@ function WalletCreateForm({
 }
 
 function WalletList({
+  apiUrl,
   busy,
-  selectedWalletId,
+  mempoolBadgeStatus,
+  vaultBadgeStatus,
   wallets,
   onDelete,
-  onSelect,
   onUpdate
 }: {
+  apiUrl: string;
   busy: boolean;
-  selectedWalletId: string | null;
+  mempoolBadgeStatus: StatusKind;
+  vaultBadgeStatus: StatusKind;
   wallets: WalletRecord[];
   onDelete: (id: string) => Promise<void>;
-  onSelect: (id: string) => void;
   onUpdate: (id: string, input: { name: string; gapLimit: number }) => Promise<void>;
 }) {
   if (wallets.length === 0) {
-    return <p className="muted">No wallets registered.</p>;
+    return (
+      <div className="terminal-panel empty-state">
+        <p className="terminal-heading">&gt; WALLET SET EMPTY</p>
+        <p className="muted">Register an xpub, ypub, or zpub to begin watch-only monitoring.</p>
+        <p className="terminal-mantra">Self-hosted watch-only Bitcoin terminal. We are all Satoshi.</p>
+      </div>
+    );
   }
 
   return (
     <div className="wallet-list">
       {wallets.map((wallet) => (
         <WalletCard
+          apiUrl={apiUrl}
           busy={busy}
-          selected={wallet.id === selectedWalletId}
           key={wallet.id}
+          mempoolBadgeStatus={mempoolBadgeStatus}
+          vaultBadgeStatus={vaultBadgeStatus}
           wallet={wallet}
           onDelete={onDelete}
-          onSelect={onSelect}
           onUpdate={onUpdate}
         />
       ))}
@@ -1043,21 +1132,25 @@ function WalletList({
 }
 
 function WalletCard({
+  apiUrl,
   busy,
-  selected,
+  mempoolBadgeStatus,
+  vaultBadgeStatus,
   wallet,
   onDelete,
-  onSelect,
   onUpdate
 }: {
+  apiUrl: string;
   busy: boolean;
-  selected: boolean;
+  mempoolBadgeStatus: StatusKind;
+  vaultBadgeStatus: StatusKind;
   wallet: WalletRecord;
   onDelete: (id: string) => Promise<void>;
-  onSelect: (id: string) => void;
   onUpdate: (id: string, input: { name: string; gapLimit: number }) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
+  const [miniBalance, setMiniBalance] = useState<BalanceSummary | null>(null);
+  const [miniBalanceStatus, setMiniBalanceStatus] = useState<"loading" | "ready" | "degraded" | "offline">("loading");
   const [name, setName] = useState(wallet.name);
   const [gapLimit, setGapLimit] = useState(wallet.gapLimit);
   const [revealed, setRevealed] = useState(false);
@@ -1066,6 +1159,36 @@ function WalletCard({
     setName(wallet.name);
     setGapLimit(wallet.gapLimit);
   }, [wallet.name, wallet.gapLimit]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMiniBalanceStatus("loading");
+    void apiRequest<WalletBalanceResponse>(
+      apiUrl,
+      `/api/wallets/${wallet.id}/balance?chain=both&limit=${wallet.gapLimit}`
+    )
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+        setMiniBalance({
+          confirmedBalance: response.confirmedBalance,
+          unconfirmedBalance: response.unconfirmedBalance,
+          totalBalance: response.totalBalance
+        });
+        setMiniBalanceStatus(response.lookupError ? "degraded" : "ready");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMiniBalance(null);
+          setMiniBalanceStatus("offline");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, wallet.id, wallet.gapLimit]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1077,22 +1200,37 @@ function WalletCard({
     }
   }
 
+  const walletHref = `/wallets/${encodeURIComponent(wallet.id)}`;
+  const balanceBadgeStatus: StatusKind =
+    miniBalanceStatus === "ready" ? "online" : miniBalanceStatus === "offline" ? "offline" : "degraded";
+
   return (
-    <article className={selected ? "wallet-card selected-wallet-card" : "wallet-card"}>
+    <article className="wallet-card">
       <div className="wallet-card-header">
         <div>
-          <h2>{wallet.name}</h2>
+          <div className="terminal-statusline card-statusline">
+            <StatusBadge label="VAULT" status={vaultBadgeStatus} />
+            <StatusBadge label="MEMPOOL" status={mempoolBadgeStatus} />
+            <StatusBadge label="BALANCE" status={balanceBadgeStatus} />
+          </div>
+          <h2>
+            <a className="wallet-title-link" href={walletHref}>
+              {wallet.name}
+            </a>
+          </h2>
           <p className="muted">
             {wallet.network} / {wallet.type} / {wallet.scriptType}
           </p>
         </div>
         <div className="button-row">
           <button
-            className={selected ? "compact-button" : "secondary-button compact-button"}
+            className="secondary-button compact-button"
             type="button"
-            onClick={() => onSelect(wallet.id)}
+            onClick={() => {
+              window.location.assign(walletHref);
+            }}
           >
-            Addresses
+            View detail
           </button>
           <button
             className="secondary-button compact-button"
@@ -1135,6 +1273,33 @@ function WalletCard({
         </form>
       ) : null}
 
+      <dl className="wallet-mini-balance">
+        <div>
+          <dt>Total</dt>
+          <dd>
+            {miniBalanceStatus === "loading"
+              ? "syncing..."
+              : formatBalance(miniBalance?.totalBalance ?? 0, "sats")}
+          </dd>
+        </div>
+        <div>
+          <dt>Confirmed</dt>
+          <dd>
+            {miniBalanceStatus === "loading"
+              ? "..."
+              : formatBalance(miniBalance?.confirmedBalance ?? 0, "sats")}
+          </dd>
+        </div>
+        <div>
+          <dt>Unconfirmed</dt>
+          <dd>
+            {miniBalanceStatus === "loading"
+              ? "..."
+              : formatBalance(miniBalance?.unconfirmedBalance ?? 0, "sats")}
+          </dd>
+        </div>
+      </dl>
+
       <dl className="wallet-details">
         <div>
           <dt>Derivation path</dt>
@@ -1165,6 +1330,26 @@ function WalletCard({
   );
 }
 
+function WalletDetailView({ apiUrl, wallet }: { apiUrl: string; wallet: WalletRecord }) {
+  return (
+    <div className="wallet-detail-page">
+      <div className="wallet-detail-header terminal-panel">
+        <div>
+          <p className="terminal-heading">&gt; WALLET CONTEXT</p>
+          <h2>{wallet.name}</h2>
+          <div className="terminal-statusline">
+            <span className="phase-pill">{wallet.type.toUpperCase()}</span>
+            <span className="terminal-meta">network: {wallet.network}</span>
+            <span className="terminal-meta">script: {wallet.scriptType}</span>
+            <span className="terminal-meta">path: {wallet.derivationPath}</span>
+          </div>
+        </div>
+      </div>
+      <WalletAddressPanel apiUrl={apiUrl} wallet={wallet} />
+    </div>
+  );
+}
+
 function WalletAddressPanel({
   apiUrl,
   wallet
@@ -1182,8 +1367,9 @@ function WalletAddressPanel({
   const [balanceUnit, setBalanceUnit] = useState<"sats" | "btc">("sats");
   const [usageLookupNote, setUsageLookupNote] = useState("");
   const [message, setMessage] = useState("");
+  const [copyMessage, setCopyMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [qrAddress, setQrAddress] = useState<string | null>(null);
+  const [qrAddress, setQrAddress] = useState<DerivedAddress | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState("");
 
   useEffect(() => {
@@ -1197,7 +1383,7 @@ function WalletAddressPanel({
     }
 
     let cancelled = false;
-    void QRCode.toDataURL(qrAddress, {
+    void QRCode.toDataURL(qrAddress.address, {
       errorCorrectionLevel: "M",
       margin: 2,
       width: 240
@@ -1215,6 +1401,7 @@ function WalletAddressPanel({
   async function refreshAddresses() {
     setLoading(true);
     setMessage("");
+    setCopyMessage("");
 
     try {
       const response = await apiRequest<WalletBalanceResponse>(
@@ -1244,6 +1431,15 @@ function WalletAddressPanel({
     }
   }
 
+  async function copyAddress(address: DerivedAddress) {
+    try {
+      await navigator.clipboard.writeText(address.address);
+      setCopyMessage(`Copied ${address.chain} address from ${wallet.name}`);
+    } catch {
+      setCopyMessage(`Unable to copy ${address.chain} address from ${wallet.name}`);
+    }
+  }
+
   const visibleAddresses =
     usageTab === "all"
       ? addresses
@@ -1252,6 +1448,7 @@ function WalletAddressPanel({
   const changeAddresses = visibleAddresses.filter((address) => address.chain === "change");
   const unknownAddressCount = addresses.filter((address) => address.usage === "unknown").length;
   const usageLookupFailed = Boolean(usageLookupNote) || unknownAddressCount === addresses.length && addresses.length > 0;
+  const mempoolBadgeStatus = usageLookupFailed ? "degraded" : loading ? "degraded" : "online";
   const emptyUsageMessage = getEmptyUsageMessage({
     usageTab,
     usageLookupFailed,
@@ -1262,22 +1459,31 @@ function WalletAddressPanel({
     <section className="wallet-address-panel">
       <div className="wallet-card-header">
         <div>
-          <p className="eyebrow">Addresses</p>
+          <p className="terminal-heading">&gt; ADDRESS SET</p>
           <h2>{wallet.name}</h2>
+          <p className="muted technical-line">
+            path: {wallet.derivationPath}/* / network: {wallet.network} / unit: {balanceUnit}
+          </p>
         </div>
         <button className="secondary-button compact-button" type="button" onClick={() => void refreshAddresses()}>
           Refresh
         </button>
       </div>
+      <div className="terminal-statusline">
+        <StatusBadge label="MEMPOOL" status={mempoolBadgeStatus} />
+        <StatusBadge label="BALANCE" status={message ? "offline" : usageLookupFailed ? "degraded" : "online"} />
+        <span className="terminal-meta">unknown excluded from totals</span>
+      </div>
 
       {message ? <p className="status-message">{message}</p> : null}
+      {copyMessage ? <p className="status-message">{copyMessage}</p> : null}
       {usageLookupNote ? <p className="status-message">{usageLookupNote}; unknown addresses are still shown.</p> : null}
 
       <div className="balance-summary">
         <div className="wallet-card-header">
           <div>
-            <p className="eyebrow">Balance</p>
-            <h2>{formatBalance(balance?.totalBalance ?? 0, balanceUnit)}</h2>
+            <p className="terminal-heading">&gt; WALLET BALANCE</p>
+            <h2 className="balance-total">{formatBalance(balance?.totalBalance ?? 0, balanceUnit)}</h2>
           </div>
           <div className="tab-row">
             <button
@@ -1317,26 +1523,28 @@ function WalletAddressPanel({
       </div>
 
       <div className="next-address-placeholder">
-        <dt>Next unused receive address</dt>
+        <dt>&gt; NEXT RECEIVE</dt>
         {nextReceiveAddress ? (
           <dd>
+            <span className="terminal-meta">wallet: {wallet.name}</span>
             <span className={`usage-pill usage-${nextReceiveAddress.usage}`}>
               {nextReceiveAddress.usage}
             </span>
             <code>{nextReceiveAddress.address}</code>
             <span>{nextReceiveAddress.path}</span>
+            <span className="muted">Verify wallet name before sharing this receive address.</span>
             <div className="button-row">
               <button
                 className="secondary-button compact-button"
                 type="button"
-                onClick={() => void navigator.clipboard.writeText(nextReceiveAddress.address)}
+                onClick={() => void copyAddress(nextReceiveAddress)}
               >
                 Copy
               </button>
               <button
                 className="secondary-button compact-button"
                 type="button"
-                onClick={() => setQrAddress(nextReceiveAddress.address)}
+                onClick={() => setQrAddress(nextReceiveAddress)}
               >
                 QR
               </button>
@@ -1406,7 +1614,7 @@ function WalletAddressPanel({
         </button>
       </div>
 
-      {loading ? <p className="muted">Looking up wallet balance...</p> : null}
+      {loading ? <TerminalSkeleton label="SYNCING ADDRESS BALANCES" rows={4} /> : null}
       {!loading && visibleAddresses.length === 0 ? (
         <p className="muted">{emptyUsageMessage}</p>
       ) : null}
@@ -1415,6 +1623,8 @@ function WalletAddressPanel({
           addresses={receiveAddresses}
           balanceUnit={balanceUnit}
           title="Receive addresses"
+          walletName={wallet.name}
+          onCopy={copyAddress}
           onShowQr={setQrAddress}
         />
       ) : null}
@@ -1423,6 +1633,8 @@ function WalletAddressPanel({
           addresses={changeAddresses}
           balanceUnit={balanceUnit}
           title="Change addresses"
+          walletName={wallet.name}
+          onCopy={copyAddress}
           onShowQr={setQrAddress}
         />
       ) : null}
@@ -1437,7 +1649,23 @@ function WalletAddressPanel({
               </button>
             </div>
             <div className="qr-box">{qrDataUrl ? <img alt="Address QR code" src={qrDataUrl} /> : null}</div>
-            <code>{qrAddress}</code>
+            <dl className="qr-context">
+              <div>
+                <dt>Wallet</dt>
+                <dd>{wallet.name}</dd>
+              </div>
+              <div>
+                <dt>Chain / index</dt>
+                <dd>
+                  {qrAddress.chain} / {qrAddress.index}
+                </dd>
+              </div>
+              <div>
+                <dt>Path</dt>
+                <dd>{qrAddress.path}</dd>
+              </div>
+            </dl>
+            <code>{qrAddress.address}</code>
           </div>
         </div>
       ) : null}
@@ -1448,45 +1676,66 @@ function WalletAddressPanel({
 function AddressTable({
   addresses,
   balanceUnit,
+  walletName,
   title,
+  onCopy,
   onShowQr
 }: {
   addresses: DerivedAddress[];
   balanceUnit: "sats" | "btc";
+  walletName: string;
   title: string;
-  onShowQr: (address: string) => void;
+  onCopy: (address: DerivedAddress) => void;
+  onShowQr: (address: DerivedAddress) => void;
 }) {
   return (
     <div className="address-section">
-      <h2>{title}</h2>
+      <h2>&gt; {title}</h2>
+      <p className="muted technical-line">wallet: {walletName}</p>
       <div className="address-table">
+        <div className="address-row address-row-header" aria-hidden="true">
+          <span>Index</span>
+          <span>Chain</span>
+          <span>Address</span>
+          <span>Balance</span>
+          <span>Status</span>
+          <span>Actions</span>
+        </div>
         {addresses.map((address) => (
           <div className="address-row" key={`${address.chain}-${address.index}`}>
-            <div>
-              <dt>
-                {address.chain} / {address.index}
-              </dt>
-              <dd>{address.path}</dd>
+            <div className="address-cell address-index">
+              <dt>Index</dt>
+              <dd>{address.index}</dd>
             </div>
-            <code>{address.address}</code>
-            <div className="usage-stack">
+            <div className="address-cell">
+              <dt>Chain</dt>
+              <dd>{address.chain}</dd>
+            </div>
+            <div className="address-cell address-value">
+              <dt>Address</dt>
+              <code>{address.address}</code>
+              <span className="muted">{address.path}</span>
+            </div>
+            <div className="address-cell numeric-value">
+              <dt>Balance</dt>
+              <dd>{formatNullableBalance(address.totalBalance, balanceUnit)}</dd>
+            </div>
+            <div className="address-cell usage-stack">
+              <dt>Status</dt>
               <span className={`usage-pill usage-${address.usage}`}>{address.usage}</span>
               <span className="muted">
                 txCount: {address.txCount === null || address.txCount === undefined ? "unknown" : address.txCount}
               </span>
-              <span className="muted">
-                balance: {formatNullableBalance(address.totalBalance, balanceUnit)}
-              </span>
             </div>
-            <div className="button-row">
+            <div className="button-row address-actions">
               <button
                 className="secondary-button compact-button"
                 type="button"
-                onClick={() => void navigator.clipboard.writeText(address.address)}
+                onClick={() => void onCopy(address)}
               >
                 Copy address
               </button>
-              <button className="secondary-button compact-button" type="button" onClick={() => onShowQr(address.address)}>
+              <button className="secondary-button compact-button" type="button" onClick={() => onShowQr(address)}>
                 QR
               </button>
             </div>

@@ -62,6 +62,35 @@ export function getMempoolApiConfig() {
   };
 }
 
+export async function checkMempoolHealth(): Promise<{
+  status: "online" | "offline";
+  tipHeight: number | null;
+}> {
+  const config = getMempoolApiConfig();
+  try {
+    const response = await fetch(`${config.url}/blocks/tip/height`, {
+      signal: AbortSignal.timeout(requestTimeoutMs)
+    });
+    if (!response.ok) {
+      return {
+        status: "offline",
+        tipHeight: null
+      };
+    }
+
+    const height = Number(await response.text());
+    return {
+      status: Number.isInteger(height) && height > 0 ? "online" : "offline",
+      tipHeight: Number.isInteger(height) && height > 0 ? height : null
+    };
+  } catch {
+    return {
+      status: "offline",
+      tipHeight: null
+    };
+  }
+}
+
 export async function lookupAddressUsageRecords(
   addresses: DerivedAddress[],
   options: {
