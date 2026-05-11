@@ -10,6 +10,8 @@ import {
   lookupAddressBalanceRecords,
   lookupAddressUsageRecords
 } from "../mempool/usage.js";
+import { lookupWalletTransactions } from "../mempool/transactions.js";
+import type { WalletTransactionsResult } from "../mempool/transactions.js";
 import {
   accountPathFor,
   defaultScriptTypeForExistingKey,
@@ -278,6 +280,29 @@ export async function deriveWalletBalance(
       addresses: balance.addresses
     }
   };
+}
+
+export async function getWalletTransactions(
+  id: string,
+  input: {
+    chain: "receive" | "change" | "both";
+    addressLimit: number;
+    txLimit: number;
+  }
+): Promise<{ wallet: WalletRecord; result: WalletTransactionsResult }> {
+  const { wallet, result: addressResult } = deriveWalletAddresses(id, {
+    chain: input.chain,
+    limit: input.addressLimit
+  });
+
+  const walletAddresses = addressResult.addresses.map((a) => ({
+    chain: a.chain,
+    index: a.index,
+    address: a.address
+  }));
+
+  const result = await lookupWalletTransactions(walletAddresses, input.txLimit);
+  return { wallet, result };
 }
 
 export function derivationPathFor(

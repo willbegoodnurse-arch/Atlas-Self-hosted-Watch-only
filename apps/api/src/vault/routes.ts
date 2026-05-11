@@ -14,6 +14,7 @@ import {
   deriveWalletBalance,
   deriveWalletNextReceiveAddress,
   getVaultStatus,
+  getWalletTransactions,
   initVault,
   listWallets,
   lockVault,
@@ -45,6 +46,12 @@ type WalletPatchBody = {
 type WalletAddressesQuery = {
   chain?: string;
   limit?: string;
+};
+
+type WalletTransactionsQuery = {
+  chain?: string;
+  addressLimit?: string;
+  txLimit?: string;
 };
 
 export async function registerVaultRoutes(server: FastifyInstance): Promise<void> {
@@ -306,6 +313,36 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
     }
   );
 
+  server.get<{ Querystring: WalletTransactionsQuery; Params: { id: string } }>(
+    "/api/wallets/:id/transactions",
+    async (request, reply) => {
+      if (!ensureAuthenticated(request, reply)) {
+        return;
+      }
+
+      const validation = validateTransactionsQuery(request.query);
+      if (!validation.ok) {
+        return reply.code(400).send({ error: validation.error });
+      }
+
+      try {
+        const { wallet, result } = await getWalletTransactions(
+          request.params.id,
+          validation.value
+        );
+        return reply.send({
+          walletId: wallet.id,
+          status: result.status,
+          transactions: result.transactions,
+          failedAddresses: result.failedAddresses,
+          mempool: getMempoolApiConfig()
+        });
+      } catch (error) {
+        return handleVaultError(error, reply);
+      }
+    }
+  );
+
   server.patch<{ Body: WalletPatchBody; Params: { id: string } }>(
     "/api/wallets/:id",
     async (request, reply) => {
@@ -448,6 +485,41 @@ function validateAddressesQuery(query: WalletAddressesQuery):
     value: {
       chain,
       limit: parsedLimit
+    }
+  };
+}
+
+function validateTransactionsQuery(query: WalletTransactionsQuery):
+  | {
+      ok: true;
+      value: {
+        chain: "receive" | "change" | "both";
+        addressLimit: number;
+        txLimit: number;
+      };
+    }
+  | { ok: false; error: string } {
+  const chain = query.chain ?? "both";
+  if (chain !== "receive" && chain !== "change" && chain !== "both") {
+    return { ok: false, error: "Address chain must be receive, change, or both" };
+  }
+
+  const parsedAddressLimit = query.addressLimit === undefined ? 20 : Number(query.addressLimit);
+  if (!Number.isInteger(parsedAddressLimit) || parsedAddressLimit < 1 || parsedAddressLimit > 100) {
+    return { ok: false, error: "Address limit must be an integer from 1 to 100" };
+  }
+
+  const parsedTxLimit = query.txLimit === undefined ? 50 : Number(query.txLimit);
+  if (!Number.isInteger(parsedTxLimit) || parsedTxLimit < 1 || parsedTxLimit > 200) {
+    return { ok: false, error: "Transaction limit must be an integer from 1 to 200" };
+  }
+
+  return {
+    ok: true,
+    value: {
+      chain,
+      addressLimit: parsedAddressLimit,
+      txLimit: parsedTxLimit
     }
   };
 }

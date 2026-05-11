@@ -593,6 +593,117 @@ dd {
   }
 }
 
+.tx-history-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.tx-list {
+  display: grid;
+  gap: 10px;
+}
+
+.tx-row {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  padding: 12px 14px;
+}
+
+.tx-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.tx-direction-badge {
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 3px 7px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tx-incoming {
+  border-color: #315b43;
+  color: var(--green);
+}
+
+.tx-outgoing {
+  border-color: #7f3838;
+  color: var(--red);
+}
+
+.tx-self {
+  border-color: #6d7890;
+  color: #cbd5e1;
+}
+
+.tx-unknown {
+  border-color: #715d2e;
+  color: var(--amber);
+}
+
+.tx-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.tx-amount-incoming {
+  color: var(--green);
+}
+
+.tx-amount-outgoing {
+  color: var(--red);
+}
+
+.tx-amount-self,
+.tx-amount-unknown {
+  color: var(--muted);
+}
+
+.tx-txid {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.tx-related {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding-top: 10px;
+}
+
+.tx-related-tag {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 12px;
+}
+
+.tx-privacy-hint {
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+label.tx-limit-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+}
+
+label.tx-limit-select select {
+  width: auto;
+}
+
 @media (max-width: 760px) {
   .shell {
     padding: 16px;

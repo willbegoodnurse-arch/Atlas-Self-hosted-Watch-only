@@ -120,6 +120,42 @@ type MempoolStatusResponse = {
   cacheTtlSeconds: number;
 };
 
+type WalletTransactionRelatedAddress = {
+  address: string;
+  chain: "receive" | "change";
+  index: number;
+  role: "input" | "output";
+  valueSats: number;
+};
+
+type WalletTransaction = {
+  txid: string;
+  status: "confirmed" | "unconfirmed" | "unknown";
+  direction: "incoming" | "outgoing" | "self" | "unknown";
+  netSats: number;
+  feeSats: number | null;
+  blockHeight: number | null;
+  blockTime: number | null;
+  relatedAddresses: WalletTransactionRelatedAddress[];
+};
+
+type WalletTransactionsResponse = {
+  walletId: string;
+  status: "online" | "partial" | "offline";
+  transactions: WalletTransaction[];
+  failedAddresses: Array<{
+    address: string;
+    chain: "receive" | "change";
+    index: number;
+    error: string;
+  }>;
+  mempool: {
+    mode: string;
+    url: string;
+    cacheTtlSeconds: number;
+  };
+};
+
 type ViewState = "loading" | "setup" | "verify-totp" | "login" | "dashboard";
 type AuthMode = "signup" | "signin";
 type StatusKind = "online" | "locked" | "degraded" | "offline";
@@ -302,7 +338,7 @@ export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
             <p className="eyebrow">watch wallet</p>
             <h1>{view === "dashboard" ? (initialWalletId ? "Wallet detail" : "Wallets") : "Secure access"}</h1>
           </div>
-          <span className="phase-pill">{view === "dashboard" ? "PHASE 7" : "AUTH NODE"}</span>
+          <span className="phase-pill">{view === "dashboard" ? "PHASE 8" : "AUTH NODE"}</span>
         </div>
 
         {message ? <p className="status-message">{message}</p> : null}
@@ -1535,6 +1571,7 @@ function WalletDetailView({
   mempoolBadgeStatus: StatusKind;
   wallet: WalletRecord;
 }) {
+  const [balanceUnit, setBalanceUnit] = useState<"sats" | "btc">("sats");
   const warnings = walletSafetyWarnings(wallet);
   return (
     <div className="wallet-detail-page">
@@ -1560,18 +1597,29 @@ function WalletDetailView({
           ) : null}
         </div>
       </div>
-      <WalletAddressPanel apiUrl={apiUrl} mempoolBadgeStatus={mempoolBadgeStatus} wallet={wallet} />
+      <WalletAddressPanel
+        apiUrl={apiUrl}
+        balanceUnit={balanceUnit}
+        mempoolBadgeStatus={mempoolBadgeStatus}
+        setBalanceUnit={setBalanceUnit}
+        wallet={wallet}
+      />
+      <TransactionHistoryPanel apiUrl={apiUrl} balanceUnit={balanceUnit} wallet={wallet} />
     </div>
   );
 }
 
 function WalletAddressPanel({
   apiUrl,
+  balanceUnit,
   mempoolBadgeStatus,
+  setBalanceUnit,
   wallet
 }: {
   apiUrl: string;
+  balanceUnit: "sats" | "btc";
   mempoolBadgeStatus: StatusKind;
+  setBalanceUnit: (unit: "sats" | "btc") => void;
   wallet: WalletRecord;
 }) {
   const [chain, setChain] = useState<"both" | "receive" | "change">("both");
@@ -1581,7 +1629,6 @@ function WalletAddressPanel({
   const [balance, setBalance] = useState<BalanceSummary | null>(null);
   const [receiveBalance, setReceiveBalance] = useState<BalanceSummary | null>(null);
   const [changeBalance, setChangeBalance] = useState<BalanceSummary | null>(null);
-  const [balanceUnit, setBalanceUnit] = useState<"sats" | "btc">("sats");
   const [usageLookupNote, setUsageLookupNote] = useState("");
   const [message, setMessage] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
@@ -1897,6 +1944,184 @@ function WalletAddressPanel({
       ) : null}
     </section>
   );
+}
+
+function TransactionHistoryPanel({
+  apiUrl,
+  balanceUnit,
+  wallet
+}: {
+  apiUrl: string;
+  balanceUnit: "sats" | "btc";
+  wallet: WalletRecord;
+}) {
+  const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
+  const [txStatus, setTxStatus] = useState<"online" | "partial" | "offline" | null>(null);
+  const [failedCount, setFailedCount] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [txLimit, setTxLimit] = useState(25);
+
+  useEffect(() => {
+    void refreshTransactions();
+  }, [wallet.id, txLimit]);
+
+  async function refreshTransactions() {
+    setLoading(true);
+    setMessage("");
+    try {
+      const response = await apiRequest<WalletTransactionsResponse>(
+        apiUrl,
+        `/api/wallets/${wallet.id}/transactions?chain=both&addressLimit=${wallet.gapLimit}&txLimit=${txLimit}`
+      );
+      setTransactions(response.transactions);
+      setTxStatus(response.status);
+      setFailedCount(response.failedAddresses.length);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to load transaction history");
+      setTransactions([]);
+      setTxStatus(null);
+      setFailedCount(0);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const txBadgeStatus: StatusKind =
+    txStatus === "online" ? "online" : txStatus === "offline" ? "offline" : "degraded";
+
+  return (
+    <section className="tx-history-panel wallet-address-panel">
+      <div className="wallet-card-header">
+        <div>
+          <p className="terminal-heading">&gt; TRANSACTION HISTORY</p>
+          <h2>{wallet.name}</h2>
+          <p className="muted technical-line">
+            network: {wallet.network} / unit: {balanceUnit}
+          </p>
+        </div>
+        <button className="secondary-button compact-button" type="button" onClick={() => void refreshTransactions()}>
+          Refresh
+        </button>
+      </div>
+      <div className="terminal-statusline">
+        <StatusBadge label="TX" status={txStatus === null ? "degraded" : txBadgeStatus} />
+        {failedCount > 0 ? (
+          <span className="terminal-meta">{failedCount} address lookup(s) failed</span>
+        ) : null}
+      </div>
+
+      {message ? <p className="status-message">{message}</p> : null}
+
+      <label className="tx-limit-select">
+        <span>Show</span>
+        <select
+          value={txLimit}
+          onChange={(event) => setTxLimit(Number(event.target.value))}
+        >
+          <option value={10}>10 transactions</option>
+          <option value={25}>25 transactions</option>
+          <option value={50}>50 transactions</option>
+          <option value={100}>100 transactions</option>
+        </select>
+      </label>
+
+      {loading ? (
+        <TerminalSkeleton label="LOADING TRANSACTIONS" rows={4} />
+      ) : transactions.length === 0 ? (
+        <p className="muted">
+          {txStatus === "offline"
+            ? "Transaction lookup failed. Check mempool connection."
+            : "No transactions found for this wallet."}
+        </p>
+      ) : (
+        <div className="tx-list">
+          {transactions.map((tx) => (
+            <TransactionRow key={tx.txid} balanceUnit={balanceUnit} tx={tx} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TransactionRow({
+  balanceUnit,
+  tx
+}: {
+  balanceUnit: "sats" | "btc";
+  tx: WalletTransaction;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const directionClass = `tx-direction-badge tx-${tx.direction}`;
+
+  const formattedTime =
+    tx.blockTime !== null
+      ? new Date(tx.blockTime * 1000).toLocaleString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit"
+        })
+      : null;
+
+  return (
+    <div className="tx-row">
+      <div className="tx-meta-row">
+        <span className={directionClass}>{tx.direction}</span>
+        <span className={`tx-amount tx-amount-${tx.direction}`}>
+          {formatTransactionAmount(tx.netSats, balanceUnit)}
+        </span>
+        <span className={`usage-pill usage-${tx.status === "confirmed" ? "used" : tx.status === "unconfirmed" ? "unused" : "unknown"}`}>
+          {tx.status}
+        </span>
+        {formattedTime ? (
+          <span className="terminal-meta">{formattedTime}</span>
+        ) : (
+          <span className="terminal-meta muted">pending</span>
+        )}
+        {tx.blockHeight !== null ? (
+          <span className="terminal-meta">block {new Intl.NumberFormat("en-US").format(tx.blockHeight)}</span>
+        ) : null}
+        {tx.feeSats !== null ? (
+          <span className="terminal-meta">fee: {formatBalance(tx.feeSats, balanceUnit)}</span>
+        ) : null}
+        <button
+          className="secondary-button compact-button"
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "Less" : "More"}
+        </button>
+      </div>
+      <div className="tx-txid">
+        <span className="terminal-meta">txid: </span>
+        <code>{tx.txid.slice(0, 16)}…{tx.txid.slice(-8)}</code>
+      </div>
+      {expanded ? (
+        <div className="tx-related">
+          <p className="terminal-meta">Related addresses ({tx.relatedAddresses.length}):</p>
+          {tx.relatedAddresses.map((rel, i) => (
+            <div className="tx-related-tag" key={i}>
+              <span className="terminal-meta">{rel.role} / {rel.chain}[{rel.index}]</span>
+              <code>{rel.address}</code>
+              <span className="terminal-meta">{formatBalance(rel.valueSats, balanceUnit)}</span>
+            </div>
+          ))}
+          <p className="tx-privacy-hint muted">
+            Extended public key reveals all wallet addresses. Treat this data as sensitive.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function formatTransactionAmount(netSats: number, unit: "sats" | "btc"): string {
+  const abs = Math.abs(netSats);
+  const formatted = formatBalance(abs, unit);
+  return netSats >= 0 ? `+${formatted}` : `-${formatted}`;
 }
 
 function AddressTable({
