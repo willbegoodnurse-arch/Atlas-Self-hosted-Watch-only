@@ -1572,39 +1572,70 @@ function WalletDetailView({
   wallet: WalletRecord;
 }) {
   const [balanceUnit, setBalanceUnit] = useState<"sats" | "btc">("sats");
+  const [balanceBadgeStatus, setBalanceBadgeStatus] = useState<StatusKind>("degraded");
+  const [txBadgeStatus, setTxBadgeStatus] = useState<StatusKind>("degraded");
   const warnings = walletSafetyWarnings(wallet);
+  const accountPath = wallet.accountPath ?? wallet.derivationPath ?? "not provided";
   return (
     <div className="wallet-detail-page">
       <div className="wallet-detail-header terminal-panel">
         <div>
-          <p className="terminal-heading">&gt; WALLET CONTEXT</p>
-          <h2>{wallet.name}</h2>
-          <div className="terminal-statusline">
-            <span className="phase-pill">{wallet.type.toUpperCase()}</span>
-            <span className="terminal-meta">source: {deviceLabel(wallet.sourceDevice)}</span>
-            <span className="terminal-meta">network: {wallet.network}</span>
-            <span className="terminal-meta">script: {wallet.scriptType}</span>
-            <span className="terminal-meta">account: {wallet.accountPath ?? wallet.derivationPath ?? "not provided"}</span>
-            <span className="terminal-meta">fingerprint: {wallet.masterFingerprint ?? "not provided"}</span>
-            <span className="terminal-meta">format: {wallet.importFormat ?? "unknown"}</span>
+          <div className="wallet-identity-line">
+            <span className="phase-pill">{deviceAlias(wallet.sourceDevice)}</span>
+            <h2>{wallet.name}</h2>
           </div>
-          {warnings.length ? (
-            <div className="terminal-panel import-preview">
-              {warnings.map((warning) => (
-                <p className="muted" key={warning}>{warning}</p>
-              ))}
+          <p className="wallet-identity-meta">
+            {deviceLabel(wallet.sourceDevice)} / {wallet.network} / {formatScriptType(wallet.scriptType)} / {accountPath} / fpr {wallet.masterFingerprint ?? "not provided"}
+          </p>
+          <div className="terminal-statusline detail-status-rail">
+            <span className="status-badge status-online">[VAULT: UNLOCKED]</span>
+            <StatusBadge label="MEMPOOL" status={mempoolBadgeStatus} />
+            <StatusBadge label="BALANCE" status={balanceBadgeStatus} />
+            <StatusBadge label="TXS" status={txBadgeStatus} />
+          </div>
+          <details className="metadata-details">
+            <summary>Import details</summary>
+            <div className="metadata-grid">
+              <div>
+                <dt>Import format</dt>
+                <dd>{wallet.importFormat ?? "unknown"}</dd>
+              </div>
+              <div>
+                <dt>Key type</dt>
+                <dd>{wallet.type}</dd>
+              </div>
+              <div>
+                <dt>Notes</dt>
+                <dd>{wallet.notes ?? "not provided"}</dd>
+              </div>
+              <div>
+                <dt>Raw import</dt>
+                <dd>{wallet.rawImport ? maskRawImport(wallet.rawImport) : "not stored"}</dd>
+              </div>
             </div>
-          ) : null}
+            {warnings.length ? (
+              <div className="metadata-warnings">
+                {warnings.map((warning) => (
+                  <p className="muted" key={warning}>{warning}</p>
+                ))}
+              </div>
+            ) : null}
+          </details>
         </div>
       </div>
       <WalletAddressPanel
         apiUrl={apiUrl}
         balanceUnit={balanceUnit}
-        mempoolBadgeStatus={mempoolBadgeStatus}
+        onBalanceStatusChange={setBalanceBadgeStatus}
         setBalanceUnit={setBalanceUnit}
         wallet={wallet}
       />
-      <TransactionHistoryPanel apiUrl={apiUrl} balanceUnit={balanceUnit} wallet={wallet} />
+      <TransactionHistoryPanel
+        apiUrl={apiUrl}
+        balanceUnit={balanceUnit}
+        onTxStatusChange={setTxBadgeStatus}
+        wallet={wallet}
+      />
     </div>
   );
 }
@@ -1612,13 +1643,13 @@ function WalletDetailView({
 function WalletAddressPanel({
   apiUrl,
   balanceUnit,
-  mempoolBadgeStatus,
+  onBalanceStatusChange,
   setBalanceUnit,
   wallet
 }: {
   apiUrl: string;
   balanceUnit: "sats" | "btc";
-  mempoolBadgeStatus: StatusKind;
+  onBalanceStatusChange: (status: StatusKind) => void;
   setBalanceUnit: (unit: "sats" | "btc") => void;
   wallet: WalletRecord;
 }) {
@@ -1682,6 +1713,7 @@ function WalletAddressPanel({
       setReceiveBalance(response.receiveBalance ?? null);
       setChangeBalance(response.changeBalance ?? null);
       setUsageLookupNote(response.lookupError ?? "");
+      onBalanceStatusChange(response.lookupError ? "degraded" : "online");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to look up wallet balance");
       setAddresses([]);
@@ -1690,6 +1722,7 @@ function WalletAddressPanel({
       setReceiveBalance(null);
       setChangeBalance(null);
       setUsageLookupNote("");
+      onBalanceStatusChange("offline");
     } finally {
       setLoading(false);
     }
@@ -1720,32 +1753,14 @@ function WalletAddressPanel({
 
   return (
     <section className="wallet-address-panel">
-      <div className="wallet-card-header">
-        <div>
-          <p className="terminal-heading">&gt; ADDRESS SET</p>
-          <h2>{wallet.name}</h2>
-          <p className="muted technical-line">
-            source: {deviceLabel(wallet.sourceDevice)} / path: {wallet.accountPath ?? wallet.derivationPath}/* / network: {wallet.network} / unit: {balanceUnit}
-          </p>
-        </div>
-        <button className="secondary-button compact-button" type="button" onClick={() => void refreshAddresses()}>
-          Refresh
-        </button>
-      </div>
-      <div className="terminal-statusline">
-        <StatusBadge label="MEMPOOL" status={mempoolBadgeStatus} />
-        <StatusBadge label="BALANCE" status={message ? "offline" : usageLookupFailed ? "degraded" : "online"} />
-        <span className="terminal-meta">unknown excluded from totals</span>
-      </div>
-
       {message ? <p className="status-message">{message}</p> : null}
       {copyMessage ? <p className="status-message">{copyMessage}</p> : null}
-      {usageLookupNote ? <p className="status-message">{usageLookupNote}; unknown addresses are still shown.</p> : null}
+      {usageLookupNote ? <p className="status-message">Some address balances could not be fetched. Total may be incomplete.</p> : null}
 
       <div className="balance-summary">
         <div className="wallet-card-header">
           <div>
-            <p className="terminal-heading">&gt; WALLET BALANCE</p>
+            <p className="terminal-heading">&gt; BALANCE</p>
             <h2 className="balance-total">{formatBalance(balance?.totalBalance ?? 0, balanceUnit)}</h2>
           </div>
           <div className="tab-row">
@@ -1789,9 +1804,7 @@ function WalletAddressPanel({
         <dt>&gt; NEXT RECEIVE</dt>
         {nextReceiveAddress ? (
           <dd>
-            <span className="terminal-meta">wallet: {wallet.name}</span>
-            <span className="terminal-meta">source: {deviceLabel(wallet.sourceDevice)}</span>
-            <span className="terminal-meta">chain: receive / index: {nextReceiveAddress.index}</span>
+            <span className="terminal-meta">receive #{nextReceiveAddress.index}</span>
             <span className={`usage-pill usage-${nextReceiveAddress.usage}`}>
               {nextReceiveAddress.usage}
             </span>
@@ -1822,6 +1835,16 @@ function WalletAddressPanel({
               : "Run usage lookup after unlocking the vault to calculate this address."}
           </dd>
         )}
+      </div>
+
+      <div className="wallet-card-header compact-section-header">
+        <div>
+          <p className="terminal-heading">&gt; ADDRESSES</p>
+          <p className="muted technical-line">unknown balances are excluded from totals</p>
+        </div>
+        <button className="secondary-button compact-button" type="button" onClick={() => void refreshAddresses()}>
+          Refresh
+        </button>
       </div>
 
       <div className="tab-row">
@@ -1887,8 +1910,7 @@ function WalletAddressPanel({
         <AddressTable
           addresses={receiveAddresses}
           balanceUnit={balanceUnit}
-          title="Receive addresses"
-          walletName={wallet.name}
+          title="Receive"
           onCopy={copyAddress}
           onShowQr={setQrAddress}
         />
@@ -1897,8 +1919,7 @@ function WalletAddressPanel({
         <AddressTable
           addresses={changeAddresses}
           balanceUnit={balanceUnit}
-          title="Change addresses"
-          walletName={wallet.name}
+          title="Change"
           onCopy={copyAddress}
           onShowQr={setQrAddress}
         />
@@ -1949,10 +1970,12 @@ function WalletAddressPanel({
 function TransactionHistoryPanel({
   apiUrl,
   balanceUnit,
+  onTxStatusChange,
   wallet
 }: {
   apiUrl: string;
   balanceUnit: "sats" | "btc";
+  onTxStatusChange: (status: StatusKind) => void;
   wallet: WalletRecord;
 }) {
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
@@ -1977,39 +2000,32 @@ function TransactionHistoryPanel({
       setTransactions(response.transactions);
       setTxStatus(response.status);
       setFailedCount(response.failedAddresses.length);
+      onTxStatusChange(response.status === "online" ? "online" : response.status === "offline" ? "offline" : "degraded");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to load transaction history");
       setTransactions([]);
       setTxStatus(null);
       setFailedCount(0);
+      onTxStatusChange("offline");
     } finally {
       setLoading(false);
     }
   }
 
-  const txBadgeStatus: StatusKind =
-    txStatus === "online" ? "online" : txStatus === "offline" ? "offline" : "degraded";
-
   return (
     <section className="tx-history-panel wallet-address-panel">
       <div className="wallet-card-header">
         <div>
-          <p className="terminal-heading">&gt; TRANSACTION HISTORY</p>
-          <h2>{wallet.name}</h2>
-          <p className="muted technical-line">
-            network: {wallet.network} / unit: {balanceUnit}
-          </p>
+          <p className="terminal-heading">&gt; TRANSACTIONS</p>
+          <p className="muted technical-line">unit: {balanceUnit}</p>
         </div>
         <button className="secondary-button compact-button" type="button" onClick={() => void refreshTransactions()}>
           Refresh
         </button>
       </div>
-      <div className="terminal-statusline">
-        <StatusBadge label="TX" status={txStatus === null ? "degraded" : txBadgeStatus} />
-        {failedCount > 0 ? (
-          <span className="terminal-meta">{failedCount} address lookup(s) failed</span>
-        ) : null}
-      </div>
+      {failedCount > 0 ? (
+        <p className="status-message">{failedCount} address lookup(s) failed. Transaction history may be incomplete.</p>
+      ) : null}
 
       {message ? <p className="status-message">{message}</p> : null}
 
@@ -2054,6 +2070,7 @@ function TransactionRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const directionClass = `tx-direction-badge tx-${tx.direction}`;
+  const relatedSummary = summarizeRelatedAddresses(tx.relatedAddresses);
 
   const formattedTime =
     tx.blockTime !== null
@@ -2069,7 +2086,7 @@ function TransactionRow({
   return (
     <div className="tx-row">
       <div className="tx-meta-row">
-        <span className={directionClass}>{tx.direction}</span>
+        <span className={directionClass}>{formatDirection(tx.direction)}</span>
         <span className={`tx-amount tx-amount-${tx.direction}`}>
           {formatTransactionAmount(tx.netSats, balanceUnit)}
         </span>
@@ -2084,9 +2101,7 @@ function TransactionRow({
         {tx.blockHeight !== null ? (
           <span className="terminal-meta">block {new Intl.NumberFormat("en-US").format(tx.blockHeight)}</span>
         ) : null}
-        {tx.feeSats !== null ? (
-          <span className="terminal-meta">fee: {formatBalance(tx.feeSats, balanceUnit)}</span>
-        ) : null}
+        <span className="terminal-meta">{relatedSummary}</span>
         <button
           className="secondary-button compact-button"
           type="button"
@@ -2097,10 +2112,13 @@ function TransactionRow({
       </div>
       <div className="tx-txid">
         <span className="terminal-meta">txid: </span>
-        <code>{tx.txid.slice(0, 16)}…{tx.txid.slice(-8)}</code>
+        <code>{tx.txid.slice(0, 16)}...{tx.txid.slice(-8)}</code>
       </div>
       {expanded ? (
         <div className="tx-related">
+          {tx.feeSats !== null ? (
+            <p className="terminal-meta">fee: {formatBalance(tx.feeSats, balanceUnit)}</p>
+          ) : null}
           <p className="terminal-meta">Related addresses ({tx.relatedAddresses.length}):</p>
           {tx.relatedAddresses.map((rel, i) => (
             <div className="tx-related-tag" key={i}>
@@ -2124,17 +2142,37 @@ function formatTransactionAmount(netSats: number, unit: "sats" | "btc"): string 
   return netSats >= 0 ? `+${formatted}` : `-${formatted}`;
 }
 
+function formatDirection(direction: WalletTransaction["direction"]): string {
+  if (direction === "incoming") return "IN";
+  if (direction === "outgoing") return "OUT";
+  if (direction === "self") return "SELF";
+  return "UNKNOWN";
+}
+
+function summarizeRelatedAddresses(addresses: WalletTransactionRelatedAddress[]): string {
+  const unique = new Map<string, WalletTransactionRelatedAddress>();
+  for (const address of addresses) {
+    unique.set(`${address.chain}-${address.index}`, address);
+  }
+  const values = [...unique.values()];
+  if (values.length === 0) {
+    return "no wallet address match";
+  }
+  if (values.length > 2) {
+    return `${values.length} wallet addresses`;
+  }
+  return values.map((address) => `${address.chain} #${address.index}`).join(", ");
+}
+
 function AddressTable({
   addresses,
   balanceUnit,
-  walletName,
   title,
   onCopy,
   onShowQr
 }: {
   addresses: DerivedAddress[];
   balanceUnit: "sats" | "btc";
-  walletName: string;
   title: string;
   onCopy: (address: DerivedAddress) => void;
   onShowQr: (address: DerivedAddress) => void;
@@ -2142,11 +2180,10 @@ function AddressTable({
   return (
     <div className="address-section">
       <h2>&gt; {title}</h2>
-      <p className="muted technical-line">wallet: {walletName}</p>
       <div className="address-table">
         <div className="address-row address-row-header" aria-hidden="true">
-          <span>Index</span>
           <span>Chain</span>
+          <span>Index</span>
           <span>Address</span>
           <span>Balance</span>
           <span>Status</span>
@@ -2154,13 +2191,13 @@ function AddressTable({
         </div>
         {addresses.map((address) => (
           <div className="address-row" key={`${address.chain}-${address.index}`}>
-            <div className="address-cell address-index">
-              <dt>Index</dt>
-              <dd>{address.index}</dd>
-            </div>
             <div className="address-cell">
               <dt>Chain</dt>
               <dd>{address.chain}</dd>
+            </div>
+            <div className="address-cell address-index">
+              <dt>Index</dt>
+              <dd>#{address.index}</dd>
             </div>
             <div className="address-cell address-value">
               <dt>Address</dt>
@@ -2482,6 +2519,31 @@ function maskExtendedPublicKey(value: string): string {
 
 function deviceLabel(sourceDevice: SourceDevice): string {
   return sourceDeviceOptions.find((option) => option.value === sourceDevice)?.label ?? "Other";
+}
+
+function deviceAlias(sourceDevice: SourceDevice): string {
+  const aliases: Record<SourceDevice, string> = {
+    coldcard: "COLD",
+    keystone: "KEYSTONE",
+    seedsigner: "SEEDSIGNER",
+    krux: "KRUX",
+    "passport-core": "PASSPORT",
+    jade: "JADE",
+    other: "OTHER"
+  };
+  return aliases[sourceDevice];
+}
+
+function formatScriptType(scriptType: WalletScriptType): string {
+  return scriptType.replace("-", " ");
+}
+
+function maskRawImport(value: string): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= 96) {
+    return compact;
+  }
+  return `${compact.slice(0, 64)}...${compact.slice(-24)}`;
 }
 
 function walletSafetyWarnings(wallet: WalletRecord): string[] {

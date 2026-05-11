@@ -399,12 +399,62 @@ button:disabled {
 }
 
 .wallet-detail-header {
-  grid-template-columns: auto 1fr;
-  align-items: start;
+  display: grid;
+  gap: 12px;
 }
 
 .wallet-detail-header h2 {
-  margin-bottom: 10px;
+  margin-bottom: 0;
+}
+
+.wallet-identity-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.wallet-identity-meta {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.detail-status-rail {
+  border-color: transparent;
+  background: transparent;
+  padding: 0;
+}
+
+.metadata-details {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.metadata-details summary {
+  width: fit-content;
+  color: var(--green);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin-top: 12px;
+}
+
+.metadata-warnings {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.metadata-warnings p {
+  margin-bottom: 0;
 }
 
 .wallet-details,
@@ -463,7 +513,8 @@ code {
 }
 
 .balance-total {
-  font-size: 28px;
+  color: var(--green);
+  font-size: 30px;
 }
 
 .tab-row {
@@ -474,7 +525,7 @@ code {
 
 .address-row {
   display: grid;
-  grid-template-columns: 72px 92px minmax(240px, 1fr) minmax(150px, auto) minmax(120px, auto) minmax(160px, auto);
+  grid-template-columns: 92px 72px minmax(240px, 1fr) minmax(150px, auto) minmax(120px, auto) minmax(160px, auto);
   align-items: center;
   gap: 12px;
 }
@@ -605,10 +656,10 @@ dd {
 
 .tx-row {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   border: 1px solid var(--line);
   border-radius: 4px;
-  background: var(--panel);
+  background: #070909;
   padding: 12px 14px;
 }
 
@@ -652,6 +703,7 @@ dd {
 .tx-amount {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+  font-size: 15px;
 }
 
 .tx-amount-incoming {
@@ -724,7 +776,7 @@ label.tx-limit-select select {
   .wallet-details,
   .wallet-mini-balance,
   .balance-grid,
-  .wallet-detail-header,
+  .metadata-grid,
   .qr-context,
   .address-row {
     grid-template-columns: 1fr;
