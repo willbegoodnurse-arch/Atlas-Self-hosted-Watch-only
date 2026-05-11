@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import QRCode from "qrcode";
 
 type SessionResponse = {
   authenticated: boolean;
@@ -34,6 +35,22 @@ type WalletRecord = {
   gapLimit: number;
   createdAt: string;
   updatedAt: string;
+};
+
+type DerivedAddress = {
+  chain: "receive" | "change";
+  index: number;
+  path: string;
+  address: string;
+  usage: "unknown";
+};
+
+type WalletAddressesResponse = {
+  walletId: string;
+  network: WalletRecord["network"];
+  scriptType: WalletRecord["scriptType"];
+  usageStatus: "unknown";
+  addresses: DerivedAddress[];
 };
 
 type ViewState = "loading" | "setup" | "verify-totp" | "login" | "dashboard";
@@ -476,6 +493,7 @@ function DashboardShell({
 function VaultWorkspace({ apiUrl }: { apiUrl: string }) {
   const [status, setStatus] = useState<VaultStatus | null>(null);
   const [wallets, setWallets] = useState<WalletRecord[]>([]);
+  const [selectedWalletId, setSelectedWalletId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -492,8 +510,12 @@ function VaultWorkspace({ apiUrl }: { apiUrl: string }) {
       if (nextStatus.unlocked) {
         const response = await apiRequest<{ wallets: WalletRecord[] }>(apiUrl, "/api/wallets");
         setWallets(response.wallets);
+        setSelectedWalletId((current) =>
+          current && response.wallets.some((wallet) => wallet.id === current) ? current : null
+        );
       } else {
         setWallets([]);
+        setSelectedWalletId(null);
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to load vault");
@@ -567,6 +589,7 @@ function VaultWorkspace({ apiUrl }: { apiUrl: string }) {
         body: JSON.stringify(input)
       });
       setWallets((current) => [...current, response.wallet]);
+      setSelectedWalletId(response.wallet.id);
       setStatus((current) =>
         current ? { ...current, walletCount: (current.walletCount ?? 0) + 1 } : current
       );
@@ -610,6 +633,7 @@ function VaultWorkspace({ apiUrl }: { apiUrl: string }) {
         method: "DELETE"
       });
       setWallets((current) => current.filter((wallet) => wallet.id !== id));
+      setSelectedWalletId((current) => (current === id ? null : current));
       setStatus((current) =>
         current ? { ...current, walletCount: Math.max((current.walletCount ?? 1) - 1, 0) } : current
       );
@@ -625,6 +649,9 @@ function VaultWorkspace({ apiUrl }: { apiUrl: string }) {
   if (!status) {
     return <p className="muted">Loading vault...</p>;
   }
+
+  const selectedWallet =
+    selectedWalletId ? wallets.find((wallet) => wallet.id === selectedWalletId) ?? null : null;
 
   return (
     <div className="vault-workspace">
@@ -654,10 +681,13 @@ function VaultWorkspace({ apiUrl }: { apiUrl: string }) {
           <WalletCreateForm busy={busy} onSubmit={handleCreateWallet} />
           <WalletList
             busy={busy}
+            selectedWalletId={selectedWalletId}
             wallets={wallets}
             onDelete={handleDeleteWallet}
+            onSelect={setSelectedWalletId}
             onUpdate={handleUpdateWallet}
           />
+          {selectedWallet ? <WalletAddressPanel apiUrl={apiUrl} wallet={selectedWallet} /> : null}
         </>
       ) : null}
     </div>
@@ -855,13 +885,17 @@ function WalletCreateForm({
 
 function WalletList({
   busy,
+  selectedWalletId,
   wallets,
   onDelete,
+  onSelect,
   onUpdate
 }: {
   busy: boolean;
+  selectedWalletId: string | null;
   wallets: WalletRecord[];
   onDelete: (id: string) => Promise<void>;
+  onSelect: (id: string) => void;
   onUpdate: (id: string, input: { name: string; gapLimit: number }) => Promise<void>;
 }) {
   if (wallets.length === 0) {
@@ -873,9 +907,11 @@ function WalletList({
       {wallets.map((wallet) => (
         <WalletCard
           busy={busy}
+          selected={wallet.id === selectedWalletId}
           key={wallet.id}
           wallet={wallet}
           onDelete={onDelete}
+          onSelect={onSelect}
           onUpdate={onUpdate}
         />
       ))}
@@ -885,13 +921,17 @@ function WalletList({
 
 function WalletCard({
   busy,
+  selected,
   wallet,
   onDelete,
+  onSelect,
   onUpdate
 }: {
   busy: boolean;
+  selected: boolean;
   wallet: WalletRecord;
   onDelete: (id: string) => Promise<void>;
+  onSelect: (id: string) => void;
   onUpdate: (id: string, input: { name: string; gapLimit: number }) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -915,7 +955,7 @@ function WalletCard({
   }
 
   return (
-    <article className="wallet-card">
+    <article className={selected ? "wallet-card selected-wallet-card" : "wallet-card"}>
       <div className="wallet-card-header">
         <div>
           <h2>{wallet.name}</h2>
@@ -924,6 +964,13 @@ function WalletCard({
           </p>
         </div>
         <div className="button-row">
+          <button
+            className={selected ? "compact-button" : "secondary-button compact-button"}
+            type="button"
+            onClick={() => onSelect(wallet.id)}
+          >
+            Addresses
+          </button>
           <button
             className="secondary-button compact-button"
             type="button"
@@ -992,6 +1039,208 @@ function WalletCard({
         </div>
       </dl>
     </article>
+  );
+}
+
+function WalletAddressPanel({
+  apiUrl,
+  wallet
+}: {
+  apiUrl: string;
+  wallet: WalletRecord;
+}) {
+  const [chain, setChain] = useState<"both" | "receive" | "change">("both");
+  const [usageTab, setUsageTab] = useState<"all" | "used" | "unused">("all");
+  const [addresses, setAddresses] = useState<DerivedAddress[]>([]);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [qrAddress, setQrAddress] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState("");
+
+  useEffect(() => {
+    void refreshAddresses();
+  }, [wallet.id, chain]);
+
+  useEffect(() => {
+    if (!qrAddress) {
+      setQrDataUrl("");
+      return;
+    }
+
+    let cancelled = false;
+    void QRCode.toDataURL(qrAddress, {
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 240
+    }).then((dataUrl) => {
+      if (!cancelled) {
+        setQrDataUrl(dataUrl);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [qrAddress]);
+
+  async function refreshAddresses() {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const response = await apiRequest<WalletAddressesResponse>(
+        apiUrl,
+        `/api/wallets/${wallet.id}/addresses?chain=${chain}&limit=${wallet.gapLimit}`
+      );
+      setAddresses(response.addresses);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to derive addresses");
+      setAddresses([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const visibleAddresses = usageTab === "all" ? addresses : [];
+  const receiveAddresses = visibleAddresses.filter((address) => address.chain === "receive");
+  const changeAddresses = visibleAddresses.filter((address) => address.chain === "change");
+
+  return (
+    <section className="wallet-address-panel">
+      <div className="wallet-card-header">
+        <div>
+          <p className="eyebrow">Addresses</p>
+          <h2>{wallet.name}</h2>
+        </div>
+        <button className="secondary-button compact-button" type="button" onClick={() => void refreshAddresses()}>
+          Refresh
+        </button>
+      </div>
+
+      {message ? <p className="status-message">{message}</p> : null}
+
+      <div className="next-address-placeholder">
+        <dt>Next unused receive address</dt>
+        <dd>Phase 4 will calculate this after Mempool or Fulcrum usage lookup.</dd>
+      </div>
+
+      <div className="tab-row">
+        <button
+          className={usageTab === "all" ? "compact-button" : "secondary-button compact-button"}
+          type="button"
+          onClick={() => setUsageTab("all")}
+        >
+          All derived addresses
+        </button>
+        <button className="secondary-button compact-button" type="button" onClick={() => setUsageTab("used")}>
+          Used addresses
+        </button>
+        <button className="secondary-button compact-button" type="button" onClick={() => setUsageTab("unused")}>
+          Unused addresses
+        </button>
+      </div>
+
+      {usageTab === "used" || usageTab === "unused" ? (
+        <p className="muted">Phase 4 will enable this tab after address usage lookup.</p>
+      ) : null}
+
+      <div className="tab-row">
+        <button
+          className={chain === "both" ? "compact-button" : "secondary-button compact-button"}
+          type="button"
+          onClick={() => setChain("both")}
+        >
+          Receive + change
+        </button>
+        <button
+          className={chain === "receive" ? "compact-button" : "secondary-button compact-button"}
+          type="button"
+          onClick={() => setChain("receive")}
+        >
+          Receive
+        </button>
+        <button
+          className={chain === "change" ? "compact-button" : "secondary-button compact-button"}
+          type="button"
+          onClick={() => setChain("change")}
+        >
+          Change
+        </button>
+      </div>
+
+      {loading ? <p className="muted">Deriving addresses...</p> : null}
+      {receiveAddresses.length ? (
+        <AddressTable
+          addresses={receiveAddresses}
+          title="Receive addresses"
+          onShowQr={setQrAddress}
+        />
+      ) : null}
+      {changeAddresses.length ? (
+        <AddressTable
+          addresses={changeAddresses}
+          title="Change addresses"
+          onShowQr={setQrAddress}
+        />
+      ) : null}
+
+      {qrAddress ? (
+        <div className="qr-modal" role="dialog" aria-modal="true">
+          <div className="qr-dialog">
+            <div className="wallet-card-header">
+              <h2>Address QR</h2>
+              <button className="secondary-button compact-button" type="button" onClick={() => setQrAddress(null)}>
+                Close
+              </button>
+            </div>
+            <div className="qr-box">{qrDataUrl ? <img alt="Address QR code" src={qrDataUrl} /> : null}</div>
+            <code>{qrAddress}</code>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function AddressTable({
+  addresses,
+  title,
+  onShowQr
+}: {
+  addresses: DerivedAddress[];
+  title: string;
+  onShowQr: (address: string) => void;
+}) {
+  return (
+    <div className="address-section">
+      <h2>{title}</h2>
+      <div className="address-table">
+        {addresses.map((address) => (
+          <div className="address-row" key={`${address.chain}-${address.index}`}>
+            <div>
+              <dt>
+                {address.chain} / {address.index}
+              </dt>
+              <dd>{address.path}</dd>
+            </div>
+            <code>{address.address}</code>
+            <span className="usage-pill">usage: {address.usage}</span>
+            <div className="button-row">
+              <button
+                className="secondary-button compact-button"
+                type="button"
+                onClick={() => void navigator.clipboard.writeText(address.address)}
+              >
+                Copy address
+              </button>
+              <button className="secondary-button compact-button" type="button" onClick={() => onShowQr(address.address)}>
+                QR
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -7,10 +7,16 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/index.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "bip32": "^5.0.1",
+    "bitcoinjs-lib": "^7.0.1",
+    "bs58check": "^4.0.0",
+    "tiny-secp256k1": "^2.2.4"
   }
 }
-

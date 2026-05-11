@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { deriveAddresses } from "@watch-wallet/bitcoin";
+import type { AddressChain } from "@watch-wallet/bitcoin";
 import { constants } from "node:fs";
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -135,6 +137,31 @@ export async function deleteWallet(id: string): Promise<void> {
 
   vault.plaintext.wallets.splice(walletIndex, 1);
   await saveUnlockedVault();
+}
+
+export function deriveWalletAddresses(
+  id: string,
+  input: {
+    chain: AddressChain | "both";
+    limit: number;
+  }
+) {
+  const vault = requireUnlockedVault();
+  const wallet = vault.plaintext.wallets.find((candidate) => candidate.id === id);
+  if (!wallet) {
+    throw new WalletNotFoundError();
+  }
+
+  return {
+    wallet,
+    result: deriveAddresses({
+      extendedPublicKey: wallet.extendedPublicKey,
+      type: wallet.type,
+      network: wallet.network,
+      chain: input.chain,
+      limit: input.limit
+    })
+  };
 }
 
 export function detectExtendedPublicKeyType(value: string): ExtendedPublicKeyType {

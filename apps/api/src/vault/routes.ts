@@ -8,6 +8,7 @@ import {
   WalletNotFoundError,
   addWallet,
   deleteWallet,
+  deriveWalletAddresses,
   getVaultStatus,
   initVault,
   listWallets,
@@ -32,6 +33,11 @@ type WalletCreateBody = {
 type WalletPatchBody = {
   name?: string;
   gapLimit?: number;
+};
+
+type WalletAddressesQuery = {
+  chain?: string;
+  limit?: string;
 };
 
 export async function registerVaultRoutes(server: FastifyInstance): Promise<void> {
@@ -119,6 +125,33 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
       return handleVaultError(error, reply);
     }
   });
+
+  server.get<{ Querystring: WalletAddressesQuery; Params: { id: string } }>(
+    "/api/wallets/:id/addresses",
+    async (request, reply) => {
+      if (!ensureAuthenticated(request, reply)) {
+        return;
+      }
+
+      const validation = validateAddressesQuery(request.query);
+      if (!validation.ok) {
+        return reply.code(400).send({ error: validation.error });
+      }
+
+      try {
+        const { wallet, result } = deriveWalletAddresses(request.params.id, validation.value);
+        return reply.send({
+          walletId: wallet.id,
+          network: result.network,
+          scriptType: result.scriptType,
+          usageStatus: result.usageStatus,
+          addresses: result.addresses
+        });
+      } catch (error) {
+        return handleVaultError(error, reply);
+      }
+    }
+  );
 
   server.patch<{ Body: WalletPatchBody; Params: { id: string } }>(
     "/api/wallets/:id",
@@ -242,6 +275,28 @@ function validatePatchWalletBody(body: WalletPatchBody | undefined):
   }
 
   return { ok: true, value };
+}
+
+function validateAddressesQuery(query: WalletAddressesQuery):
+  | { ok: true; value: { chain: "receive" | "change" | "both"; limit: number } }
+  | { ok: false; error: string } {
+  const chain = query.chain ?? "both";
+  if (chain !== "receive" && chain !== "change" && chain !== "both") {
+    return { ok: false, error: "Address chain must be receive, change, or both" };
+  }
+
+  const parsedLimit = query.limit === undefined ? 20 : Number(query.limit);
+  if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 200) {
+    return { ok: false, error: "Address limit must be an integer from 1 to 200" };
+  }
+
+  return {
+    ok: true,
+    value: {
+      chain,
+      limit: parsedLimit
+    }
+  };
 }
 
 function validateVaultPassword(value: unknown):

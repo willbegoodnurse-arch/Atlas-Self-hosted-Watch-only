@@ -281,6 +281,10 @@ button:disabled {
   padding: 18px;
 }
 
+.selected-wallet-card {
+  border-color: #d3a950;
+}
+
 .wallet-details {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -297,6 +301,76 @@ code {
   color: #f3f4f6;
   font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   overflow-wrap: anywhere;
+}
+
+.wallet-address-panel {
+  display: grid;
+  gap: 18px;
+  border-top: 1px solid #2f343a;
+  padding-top: 22px;
+}
+
+.next-address-placeholder {
+  border: 1px solid #2f343a;
+  border-radius: 8px;
+  background: #111419;
+  padding: 14px;
+}
+
+.tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.address-section {
+  display: grid;
+  gap: 12px;
+}
+
+.address-table {
+  display: grid;
+  gap: 10px;
+}
+
+.address-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.4fr) auto minmax(190px, auto);
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #2f343a;
+  border-radius: 8px;
+  background: #111419;
+  padding: 12px;
+}
+
+.usage-pill {
+  border: 1px solid #49505a;
+  border-radius: 999px;
+  color: #aeb6c2;
+  padding: 5px 9px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.qr-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 68%);
+  padding: 20px;
+}
+
+.qr-dialog {
+  display: grid;
+  gap: 16px;
+  width: min(420px, 100%);
+  border: 1px solid #2f343a;
+  border-radius: 8px;
+  background: #171a1f;
+  padding: 20px;
 }
 
 dl {
@@ -331,7 +405,8 @@ dd {
 
   .vault-status,
   .form-grid,
-  .wallet-details {
+  .wallet-details,
+  .address-row {
     grid-template-columns: 1fr;
   }
 
