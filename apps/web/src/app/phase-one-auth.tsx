@@ -51,13 +51,8 @@ type SourceDevice =
   | "seedsigner"
   | "krux"
   | "passport-core"
-  | "ledger"
-  | "trezor"
   | "jade"
-  | "sparrow"
-  | "specter"
-  | "other"
-  | "unknown";
+  | "other";
 type WalletScriptType = "legacy" | "nested-segwit" | "native-segwit" | "taproot" | "unknown";
 type ImportFormat =
   | "plain-xpub"
@@ -234,6 +229,10 @@ export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
       setSetupPassword("");
       setSetupPasswordConfirm("");
       setSetupTotpCode("");
+      if (window.location.pathname !== "/") {
+        window.location.assign("/");
+        return;
+      }
       setView("dashboard");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "TOTP verification failed");
@@ -259,6 +258,10 @@ export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
       setSession(nextSession);
       setLoginPassword("");
       setLoginTotpCode("");
+      if (window.location.pathname !== "/") {
+        window.location.assign("/");
+        return;
+      }
       setView("dashboard");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Login failed");
@@ -279,6 +282,10 @@ export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
         method: "POST"
       });
       setSession(null);
+      if (window.location.pathname !== "/") {
+        window.location.assign("/");
+        return;
+      }
       setView("login");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Logout failed");
@@ -295,7 +302,7 @@ export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
             <p className="eyebrow">watch wallet</p>
             <h1>{view === "dashboard" ? (initialWalletId ? "Wallet detail" : "Wallets") : "Secure access"}</h1>
           </div>
-          <span className="phase-pill">{view === "dashboard" ? "PHASE 6" : "AUTH NODE"}</span>
+          <span className="phase-pill">{view === "dashboard" ? "PHASE 7" : "AUTH NODE"}</span>
         </div>
 
         {message ? <p className="status-message">{message}</p> : null}
@@ -812,7 +819,7 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
       {status.initialized && status.unlocked ? (
         detailWalletId ? (
           detailWallet ? (
-            <WalletDetailView apiUrl={apiUrl} wallet={detailWallet} />
+            <WalletDetailView apiUrl={apiUrl} mempoolBadgeStatus={mempoolBadgeStatus} wallet={detailWallet} />
           ) : (
             <div className="terminal-panel empty-state">
               <p className="terminal-heading">&gt; WALLET NOT FOUND</p>
@@ -951,7 +958,7 @@ function WalletCreateForm({
 }) {
   const [name, setName] = useState("");
   const [importText, setImportText] = useState("");
-  const [sourceDevice, setSourceDevice] = useState<SourceDevice>("unknown");
+  const [sourceDevice, setSourceDevice] = useState<SourceDevice>("other");
   const [network, setNetwork] = useState<WalletRecord["network"]>("mainnet");
   const [scriptType, setScriptType] = useState<WalletScriptType>("unknown");
   const [notes, setNotes] = useState("");
@@ -1000,7 +1007,7 @@ function WalletCreateForm({
     });
     setName("");
     setImportText("");
-    setSourceDevice("unknown");
+    setSourceDevice("other");
     setScriptType("unknown");
     setNotes("");
     setGapLimit(20);
@@ -1252,13 +1259,8 @@ const sourceDeviceOptions: Array<{ value: SourceDevice; label: string }> = [
   { value: "seedsigner", label: "SeedSigner" },
   { value: "krux", label: "Krux" },
   { value: "passport-core", label: "Passport Core" },
-  { value: "ledger", label: "Ledger" },
-  { value: "trezor", label: "Trezor" },
   { value: "jade", label: "Jade" },
-  { value: "sparrow", label: "Sparrow" },
-  { value: "specter", label: "Specter" },
-  { value: "other", label: "Other" },
-  { value: "unknown", label: "Unknown" }
+  { value: "other", label: "Other" }
 ];
 
 function DeviceGuidance({ sourceDevice }: { sourceDevice: SourceDevice }) {
@@ -1268,13 +1270,8 @@ function DeviceGuidance({ sourceDevice }: { sourceDevice: SourceDevice }) {
     seedsigner: "SeedSigner: use Export Xpub > Sparrow or a plain xpub/UR xpub QR. Animated UR frames are detected but not fully decoded yet.",
     krux: "Krux: import extended public key QR or SD text, then verify fingerprint, derivation, and script type match the device.",
     "passport-core": "Passport Core: use Pair Wallet > Sparrow > Single Sig, descriptor, or xpub export. Verify the first receive address on Passport.",
-    ledger: "Ledger: import an account xpub or descriptor only. Never paste seed words or private keys.",
-    trezor: "Trezor: import an account xpub or descriptor only. Confirm script type and account path on-device.",
     jade: "Jade: import the account xpub or descriptor, then verify the first receive address on-device.",
-    sparrow: "Sparrow: descriptor or key expression exports preserve fingerprint and path best.",
-    specter: "Specter: descriptor exports preserve fingerprint, script, and account path best.",
-    other: "Other device: prefer descriptor or [fingerprint/path]xpub import when available.",
-    unknown: "Unknown source: confirm source device, script type, account path, and first receive address before receiving funds."
+    other: "Other device: prefer descriptor or [fingerprint/path]xpub import when available. Confirm source device, script type, account path, and first receive address before receiving funds."
   };
 
   return (
@@ -1529,7 +1526,15 @@ function WalletCard({
   );
 }
 
-function WalletDetailView({ apiUrl, wallet }: { apiUrl: string; wallet: WalletRecord }) {
+function WalletDetailView({
+  apiUrl,
+  mempoolBadgeStatus,
+  wallet
+}: {
+  apiUrl: string;
+  mempoolBadgeStatus: StatusKind;
+  wallet: WalletRecord;
+}) {
   const warnings = walletSafetyWarnings(wallet);
   return (
     <div className="wallet-detail-page">
@@ -1555,16 +1560,18 @@ function WalletDetailView({ apiUrl, wallet }: { apiUrl: string; wallet: WalletRe
           ) : null}
         </div>
       </div>
-      <WalletAddressPanel apiUrl={apiUrl} wallet={wallet} />
+      <WalletAddressPanel apiUrl={apiUrl} mempoolBadgeStatus={mempoolBadgeStatus} wallet={wallet} />
     </div>
   );
 }
 
 function WalletAddressPanel({
   apiUrl,
+  mempoolBadgeStatus,
   wallet
 }: {
   apiUrl: string;
+  mempoolBadgeStatus: StatusKind;
   wallet: WalletRecord;
 }) {
   const [chain, setChain] = useState<"both" | "receive" | "change">("both");
@@ -1657,8 +1664,7 @@ function WalletAddressPanel({
   const receiveAddresses = visibleAddresses.filter((address) => address.chain === "receive");
   const changeAddresses = visibleAddresses.filter((address) => address.chain === "change");
   const unknownAddressCount = addresses.filter((address) => address.usage === "unknown").length;
-  const usageLookupFailed = Boolean(usageLookupNote) || unknownAddressCount === addresses.length && addresses.length > 0;
-  const mempoolBadgeStatus = usageLookupFailed ? "degraded" : loading ? "degraded" : "online";
+  const usageLookupFailed = Boolean(usageLookupNote) || (unknownAddressCount === addresses.length && addresses.length > 0);
   const emptyUsageMessage = getEmptyUsageMessage({
     usageTab,
     usageLookupFailed,
@@ -2250,7 +2256,7 @@ function maskExtendedPublicKey(value: string): string {
 }
 
 function deviceLabel(sourceDevice: SourceDevice): string {
-  return sourceDeviceOptions.find((option) => option.value === sourceDevice)?.label ?? "Unknown";
+  return sourceDeviceOptions.find((option) => option.value === sourceDevice)?.label ?? "Other";
 }
 
 function walletSafetyWarnings(wallet: WalletRecord): string[] {

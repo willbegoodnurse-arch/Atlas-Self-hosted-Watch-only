@@ -348,10 +348,9 @@ function normalizeLegacyScriptType(value: unknown): ScriptType | null {
 
 function normalizeSourceDevice(value: unknown): SourceDevice {
   const devices: SourceDevice[] = [
-    "coldcard", "keystone", "seedsigner", "krux", "passport-core", "ledger",
-    "trezor", "jade", "sparrow", "specter", "other", "unknown"
+    "coldcard", "keystone", "seedsigner", "krux", "passport-core", "jade", "other"
   ];
-  return devices.includes(value as SourceDevice) ? value as SourceDevice : "unknown";
+  return devices.includes(value as SourceDevice) ? value as SourceDevice : "other";
 }
 
 function normalizeImportFormat(value: unknown): ImportFormat | null {

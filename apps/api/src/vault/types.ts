@@ -7,13 +7,8 @@ export type SourceDevice =
   | "seedsigner"
   | "krux"
   | "passport-core"
-  | "ledger"
-  | "trezor"
   | "jade"
-  | "sparrow"
-  | "specter"
-  | "other"
-  | "unknown";
+  | "other";
 export type ImportFormat =
   | "plain-xpub"
   | "slip132"

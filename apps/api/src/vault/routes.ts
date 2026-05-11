@@ -489,12 +489,11 @@ function sanitizeNetwork(value: unknown): BitcoinNetwork | null {
 }
 
 function sanitizeSourceDevice(value: unknown): SourceDevice {
-  const sourceDevice = typeof value === "string" ? value : "unknown";
+  const sourceDevice = typeof value === "string" ? value : "other";
   const allowed: SourceDevice[] = [
-    "coldcard", "keystone", "seedsigner", "krux", "passport-core", "ledger",
-    "trezor", "jade", "sparrow", "specter", "other", "unknown"
+    "coldcard", "keystone", "seedsigner", "krux", "passport-core", "jade", "other"
   ];
-  return allowed.includes(sourceDevice as SourceDevice) ? sourceDevice as SourceDevice : "unknown";
+  return allowed.includes(sourceDevice as SourceDevice) ? sourceDevice as SourceDevice : "other";
 }
 
 function sanitizeScriptType(value: unknown): ScriptType {

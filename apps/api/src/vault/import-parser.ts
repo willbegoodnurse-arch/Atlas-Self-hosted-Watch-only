@@ -34,7 +34,7 @@ export function parseWalletImport(input: {
   const importText = input.importText.trim();
   assertWatchOnlyImport(importText);
 
-  const sourceDevice = input.sourceDevice ?? "unknown";
+  const sourceDevice = input.sourceDevice ?? "other";
   const fallbackNetwork = input.network ?? "mainnet";
   const notes = sanitizeOptionalText(input.notes, 500);
   const json = parseJson(importText);
