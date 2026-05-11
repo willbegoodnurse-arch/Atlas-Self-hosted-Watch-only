@@ -129,6 +129,13 @@ dt {
   font-size: 13px;
 }
 
+.field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 input {
   width: 100%;
   border: 1px solid #3b424d;
@@ -311,10 +318,18 @@ code {
 }
 
 .next-address-placeholder {
+  display: grid;
+  gap: 8px;
   border: 1px solid #2f343a;
   border-radius: 8px;
   background: #111419;
   padding: 14px;
+}
+
+.next-address-placeholder dd {
+  display: grid;
+  gap: 8px;
+  margin: 0;
 }
 
 .tab-row {
@@ -351,6 +366,27 @@ code {
   padding: 5px 9px;
   font-size: 12px;
   white-space: nowrap;
+  width: fit-content;
+}
+
+.usage-used {
+  border-color: #4d7f64;
+  color: #93d3ad;
+}
+
+.usage-unused {
+  border-color: #6d7890;
+  color: #cbd5e1;
+}
+
+.usage-unknown {
+  border-color: #8a6b3c;
+  color: #f0c982;
+}
+
+.usage-stack {
+  display: grid;
+  gap: 5px;
 }
 
 .qr-modal {
@@ -371,6 +407,19 @@ code {
   border-radius: 8px;
   background: #171a1f;
   padding: 20px;
+}
+
+.scanner-dialog {
+  width: min(520px, 100%);
+}
+
+.scanner-video {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 1px solid #2f343a;
+  border-radius: 8px;
+  background: #050607;
+  object-fit: cover;
 }
 
 dl {

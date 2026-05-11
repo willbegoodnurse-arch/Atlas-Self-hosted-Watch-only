@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
+import type { IScannerControls } from "@zxing/browser";
 
 type SessionResponse = {
   authenticated: boolean;
@@ -42,15 +43,31 @@ type DerivedAddress = {
   index: number;
   path: string;
   address: string;
-  usage: "unknown";
+  usage: "used" | "unused" | "unknown";
+  txCount?: number | null;
+  confirmedTxCount?: number | null;
+  mempoolTxCount?: number | null;
 };
 
 type WalletAddressesResponse = {
   walletId: string;
   network: WalletRecord["network"];
   scriptType: WalletRecord["scriptType"];
-  usageStatus: "unknown";
+  usageStatus: "unknown" | "partial" | "ready";
   addresses: DerivedAddress[];
+  nextUnusedReceiveAddress?: DerivedAddress | null;
+  lookupError?: string | null;
+  discovery?: {
+    checkedCount: number;
+    gapLimit: number;
+    maxDiscoveryLimit: number;
+    complete: boolean;
+  } | null;
+  mempool?: {
+    mode: string;
+    url: string;
+    lookupFailed?: boolean;
+  };
 };
 
 type ViewState = "loading" | "setup" | "verify-totp" | "login" | "dashboard";
@@ -803,10 +820,20 @@ function WalletCreateForm({
   const [extendedPublicKey, setExtendedPublicKey] = useState("");
   const [network, setNetwork] = useState<WalletRecord["network"]>("mainnet");
   const [gapLimit, setGapLimit] = useState(20);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerMessage, setScannerMessage] = useState("");
+  const scannerControls = useRef<IScannerControls | null>(null);
+  const scannerVideo = useRef<HTMLVideoElement | null>(null);
   const detected = useMemo(() => detectWalletMetadata(extendedPublicKey, network), [
     extendedPublicKey,
     network
   ]);
+
+  useEffect(() => {
+    return () => {
+      stopScanner();
+    };
+  }, []);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -819,6 +846,64 @@ function WalletCreateForm({
     setName("");
     setExtendedPublicKey("");
     setGapLimit(20);
+  }
+
+  async function startScanner() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setScannerMessage("Camera access is not available in this browser.");
+      setScannerOpen(true);
+      return;
+    }
+
+    stopScanner();
+    setScannerOpen(true);
+    setScannerMessage("Starting camera...");
+
+    try {
+      const { BrowserQRCodeReader } = await import("@zxing/browser");
+      const reader = new BrowserQRCodeReader();
+      scannerControls.current = await reader.decodeFromVideoDevice(
+        undefined,
+        scannerVideo.current ?? undefined,
+        (result) => {
+          if (!result) {
+            return;
+          }
+
+          const scannedKey = extractExtendedPublicKey(result.getText());
+          if (!scannedKey) {
+            setScannerMessage("QR did not contain a valid xpub, ypub, or zpub.");
+            return;
+          }
+
+          setExtendedPublicKey(scannedKey);
+          setScannerMessage("Extended public key scanned.");
+          stopScanner();
+          setScannerOpen(false);
+        }
+      );
+      setScannerMessage("Point the camera at an xpub, ypub, or zpub QR.");
+    } catch (error) {
+      stopScanner();
+      setScannerMessage(error instanceof Error ? error.message : "Unable to start QR scanner.");
+    }
+  }
+
+  function stopScanner() {
+    scannerControls.current?.stop();
+    scannerControls.current = null;
+    const stream = scannerVideo.current?.srcObject;
+    if (stream instanceof MediaStream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    if (scannerVideo.current) {
+      scannerVideo.current.srcObject = null;
+    }
+  }
+
+  function closeScanner() {
+    stopScanner();
+    setScannerOpen(false);
   }
 
   return (
@@ -842,7 +927,16 @@ function WalletCreateForm({
         </label>
       </div>
       <label>
-        <span>Extended public key</span>
+        <span className="field-header">
+          <span>Extended public key</span>
+          <button
+            className="secondary-button compact-button"
+            type="button"
+            onClick={() => void startScanner()}
+          >
+            Scan QR
+          </button>
+        </span>
         <input
           autoComplete="off"
           required
@@ -879,6 +973,20 @@ function WalletCreateForm({
       <button disabled={busy || !detected} type="submit">
         Save wallet
       </button>
+      {scannerOpen ? (
+        <div className="qr-modal" role="dialog" aria-modal="true">
+          <div className="qr-dialog scanner-dialog">
+            <div className="wallet-card-header">
+              <h2>Scan QR</h2>
+              <button className="secondary-button compact-button" type="button" onClick={closeScanner}>
+                Close
+              </button>
+            </div>
+            <video ref={scannerVideo} className="scanner-video" muted playsInline />
+            {scannerMessage ? <p className="muted">{scannerMessage}</p> : null}
+          </div>
+        </div>
+      ) : null}
     </form>
   );
 }
@@ -1050,8 +1158,10 @@ function WalletAddressPanel({
   wallet: WalletRecord;
 }) {
   const [chain, setChain] = useState<"both" | "receive" | "change">("both");
-  const [usageTab, setUsageTab] = useState<"all" | "used" | "unused">("all");
+  const [usageTab, setUsageTab] = useState<"all" | "used" | "unused" | "unknown">("all");
   const [addresses, setAddresses] = useState<DerivedAddress[]>([]);
+  const [nextReceiveAddress, setNextReceiveAddress] = useState<DerivedAddress | null>(null);
+  const [usageLookupNote, setUsageLookupNote] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [qrAddress, setQrAddress] = useState<string | null>(null);
@@ -1090,20 +1200,34 @@ function WalletAddressPanel({
     try {
       const response = await apiRequest<WalletAddressesResponse>(
         apiUrl,
-        `/api/wallets/${wallet.id}/addresses?chain=${chain}&limit=${wallet.gapLimit}`
+        `/api/wallets/${wallet.id}/address-usage?chain=${chain}&limit=${wallet.gapLimit}`
       );
       setAddresses(response.addresses);
+      setNextReceiveAddress(response.nextUnusedReceiveAddress ?? null);
+      setUsageLookupNote(response.lookupError ?? "");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to derive addresses");
+      setMessage(error instanceof Error ? error.message : "Unable to look up address usage");
       setAddresses([]);
+      setNextReceiveAddress(null);
+      setUsageLookupNote("");
     } finally {
       setLoading(false);
     }
   }
 
-  const visibleAddresses = usageTab === "all" ? addresses : [];
+  const visibleAddresses =
+    usageTab === "all"
+      ? addresses
+      : addresses.filter((address) => address.usage === usageTab);
   const receiveAddresses = visibleAddresses.filter((address) => address.chain === "receive");
   const changeAddresses = visibleAddresses.filter((address) => address.chain === "change");
+  const unknownAddressCount = addresses.filter((address) => address.usage === "unknown").length;
+  const usageLookupFailed = Boolean(usageLookupNote) || unknownAddressCount === addresses.length && addresses.length > 0;
+  const emptyUsageMessage = getEmptyUsageMessage({
+    usageTab,
+    usageLookupFailed,
+    unknownAddressCount
+  });
 
   return (
     <section className="wallet-address-panel">
@@ -1118,10 +1242,41 @@ function WalletAddressPanel({
       </div>
 
       {message ? <p className="status-message">{message}</p> : null}
+      {usageLookupNote ? <p className="status-message">{usageLookupNote}; unknown addresses are still shown.</p> : null}
 
       <div className="next-address-placeholder">
         <dt>Next unused receive address</dt>
-        <dd>Phase 4 will calculate this after Mempool or Fulcrum usage lookup.</dd>
+        {nextReceiveAddress ? (
+          <dd>
+            <span className={`usage-pill usage-${nextReceiveAddress.usage}`}>
+              {nextReceiveAddress.usage}
+            </span>
+            <code>{nextReceiveAddress.address}</code>
+            <span>{nextReceiveAddress.path}</span>
+            <div className="button-row">
+              <button
+                className="secondary-button compact-button"
+                type="button"
+                onClick={() => void navigator.clipboard.writeText(nextReceiveAddress.address)}
+              >
+                Copy
+              </button>
+              <button
+                className="secondary-button compact-button"
+                type="button"
+                onClick={() => setQrAddress(nextReceiveAddress.address)}
+              >
+                QR
+              </button>
+            </div>
+          </dd>
+        ) : (
+          <dd>
+            {usageLookupFailed
+              ? "Usage lookup failed; no confirmed unused receive address is available yet."
+              : "Run usage lookup after unlocking the vault to calculate this address."}
+          </dd>
+        )}
       </div>
 
       <div className="tab-row">
@@ -1132,17 +1287,28 @@ function WalletAddressPanel({
         >
           All derived addresses
         </button>
-        <button className="secondary-button compact-button" type="button" onClick={() => setUsageTab("used")}>
+        <button
+          className={usageTab === "used" ? "compact-button" : "secondary-button compact-button"}
+          type="button"
+          onClick={() => setUsageTab("used")}
+        >
           Used addresses
         </button>
-        <button className="secondary-button compact-button" type="button" onClick={() => setUsageTab("unused")}>
+        <button
+          className={usageTab === "unused" ? "compact-button" : "secondary-button compact-button"}
+          type="button"
+          onClick={() => setUsageTab("unused")}
+        >
           Unused addresses
         </button>
+        <button
+          className={usageTab === "unknown" ? "compact-button" : "secondary-button compact-button"}
+          type="button"
+          onClick={() => setUsageTab("unknown")}
+        >
+          Unknown addresses
+        </button>
       </div>
-
-      {usageTab === "used" || usageTab === "unused" ? (
-        <p className="muted">Phase 4 will enable this tab after address usage lookup.</p>
-      ) : null}
 
       <div className="tab-row">
         <button
@@ -1168,7 +1334,10 @@ function WalletAddressPanel({
         </button>
       </div>
 
-      {loading ? <p className="muted">Deriving addresses...</p> : null}
+      {loading ? <p className="muted">Looking up address usage...</p> : null}
+      {!loading && visibleAddresses.length === 0 ? (
+        <p className="muted">{emptyUsageMessage}</p>
+      ) : null}
       {receiveAddresses.length ? (
         <AddressTable
           addresses={receiveAddresses}
@@ -1224,7 +1393,12 @@ function AddressTable({
               <dd>{address.path}</dd>
             </div>
             <code>{address.address}</code>
-            <span className="usage-pill">usage: {address.usage}</span>
+            <div className="usage-stack">
+              <span className={`usage-pill usage-${address.usage}`}>{address.usage}</span>
+              <span className="muted">
+                txCount: {address.txCount === null || address.txCount === undefined ? "unknown" : address.txCount}
+              </span>
+            </div>
             <div className="button-row">
               <button
                 className="secondary-button compact-button"
@@ -1242,6 +1416,45 @@ function AddressTable({
       </div>
     </div>
   );
+}
+
+function getEmptyUsageMessage({
+  usageTab,
+  usageLookupFailed,
+  unknownAddressCount
+}: {
+  usageTab: "all" | "used" | "unused" | "unknown";
+  usageLookupFailed: boolean;
+  unknownAddressCount: number;
+}): string {
+  if (usageTab === "unused" && usageLookupFailed) {
+    return "********";
+  }
+
+  if (usageTab === "unused" && unknownAddressCount > 0) {
+    return "********";
+  }
+
+  if (usageTab === "unknown") {
+    return "********";
+  }
+
+  if (usageTab === "used") {
+    return "********";
+  }
+
+  return "No addresses to show for this filter.";
+}
+
+function extractExtendedPublicKey(value: string): string | null {
+  const normalized = value.trim();
+  const exactMatch = normalized.match(/^(xpub|ypub|zpub)[1-9A-HJ-NP-Za-km-z]{40,}$/);
+  if (exactMatch) {
+    return normalized;
+  }
+
+  const embeddedMatch = normalized.match(/\b(xpub|ypub|zpub)[1-9A-HJ-NP-Za-km-z]{40,}\b/);
+  return embeddedMatch?.[0] ?? null;
 }
 
 function detectWalletMetadata(
@@ -1272,7 +1485,7 @@ function detectWalletMetadata(
 
 function maskExtendedPublicKey(value: string): string {
   if (value.length <= 16) {
-    return "••••";
+    return "********";
   }
 
   return `${value.slice(0, 8)}...${value.slice(-8)}`;

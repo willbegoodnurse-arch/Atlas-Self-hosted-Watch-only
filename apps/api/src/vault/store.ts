@@ -6,6 +6,10 @@ import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { authConfig } from "../auth/config.js";
 import {
+  discoverNextUnusedReceiveAddress,
+  lookupAddressUsageRecords
+} from "../mempool/usage.js";
+import {
   createVaultEnvelope,
   encryptVaultWithKey,
   unlockVaultEnvelope
@@ -161,6 +165,58 @@ export function deriveWalletAddresses(
       chain: input.chain,
       limit: input.limit
     })
+  };
+}
+
+export async function deriveWalletAddressUsage(
+  id: string,
+  input: {
+    chain: AddressChain | "both";
+    limit: number;
+  }
+) {
+  const { wallet, result } = deriveWalletAddresses(id, input);
+  const usage = await lookupAddressUsageRecords(result.addresses);
+
+  return {
+    wallet,
+    result: {
+      ...result,
+      usageStatus: usage.lookupFailed ? "partial" : "ready",
+      addresses: usage.addresses,
+      lookupFailed: usage.lookupFailed
+    }
+  };
+}
+
+export async function deriveWalletNextReceiveAddress(id: string) {
+  const vault = requireUnlockedVault();
+  const wallet = vault.plaintext.wallets.find((candidate) => candidate.id === id);
+  if (!wallet) {
+    throw new WalletNotFoundError();
+  }
+
+  const maxDiscoveryLimit = Math.min(200, Math.max(wallet.gapLimit * 5, wallet.gapLimit));
+  const result = deriveAddresses({
+    extendedPublicKey: wallet.extendedPublicKey,
+    type: wallet.type,
+    network: wallet.network,
+    chain: "receive",
+    limit: maxDiscoveryLimit
+  });
+  const discovery = await discoverNextUnusedReceiveAddress(
+    result.addresses,
+    wallet.gapLimit,
+    maxDiscoveryLimit
+  );
+
+  return {
+    wallet,
+    result: {
+      network: result.network,
+      scriptType: result.scriptType,
+      ...discovery
+    }
   };
 }
 

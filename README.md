@@ -2,7 +2,7 @@
 
 A calm, self-hosted, watch-only Bitcoin web wallet dashboard for your own node.
 
-watch wallet is designed to run on a Raspberry Pi with Docker, alongside services such as Bitcoin Core, Fulcrum, or Mempool. Phase 2 implements administrator authentication and encrypted watch-only wallet registration. Address derivation, balance lookup, transaction lookup, PSBT generation, and broadcast features are not implemented yet.
+watch wallet is designed to run on a Raspberry Pi with Docker, alongside services such as Bitcoin Core, Fulcrum, or Mempool. Phase 4 implements administrator authentication, encrypted watch-only wallet registration, address derivation, QR display, and Mempool-based address usage lookup. Balance lookup, transaction lookup, PSBT generation, and broadcast features are not implemented yet.
 
 ## Features
 
@@ -15,6 +15,8 @@ watch wallet is designed to run on a Raspberry Pi with Docker, alongside service
 - Security-first documentation for watch-only operation
 - Phase 1 administrator setup, TOTP 2FA, and session shell
 - Phase 2 encrypted wallet vault with xpub, ypub, and zpub registration
+- Phase 3 receive/change address derivation with address QR display
+- Phase 4 Mempool API address usage lookup and next unused receive address discovery
 
 ## Screenshots
 
@@ -83,7 +85,7 @@ Wallet registration stores watch-only xpub, ypub, and zpub values in encrypted s
 
 Never enter a seed phrase or private key into watch wallet.
 
-Wallet registration is part of Phase 2. Address derivation and balance lookup are planned for later phases.
+Wallet registration is part of Phase 2. Phase 3 derives receive/change addresses in memory on request. Phase 4 checks those watch-only public addresses against the configured Mempool API to classify usage and find the next unused receive address. Derived address lists and usage results are not written to disk.
 
 ## Future PSBT Flow
 
@@ -127,6 +129,7 @@ WEB_PORT=3010
 API_PORT=3011
 NEXT_PUBLIC_API_URL=http://localhost:3011
 MEMPOOL_API_URL=http://localhost:8080/api
+API_MODE=mempool
 FULCRUM_HOST=127.0.0.1
 FULCRUM_PORT=50001
 FULCRUM_TLS_PORT=50002
@@ -142,8 +145,8 @@ DEFAULT_UNIT=BTC
 - Phase 1: administrator setup, password hashing, TOTP 2FA, session handling
 - Phase 2: encrypted server-side xpub, ypub, zpub wallet registration
 - Phase 3: watch-only address derivation
-- Phase 4: balance lookup through Mempool API first
-- Phase 5: transaction history
+- Phase 4: Mempool API address usage lookup and next unused receive address
+- Phase 5: balance lookup and transaction history preparation
 - Phase 6: calm Sparrow-inspired dark dashboard UI
 - Phase 7: settings and encrypted wallet backup/import
 - Phase 8: PSBT-oriented sending and broadcast workflow without private key handling

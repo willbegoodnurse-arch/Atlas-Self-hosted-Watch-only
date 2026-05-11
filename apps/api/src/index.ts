@@ -1,9 +1,11 @@
+import "./env.js";
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { authConfig } from "./auth/config.js";
+import { getMempoolApiConfig } from "./mempool/usage.js";
 import { registerVaultRoutes } from "./vault/routes.js";
 
 const port = Number(process.env.API_PORT ?? 3011);
@@ -32,7 +34,7 @@ await server.register(rateLimit, {
 server.get("/api/status", async () => ({
   app: appName,
   status: "ok",
-  mode: "phase-2",
+  mode: "phase-4",
   watchOnly: true,
   walletFeaturesEnabled: true,
   storagePolicy: {
@@ -47,8 +49,8 @@ server.get("/health", async () => ({
 }));
 
 server.get("/api/status/mempool", async () => ({
-  status: "not_configured",
-  url: process.env.MEMPOOL_API_URL ?? "http://localhost:8080/api"
+  status: "configured",
+  ...getMempoolApiConfig()
 }));
 
 server.get("/api/status/fulcrum", async () => ({
