@@ -20,6 +20,22 @@ export type ImportFormat =
   | "passport-setup-qr"
   | "unknown";
 
+export type AddressLabel = {
+  chain: "receive" | "change";
+  index: number;
+  address: string;
+  label: string;
+  notes: string | null;
+  updatedAt: string;
+};
+
+export type TransactionLabel = {
+  txid: string;
+  label: string;
+  notes: string | null;
+  updatedAt: string;
+};
+
 export type WalletRecord = {
   id: string;
   name: string;
@@ -33,6 +49,9 @@ export type WalletRecord = {
   importFormat: ImportFormat;
   rawImport: string | null;
   notes: string | null;
+  walletNotes: string | null;
+  addressLabels: AddressLabel[];
+  transactionLabels: TransactionLabel[];
   derivationPath: string;
   gapLimit: number;
   createdAt: string;

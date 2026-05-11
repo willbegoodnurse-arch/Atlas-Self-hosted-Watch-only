@@ -420,6 +420,45 @@ button:disabled {
   font-size: 13px;
 }
 
+.wallet-note-line {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.wallet-note-editor,
+.label-editor {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.wallet-note-editor label,
+.label-editor label {
+  display: grid;
+  gap: 6px;
+}
+
+.text-button {
+  border: 0;
+  background: transparent;
+  color: var(--green);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-transform: uppercase;
+}
+
+.text-button:hover,
+.text-button:focus-visible {
+  color: var(--amber);
+  outline: none;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
 .detail-status-rail {
   border-color: transparent;
   background: transparent;
@@ -525,7 +564,7 @@ code {
 
 .address-row {
   display: grid;
-  grid-template-columns: 92px 72px minmax(240px, 1fr) minmax(150px, auto) minmax(120px, auto) minmax(160px, auto);
+  grid-template-columns: 82px 64px minmax(220px, 1fr) minmax(110px, auto) minmax(140px, auto) minmax(110px, auto) minmax(190px, auto);
   align-items: center;
   gap: 12px;
 }
@@ -560,6 +599,33 @@ code {
 .usage-pill {
   color: var(--muted);
   width: fit-content;
+}
+
+.label-pill {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid #375c49;
+  color: var(--green);
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 3px 7px;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.label-pill-empty {
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.address-label-editor {
+  grid-column: 1 / -1;
+}
+
+.label-privacy-hint {
+  font-size: 11px;
+  margin: 0;
 }
 
 .usage-used {

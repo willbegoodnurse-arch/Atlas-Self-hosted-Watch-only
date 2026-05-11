@@ -18,9 +18,22 @@ import {
   initVault,
   listWallets,
   lockVault,
+  deleteAddressLabel,
+  deleteTransactionLabel,
   unlockVault,
+  updateWalletNotes,
+  upsertAddressLabel,
+  upsertTransactionLabel,
   updateWallet
 } from "./store.js";
+import {
+  LabelValidationError,
+  normalizeAddressLabelDeleteInput,
+  normalizeAddressLabelInput,
+  normalizeOptionalNotes,
+  normalizeTransactionLabelDeleteInput,
+  normalizeTransactionLabelInput
+} from "./labels.js";
 import type { BitcoinNetwork, ScriptType, SourceDevice } from "./types.js";
 
 type VaultPasswordBody = {
@@ -41,6 +54,33 @@ type WalletCreateBody = {
 type WalletPatchBody = {
   name?: string;
   gapLimit?: number;
+};
+
+type WalletNotesBody = {
+  notes?: unknown;
+};
+
+type AddressLabelBody = {
+  chain?: unknown;
+  index?: unknown;
+  address?: unknown;
+  label?: unknown;
+  notes?: unknown;
+};
+
+type AddressLabelDeleteBody = {
+  chain?: unknown;
+  index?: unknown;
+};
+
+type TransactionLabelBody = {
+  txid?: unknown;
+  label?: unknown;
+  notes?: unknown;
+};
+
+type TransactionLabelDeleteBody = {
+  txid?: unknown;
 };
 
 type WalletAddressesQuery = {
@@ -364,6 +404,111 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
     }
   );
 
+  server.patch<{ Body: WalletNotesBody; Params: { id: string } }>(
+    "/api/wallets/:id/notes",
+    async (request, reply) => {
+      if (!ensureAuthenticated(request, reply)) {
+        return;
+      }
+
+      const validation = validateWalletNotesBody(request.body);
+      if (!validation.ok) {
+        return reply.code(400).send({ error: validation.error });
+      }
+
+      try {
+        const wallet = await updateWalletNotes(request.params.id, validation.value.notes);
+        return reply.send({ wallet });
+      } catch (error) {
+        return handleVaultError(error, reply);
+      }
+    }
+  );
+
+  server.patch<{ Body: AddressLabelBody; Params: { id: string } }>(
+    "/api/wallets/:id/address-labels",
+    async (request, reply) => {
+      if (!ensureAuthenticated(request, reply)) {
+        return;
+      }
+
+      const validation = validateAddressLabelBody(request.body);
+      if (!validation.ok) {
+        return reply.code(400).send({ error: validation.error });
+      }
+
+      try {
+        const wallet = await upsertAddressLabel(request.params.id, validation.value);
+        return reply.send({ wallet });
+      } catch (error) {
+        return handleVaultError(error, reply);
+      }
+    }
+  );
+
+  server.delete<{ Body: AddressLabelDeleteBody; Params: { id: string } }>(
+    "/api/wallets/:id/address-labels",
+    async (request, reply) => {
+      if (!ensureAuthenticated(request, reply)) {
+        return;
+      }
+
+      const validation = validateAddressLabelDeleteBody(request.body);
+      if (!validation.ok) {
+        return reply.code(400).send({ error: validation.error });
+      }
+
+      try {
+        const wallet = await deleteAddressLabel(request.params.id, validation.value);
+        return reply.send({ wallet });
+      } catch (error) {
+        return handleVaultError(error, reply);
+      }
+    }
+  );
+
+  server.patch<{ Body: TransactionLabelBody; Params: { id: string } }>(
+    "/api/wallets/:id/transaction-labels",
+    async (request, reply) => {
+      if (!ensureAuthenticated(request, reply)) {
+        return;
+      }
+
+      const validation = validateTransactionLabelBody(request.body);
+      if (!validation.ok) {
+        return reply.code(400).send({ error: validation.error });
+      }
+
+      try {
+        const wallet = await upsertTransactionLabel(request.params.id, validation.value);
+        return reply.send({ wallet });
+      } catch (error) {
+        return handleVaultError(error, reply);
+      }
+    }
+  );
+
+  server.delete<{ Body: TransactionLabelDeleteBody; Params: { id: string } }>(
+    "/api/wallets/:id/transaction-labels",
+    async (request, reply) => {
+      if (!ensureAuthenticated(request, reply)) {
+        return;
+      }
+
+      const validation = validateTransactionLabelDeleteBody(request.body);
+      if (!validation.ok) {
+        return reply.code(400).send({ error: validation.error });
+      }
+
+      try {
+        const wallet = await deleteTransactionLabel(request.params.id, validation.value);
+        return reply.send({ wallet });
+      } catch (error) {
+        return handleVaultError(error, reply);
+      }
+    }
+  );
+
   server.delete<{ Params: { id: string } }>("/api/wallets/:id", async (request, reply) => {
     if (!ensureAuthenticated(request, reply)) {
       return;
@@ -524,6 +669,92 @@ function validateTransactionsQuery(query: WalletTransactionsQuery):
   };
 }
 
+function validateWalletNotesBody(body: WalletNotesBody | undefined):
+  | { ok: true; value: { notes: string | null } }
+  | { ok: false; error: string } {
+  try {
+    return {
+      ok: true,
+      value: {
+        notes: normalizeOptionalNotes(body?.notes)
+      }
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Invalid wallet notes"
+    };
+  }
+}
+
+function validateAddressLabelBody(body: AddressLabelBody | undefined):
+  | {
+      ok: true;
+      value: {
+        chain: "receive" | "change";
+        index: number;
+        address: string;
+        label: string;
+        notes: string | null;
+      };
+    }
+  | { ok: false; error: string } {
+  try {
+    return { ok: true, value: normalizeAddressLabelInput(body ?? {}) };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Invalid address label"
+    };
+  }
+}
+
+function validateAddressLabelDeleteBody(body: AddressLabelDeleteBody | undefined):
+  | { ok: true; value: { chain: "receive" | "change"; index: number } }
+  | { ok: false; error: string } {
+  try {
+    return { ok: true, value: normalizeAddressLabelDeleteInput(body ?? {}) };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Invalid address label delete request"
+    };
+  }
+}
+
+function validateTransactionLabelBody(body: TransactionLabelBody | undefined):
+  | {
+      ok: true;
+      value: {
+        txid: string;
+        label: string;
+        notes: string | null;
+      };
+    }
+  | { ok: false; error: string } {
+  try {
+    return { ok: true, value: normalizeTransactionLabelInput(body ?? {}) };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Invalid transaction label"
+    };
+  }
+}
+
+function validateTransactionLabelDeleteBody(body: TransactionLabelDeleteBody | undefined):
+  | { ok: true; value: { txid: string } }
+  | { ok: false; error: string } {
+  try {
+    return { ok: true, value: normalizeTransactionLabelDeleteInput(body ?? {}) };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Invalid transaction label delete request"
+    };
+  }
+}
+
 function validateVaultPassword(value: unknown):
   | { ok: true; value: string }
   | { ok: false; error: string } {
@@ -608,6 +839,10 @@ function handleVaultError(error: unknown, reply: FastifyReply) {
   }
 
   if (error instanceof InvalidWalletInputError) {
+    return reply.code(400).send({ error: error.message });
+  }
+
+  if (error instanceof LabelValidationError) {
     return reply.code(400).send({ error: error.message });
   }
 

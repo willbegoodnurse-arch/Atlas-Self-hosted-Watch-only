@@ -38,9 +38,28 @@ type WalletRecord = {
   importFormat: ImportFormat;
   rawImport: string | null;
   notes: string | null;
+  walletNotes: string | null;
+  addressLabels: AddressLabel[];
+  transactionLabels: TransactionLabel[];
   derivationPath: string;
   gapLimit: number;
   createdAt: string;
+  updatedAt: string;
+};
+
+type AddressLabel = {
+  chain: "receive" | "change";
+  index: number;
+  address: string;
+  label: string;
+  notes: string | null;
+  updatedAt: string;
+};
+
+type TransactionLabel = {
+  txid: string;
+  label: string;
+  notes: string | null;
   updatedAt: string;
 };
 
@@ -282,16 +301,22 @@ export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
     setBusy(true);
     setMessage("");
 
+    const form = event.currentTarget;
+    const submittedUsername = readFormInput(form, "username") ?? loginUsername;
+    const submittedPassword = readFormInput(form, "password") ?? loginPassword;
+    const submittedTotpCode = readFormInput(form, "totpCode") ?? loginTotpCode;
+
     try {
       const nextSession = await apiRequest<SessionResponse>(apiUrl, "/api/auth/login", {
         method: "POST",
         body: JSON.stringify({
-          username: loginUsername,
-          password: loginPassword,
-          totpCode: loginTotpCode
+          username: submittedUsername,
+          password: submittedPassword,
+          totpCode: submittedTotpCode
         })
       });
       setSession(nextSession);
+      setLoginUsername(submittedUsername);
       setLoginPassword("");
       setLoginTotpCode("");
       if (window.location.pathname !== "/") {
@@ -425,6 +450,14 @@ function AuthModeSwitch({
       </button>
     </div>
   );
+}
+
+function readFormInput(form: HTMLFormElement, name: string): string | null {
+  const field = form.elements.namedItem(name);
+  if (field instanceof HTMLInputElement) {
+    return field.value;
+  }
+  return null;
 }
 
 function StatusBadge({
@@ -573,6 +606,7 @@ function LoginForm({
         <span>Username</span>
         <input
           autoComplete="username"
+          name="username"
           required
           value={username}
           onChange={(event) => setUsername(event.target.value)}
@@ -582,6 +616,7 @@ function LoginForm({
         <span>Password</span>
         <input
           autoComplete="current-password"
+          name="password"
           required
           type="password"
           value={password}
@@ -593,6 +628,7 @@ function LoginForm({
         <input
           autoComplete="one-time-code"
           inputMode="numeric"
+          name="totpCode"
           maxLength={6}
           minLength={6}
           pattern="[0-9]{6}"
@@ -787,6 +823,12 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
     }
   }
 
+  function handleReplaceWallet(updatedWallet: WalletRecord) {
+    setWallets((current) =>
+      current.map((wallet) => (wallet.id === updatedWallet.id ? updatedWallet : wallet))
+    );
+  }
+
   async function handleDeleteWallet(id: string) {
     setBusy(true);
     setMessage("");
@@ -855,7 +897,12 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
       {status.initialized && status.unlocked ? (
         detailWalletId ? (
           detailWallet ? (
-            <WalletDetailView apiUrl={apiUrl} mempoolBadgeStatus={mempoolBadgeStatus} wallet={detailWallet} />
+            <WalletDetailView
+              apiUrl={apiUrl}
+              mempoolBadgeStatus={mempoolBadgeStatus}
+              wallet={detailWallet}
+              onWalletChange={handleReplaceWallet}
+            />
           ) : (
             <div className="terminal-panel empty-state">
               <p className="terminal-heading">&gt; WALLET NOT FOUND</p>
@@ -1565,11 +1612,13 @@ function WalletCard({
 function WalletDetailView({
   apiUrl,
   mempoolBadgeStatus,
-  wallet
+  wallet,
+  onWalletChange
 }: {
   apiUrl: string;
   mempoolBadgeStatus: StatusKind;
   wallet: WalletRecord;
+  onWalletChange: (wallet: WalletRecord) => void;
 }) {
   const [balanceUnit, setBalanceUnit] = useState<"sats" | "btc">("sats");
   const [balanceBadgeStatus, setBalanceBadgeStatus] = useState<StatusKind>("degraded");
@@ -1593,6 +1642,7 @@ function WalletDetailView({
             <StatusBadge label="BALANCE" status={balanceBadgeStatus} />
             <StatusBadge label="TXS" status={txBadgeStatus} />
           </div>
+          <WalletNotesEditor apiUrl={apiUrl} wallet={wallet} onWalletChange={onWalletChange} />
           <details className="metadata-details">
             <summary>Import details</summary>
             <div className="metadata-grid">
@@ -1629,14 +1679,97 @@ function WalletDetailView({
         onBalanceStatusChange={setBalanceBadgeStatus}
         setBalanceUnit={setBalanceUnit}
         wallet={wallet}
+        onWalletChange={onWalletChange}
       />
       <TransactionHistoryPanel
         apiUrl={apiUrl}
         balanceUnit={balanceUnit}
         onTxStatusChange={setTxBadgeStatus}
         wallet={wallet}
+        onWalletChange={onWalletChange}
       />
     </div>
+  );
+}
+
+function WalletNotesEditor({
+  apiUrl,
+  wallet,
+  onWalletChange
+}: {
+  apiUrl: string;
+  wallet: WalletRecord;
+  onWalletChange: (wallet: WalletRecord) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(wallet.walletNotes ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!editing) {
+      setDraft(wallet.walletNotes ?? "");
+    }
+  }, [wallet.walletNotes, editing]);
+
+  async function saveNotes() {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await apiRequest<{ wallet: WalletRecord }>(apiUrl, `/api/wallets/${wallet.id}/notes`, {
+        method: "PATCH",
+        body: JSON.stringify({ notes: draft })
+      });
+      onWalletChange(response.wallet);
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save wallet note");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="wallet-note-editor">
+        <label>
+          <span>note</span>
+          <textarea
+            maxLength={1000}
+            rows={3}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+        </label>
+        <div className="button-row">
+          <button className="compact-button" disabled={saving} type="button" onClick={() => void saveNotes()}>
+            Save
+          </button>
+          <button
+            className="secondary-button compact-button"
+            disabled={saving}
+            type="button"
+            onClick={() => {
+              setDraft(wallet.walletNotes ?? "");
+              setError("");
+              setEditing(false);
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+        {error ? <p className="status-message">{error}</p> : null}
+      </div>
+    );
+  }
+
+  return (
+    <p className="wallet-note-line">
+      <span className="terminal-meta">note:</span> {wallet.walletNotes ?? "none"}{" "}
+      <button className="text-button" type="button" onClick={() => setEditing(true)}>
+        {wallet.walletNotes ? "edit" : "add"}
+      </button>
+    </p>
   );
 }
 
@@ -1645,13 +1778,15 @@ function WalletAddressPanel({
   balanceUnit,
   onBalanceStatusChange,
   setBalanceUnit,
-  wallet
+  wallet,
+  onWalletChange
 }: {
   apiUrl: string;
   balanceUnit: "sats" | "btc";
   onBalanceStatusChange: (status: StatusKind) => void;
   setBalanceUnit: (unit: "sats" | "btc") => void;
   wallet: WalletRecord;
+  onWalletChange: (wallet: WalletRecord) => void;
 }) {
   const [chain, setChain] = useState<"both" | "receive" | "change">("both");
   const [usageTab, setUsageTab] = useState<"all" | "used" | "unused" | "unknown">("all");
@@ -1666,6 +1801,11 @@ function WalletAddressPanel({
   const [loading, setLoading] = useState(false);
   const [qrAddress, setQrAddress] = useState<DerivedAddress | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState("");
+  const [editingAddressLabelKey, setEditingAddressLabelKey] = useState("");
+  const [addressLabelDraft, setAddressLabelDraft] = useState("");
+  const [addressNotesDraft, setAddressNotesDraft] = useState("");
+  const [labelSaving, setLabelSaving] = useState(false);
+  const [labelError, setLabelError] = useState("");
 
   useEffect(() => {
     void refreshAddresses();
@@ -1737,6 +1877,64 @@ function WalletAddressPanel({
     }
   }
 
+  function beginEditAddressLabel(address: DerivedAddress) {
+    const label = getAddressLabel(wallet, address.chain, address.index);
+    setEditingAddressLabelKey(addressLabelKey(address));
+    setAddressLabelDraft(label?.label ?? "");
+    setAddressNotesDraft(label?.notes ?? "");
+    setLabelError("");
+  }
+
+  function cancelEditAddressLabel() {
+    setEditingAddressLabelKey("");
+    setAddressLabelDraft("");
+    setAddressNotesDraft("");
+    setLabelError("");
+  }
+
+  async function saveAddressLabel(address: DerivedAddress) {
+    setLabelSaving(true);
+    setLabelError("");
+    try {
+      const response = await apiRequest<{ wallet: WalletRecord }>(apiUrl, `/api/wallets/${wallet.id}/address-labels`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          chain: address.chain,
+          index: address.index,
+          address: address.address,
+          label: addressLabelDraft,
+          notes: addressNotesDraft
+        })
+      });
+      onWalletChange(response.wallet);
+      cancelEditAddressLabel();
+    } catch (error) {
+      setLabelError(error instanceof Error ? error.message : "Unable to save address label");
+    } finally {
+      setLabelSaving(false);
+    }
+  }
+
+  async function clearAddressLabel(address: DerivedAddress) {
+    setLabelSaving(true);
+    setLabelError("");
+    try {
+      const response = await apiRequest<{ wallet: WalletRecord }>(apiUrl, `/api/wallets/${wallet.id}/address-labels`, {
+        method: "DELETE",
+        body: JSON.stringify({
+          chain: address.chain,
+          index: address.index
+        })
+      });
+      onWalletChange(response.wallet);
+      cancelEditAddressLabel();
+    } catch (error) {
+      setLabelError(error instanceof Error ? error.message : "Unable to clear address label");
+    } finally {
+      setLabelSaving(false);
+    }
+  }
+
   const visibleAddresses =
     usageTab === "all"
       ? addresses
@@ -1750,6 +1948,7 @@ function WalletAddressPanel({
     usageLookupFailed,
     unknownAddressCount
   });
+  const qrLabel = qrAddress ? getAddressLabel(wallet, qrAddress.chain, qrAddress.index) : null;
 
   return (
     <section className="wallet-address-panel">
@@ -1808,6 +2007,7 @@ function WalletAddressPanel({
             <span className={`usage-pill usage-${nextReceiveAddress.usage}`}>
               {nextReceiveAddress.usage}
             </span>
+            <AddressLabelPill label={getAddressLabel(wallet, nextReceiveAddress.chain, nextReceiveAddress.index)} />
             <code>{nextReceiveAddress.address}</code>
             <span>{nextReceiveAddress.path}</span>
             <span className="muted">Verify wallet name, source device, and path on your cold wallet before receiving funds.</span>
@@ -1826,7 +2026,27 @@ function WalletAddressPanel({
               >
                 QR
               </button>
+              <button
+                className="secondary-button compact-button"
+                type="button"
+                onClick={() => beginEditAddressLabel(nextReceiveAddress)}
+              >
+                Label
+              </button>
             </div>
+            {editingAddressLabelKey === addressLabelKey(nextReceiveAddress) ? (
+              <InlineLabelEditor
+                error={labelError}
+                label={addressLabelDraft}
+                notes={addressNotesDraft}
+                saving={labelSaving}
+                onCancel={cancelEditAddressLabel}
+                onClear={() => void clearAddressLabel(nextReceiveAddress)}
+                onLabelChange={setAddressLabelDraft}
+                onNotesChange={setAddressNotesDraft}
+                onSave={() => void saveAddressLabel(nextReceiveAddress)}
+              />
+            ) : null}
           </dd>
         ) : (
           <dd>
@@ -1910,8 +2130,20 @@ function WalletAddressPanel({
         <AddressTable
           addresses={receiveAddresses}
           balanceUnit={balanceUnit}
+          editingKey={editingAddressLabelKey}
+          getLabel={(address) => getAddressLabel(wallet, address.chain, address.index)}
+          labelDraft={addressLabelDraft}
+          labelError={labelError}
+          labelSaving={labelSaving}
+          notesDraft={addressNotesDraft}
           title="Receive"
+          onBeginEditLabel={beginEditAddressLabel}
+          onCancelEditLabel={cancelEditAddressLabel}
+          onClearLabel={clearAddressLabel}
           onCopy={copyAddress}
+          onLabelDraftChange={setAddressLabelDraft}
+          onNotesDraftChange={setAddressNotesDraft}
+          onSaveLabel={saveAddressLabel}
           onShowQr={setQrAddress}
         />
       ) : null}
@@ -1919,8 +2151,20 @@ function WalletAddressPanel({
         <AddressTable
           addresses={changeAddresses}
           balanceUnit={balanceUnit}
+          editingKey={editingAddressLabelKey}
+          getLabel={(address) => getAddressLabel(wallet, address.chain, address.index)}
+          labelDraft={addressLabelDraft}
+          labelError={labelError}
+          labelSaving={labelSaving}
+          notesDraft={addressNotesDraft}
           title="Change"
+          onBeginEditLabel={beginEditAddressLabel}
+          onCancelEditLabel={cancelEditAddressLabel}
+          onClearLabel={clearAddressLabel}
           onCopy={copyAddress}
+          onLabelDraftChange={setAddressLabelDraft}
+          onNotesDraftChange={setAddressNotesDraft}
+          onSaveLabel={saveAddressLabel}
           onShowQr={setQrAddress}
         />
       ) : null}
@@ -1954,6 +2198,12 @@ function WalletAddressPanel({
                   {qrAddress.chain} / {qrAddress.index}
                 </dd>
               </div>
+              {qrLabel ? (
+                <div>
+                  <dt>Label</dt>
+                  <dd>{qrLabel.label}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>Path</dt>
                 <dd>{qrAddress.path}</dd>
@@ -1971,12 +2221,14 @@ function TransactionHistoryPanel({
   apiUrl,
   balanceUnit,
   onTxStatusChange,
-  wallet
+  wallet,
+  onWalletChange
 }: {
   apiUrl: string;
   balanceUnit: "sats" | "btc";
   onTxStatusChange: (status: StatusKind) => void;
   wallet: WalletRecord;
+  onWalletChange: (wallet: WalletRecord) => void;
 }) {
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [txStatus, setTxStatus] = useState<"online" | "partial" | "offline" | null>(null);
@@ -1984,6 +2236,11 @@ function TransactionHistoryPanel({
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [txLimit, setTxLimit] = useState(25);
+  const [editingTxid, setEditingTxid] = useState("");
+  const [txLabelDraft, setTxLabelDraft] = useState("");
+  const [txNotesDraft, setTxNotesDraft] = useState("");
+  const [labelSaving, setLabelSaving] = useState(false);
+  const [labelError, setLabelError] = useState("");
 
   useEffect(() => {
     void refreshTransactions();
@@ -2009,6 +2266,59 @@ function TransactionHistoryPanel({
       onTxStatusChange("offline");
     } finally {
       setLoading(false);
+    }
+  }
+
+  function beginEditTransactionLabel(tx: WalletTransaction) {
+    const label = getTransactionLabel(wallet, tx.txid);
+    setEditingTxid(tx.txid);
+    setTxLabelDraft(label?.label ?? "");
+    setTxNotesDraft(label?.notes ?? "");
+    setLabelError("");
+  }
+
+  function cancelEditTransactionLabel() {
+    setEditingTxid("");
+    setTxLabelDraft("");
+    setTxNotesDraft("");
+    setLabelError("");
+  }
+
+  async function saveTransactionLabel(tx: WalletTransaction) {
+    setLabelSaving(true);
+    setLabelError("");
+    try {
+      const response = await apiRequest<{ wallet: WalletRecord }>(apiUrl, `/api/wallets/${wallet.id}/transaction-labels`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          txid: tx.txid,
+          label: txLabelDraft,
+          notes: txNotesDraft
+        })
+      });
+      onWalletChange(response.wallet);
+      cancelEditTransactionLabel();
+    } catch (error) {
+      setLabelError(error instanceof Error ? error.message : "Unable to save transaction label");
+    } finally {
+      setLabelSaving(false);
+    }
+  }
+
+  async function clearTransactionLabel(tx: WalletTransaction) {
+    setLabelSaving(true);
+    setLabelError("");
+    try {
+      const response = await apiRequest<{ wallet: WalletRecord }>(apiUrl, `/api/wallets/${wallet.id}/transaction-labels`, {
+        method: "DELETE",
+        body: JSON.stringify({ txid: tx.txid })
+      });
+      onWalletChange(response.wallet);
+      cancelEditTransactionLabel();
+    } catch (error) {
+      setLabelError(error instanceof Error ? error.message : "Unable to clear transaction label");
+    } finally {
+      setLabelSaving(false);
     }
   }
 
@@ -2053,20 +2363,63 @@ function TransactionHistoryPanel({
       ) : (
         <div className="tx-list">
           {transactions.map((tx) => (
-            <TransactionRow key={tx.txid} balanceUnit={balanceUnit} tx={tx} />
+            <TransactionRow
+              key={tx.txid}
+              balanceUnit={balanceUnit}
+              editing={editingTxid === tx.txid}
+              label={getTransactionLabel(wallet, tx.txid)}
+              labelDraft={txLabelDraft}
+              labelError={labelError}
+              labelSaving={labelSaving}
+              notesDraft={txNotesDraft}
+              tx={tx}
+              onBeginEdit={() => beginEditTransactionLabel(tx)}
+              onCancelEdit={cancelEditTransactionLabel}
+              onClearLabel={() => void clearTransactionLabel(tx)}
+              onLabelDraftChange={setTxLabelDraft}
+              onNotesDraftChange={setTxNotesDraft}
+              onSaveLabel={() => void saveTransactionLabel(tx)}
+            />
           ))}
         </div>
       )}
+      <p className="label-privacy-hint muted">
+        xpub and labels together can reveal wallet history. Keep this device private.
+      </p>
     </section>
   );
 }
 
 function TransactionRow({
   balanceUnit,
-  tx
+  editing,
+  label,
+  labelDraft,
+  labelError,
+  labelSaving,
+  notesDraft,
+  tx,
+  onBeginEdit,
+  onCancelEdit,
+  onClearLabel,
+  onLabelDraftChange,
+  onNotesDraftChange,
+  onSaveLabel
 }: {
   balanceUnit: "sats" | "btc";
+  editing: boolean;
+  label: TransactionLabel | null;
+  labelDraft: string;
+  labelError: string;
+  labelSaving: boolean;
+  notesDraft: string;
   tx: WalletTransaction;
+  onBeginEdit: () => void;
+  onCancelEdit: () => void;
+  onClearLabel: () => void;
+  onLabelDraftChange: (value: string) => void;
+  onNotesDraftChange: (value: string) => void;
+  onSaveLabel: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const directionClass = `tx-direction-badge tx-${tx.direction}`;
@@ -2102,6 +2455,14 @@ function TransactionRow({
           <span className="terminal-meta">block {new Intl.NumberFormat("en-US").format(tx.blockHeight)}</span>
         ) : null}
         <span className="terminal-meta">{relatedSummary}</span>
+        <TransactionLabelPill label={label} />
+        <button
+          className="secondary-button compact-button"
+          type="button"
+          onClick={onBeginEdit}
+        >
+          Label
+        </button>
         <button
           className="secondary-button compact-button"
           type="button"
@@ -2114,6 +2475,19 @@ function TransactionRow({
         <span className="terminal-meta">txid: </span>
         <code>{tx.txid.slice(0, 16)}...{tx.txid.slice(-8)}</code>
       </div>
+      {editing ? (
+        <InlineLabelEditor
+          error={labelError}
+          label={labelDraft}
+          notes={notesDraft}
+          saving={labelSaving}
+          onCancel={onCancelEdit}
+          onClear={onClearLabel}
+          onLabelChange={onLabelDraftChange}
+          onNotesChange={onNotesDraftChange}
+          onSave={onSaveLabel}
+        />
+      ) : null}
       {expanded ? (
         <div className="tx-related">
           {tx.feeSats !== null ? (
@@ -2164,17 +2538,118 @@ function summarizeRelatedAddresses(addresses: WalletTransactionRelatedAddress[])
   return values.map((address) => `${address.chain} #${address.index}`).join(", ");
 }
 
+function InlineLabelEditor({
+  error,
+  label,
+  notes,
+  saving,
+  onCancel,
+  onClear,
+  onLabelChange,
+  onNotesChange,
+  onSave
+}: {
+  error: string;
+  label: string;
+  notes: string;
+  saving: boolean;
+  onCancel: () => void;
+  onClear: () => void;
+  onLabelChange: (value: string) => void;
+  onNotesChange: (value: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="label-editor">
+      <label>
+        <span>label</span>
+        <input
+          maxLength={80}
+          placeholder="local label"
+          value={label}
+          onChange={(event) => onLabelChange(event.target.value)}
+        />
+      </label>
+      <label>
+        <span>notes</span>
+        <textarea
+          maxLength={1000}
+          placeholder="optional local note"
+          rows={3}
+          value={notes}
+          onChange={(event) => onNotesChange(event.target.value)}
+        />
+      </label>
+      <div className="button-row">
+        <button className="compact-button" disabled={saving} type="button" onClick={onSave}>
+          Save
+        </button>
+        <button className="secondary-button compact-button" disabled={saving} type="button" onClick={onClear}>
+          Clear
+        </button>
+        <button className="secondary-button compact-button" disabled={saving} type="button" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+      {error ? <p className="status-message">{error}</p> : null}
+      <p className="label-privacy-hint muted">
+        Labels are stored locally in the encrypted vault. They are not written to the Bitcoin network.
+      </p>
+    </div>
+  );
+}
+
+function AddressLabelPill({ label }: { label: AddressLabel | null }) {
+  if (!label) {
+    return <span className="label-pill label-pill-empty">unlabeled</span>;
+  }
+
+  return <span className="label-pill">{label.label}</span>;
+}
+
+function TransactionLabelPill({ label }: { label: TransactionLabel | null }) {
+  if (!label) {
+    return null;
+  }
+
+  return <span className="label-pill">{label.label}</span>;
+}
+
 function AddressTable({
   addresses,
   balanceUnit,
+  editingKey,
+  getLabel,
+  labelDraft,
+  labelError,
+  labelSaving,
+  notesDraft,
   title,
+  onBeginEditLabel,
+  onCancelEditLabel,
+  onClearLabel,
   onCopy,
+  onLabelDraftChange,
+  onNotesDraftChange,
+  onSaveLabel,
   onShowQr
 }: {
   addresses: DerivedAddress[];
   balanceUnit: "sats" | "btc";
+  editingKey: string;
+  getLabel: (address: DerivedAddress) => AddressLabel | null;
+  labelDraft: string;
+  labelError: string;
+  labelSaving: boolean;
+  notesDraft: string;
   title: string;
+  onBeginEditLabel: (address: DerivedAddress) => void;
+  onCancelEditLabel: () => void;
+  onClearLabel: (address: DerivedAddress) => Promise<void>;
   onCopy: (address: DerivedAddress) => void;
+  onLabelDraftChange: (value: string) => void;
+  onNotesDraftChange: (value: string) => void;
+  onSaveLabel: (address: DerivedAddress) => Promise<void>;
   onShowQr: (address: DerivedAddress) => void;
 }) {
   return (
@@ -2185,50 +2660,81 @@ function AddressTable({
           <span>Chain</span>
           <span>Index</span>
           <span>Address</span>
+          <span>Label</span>
           <span>Balance</span>
           <span>Status</span>
           <span>Actions</span>
         </div>
-        {addresses.map((address) => (
-          <div className="address-row" key={`${address.chain}-${address.index}`}>
-            <div className="address-cell">
-              <dt>Chain</dt>
-              <dd>{address.chain}</dd>
+        {addresses.map((address) => {
+          const label = getLabel(address);
+          const isEditing = editingKey === addressLabelKey(address);
+          return (
+            <div className="address-row" key={`${address.chain}-${address.index}`}>
+              <div className="address-cell">
+                <dt>Chain</dt>
+                <dd>{address.chain}</dd>
+              </div>
+              <div className="address-cell address-index">
+                <dt>Index</dt>
+                <dd>#{address.index}</dd>
+              </div>
+              <div className="address-cell address-value">
+                <dt>Address</dt>
+                <code>{address.address}</code>
+                <span className="muted">{address.path}</span>
+              </div>
+              <div className="address-cell">
+                <dt>Label</dt>
+                <AddressLabelPill label={label} />
+              </div>
+              <div className="address-cell numeric-value">
+                <dt>Balance</dt>
+                <dd>{formatNullableBalance(address.totalBalance, balanceUnit)}</dd>
+              </div>
+              <div className="address-cell usage-stack">
+                <dt>Status</dt>
+                <span className={`usage-pill usage-${address.usage}`}>{address.usage}</span>
+                <span className="muted">
+                  txCount: {address.txCount === null || address.txCount === undefined ? "unknown" : address.txCount}
+                </span>
+              </div>
+              <div className="button-row address-actions">
+                <button
+                  className="secondary-button compact-button"
+                  type="button"
+                  onClick={() => void onCopy(address)}
+                >
+                  Copy
+                </button>
+                <button className="secondary-button compact-button" type="button" onClick={() => onShowQr(address)}>
+                  QR
+                </button>
+                <button
+                  className="secondary-button compact-button"
+                  type="button"
+                  onClick={() => onBeginEditLabel(address)}
+                >
+                  Label
+                </button>
+              </div>
+              {isEditing ? (
+                <div className="address-label-editor">
+                  <InlineLabelEditor
+                    error={labelError}
+                    label={labelDraft}
+                    notes={notesDraft}
+                    saving={labelSaving}
+                    onCancel={onCancelEditLabel}
+                    onClear={() => void onClearLabel(address)}
+                    onLabelChange={onLabelDraftChange}
+                    onNotesChange={onNotesDraftChange}
+                    onSave={() => void onSaveLabel(address)}
+                  />
+                </div>
+              ) : null}
             </div>
-            <div className="address-cell address-index">
-              <dt>Index</dt>
-              <dd>#{address.index}</dd>
-            </div>
-            <div className="address-cell address-value">
-              <dt>Address</dt>
-              <code>{address.address}</code>
-              <span className="muted">{address.path}</span>
-            </div>
-            <div className="address-cell numeric-value">
-              <dt>Balance</dt>
-              <dd>{formatNullableBalance(address.totalBalance, balanceUnit)}</dd>
-            </div>
-            <div className="address-cell usage-stack">
-              <dt>Status</dt>
-              <span className={`usage-pill usage-${address.usage}`}>{address.usage}</span>
-              <span className="muted">
-                txCount: {address.txCount === null || address.txCount === undefined ? "unknown" : address.txCount}
-              </span>
-            </div>
-            <div className="button-row address-actions">
-              <button
-                className="secondary-button compact-button"
-                type="button"
-                onClick={() => void onCopy(address)}
-              >
-                Copy address
-              </button>
-              <button className="secondary-button compact-button" type="button" onClick={() => onShowQr(address)}>
-                QR
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -2260,6 +2766,22 @@ function getEmptyUsageMessage({
   }
 
   return "No addresses to show for this filter.";
+}
+
+function getAddressLabel(
+  wallet: WalletRecord,
+  chain: "receive" | "change",
+  index: number
+): AddressLabel | null {
+  return (wallet.addressLabels ?? []).find((label) => label.chain === chain && label.index === index) ?? null;
+}
+
+function getTransactionLabel(wallet: WalletRecord, txid: string): TransactionLabel | null {
+  return (wallet.transactionLabels ?? []).find((label) => label.txid === txid) ?? null;
+}
+
+function addressLabelKey(address: Pick<DerivedAddress, "chain" | "index">): string {
+  return `${address.chain}-${address.index}`;
 }
 
 function formatNullableBalance(value: number | null | undefined, unit: "sats" | "btc"): string {

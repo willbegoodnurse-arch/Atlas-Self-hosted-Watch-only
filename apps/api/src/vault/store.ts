@@ -19,6 +19,19 @@ import {
   parseWalletImport
 } from "./import-parser.js";
 import {
+  deleteAddressLabels,
+  deleteTransactionLabels,
+  normalizeAddressLabelInput,
+  normalizeAddressLabelDeleteInput,
+  normalizeStoredAddressLabels,
+  normalizeStoredTransactionLabels,
+  normalizeTransactionLabelInput,
+  normalizeTransactionLabelDeleteInput,
+  normalizeWalletNotes,
+  upsertAddressLabels,
+  upsertTransactionLabels
+} from "./labels.js";
+import {
   createVaultEnvelope,
   encryptVaultWithKey,
   unlockVaultEnvelope
@@ -126,6 +139,9 @@ export async function addWallet(input: {
     importFormat: parsed.importFormat,
     rawImport: parsed.rawImport,
     notes: parsed.notes,
+    walletNotes: null,
+    addressLabels: [],
+    transactionLabels: [],
     derivationPath: parsed.accountPath ?? derivationPathFor(parsed.type, parsed.network, parsed.scriptType),
     gapLimit: input.gapLimit,
     createdAt: now,
@@ -158,6 +174,85 @@ export async function updateWallet(
     wallet.gapLimit = input.gapLimit;
   }
 
+  wallet.updatedAt = new Date().toISOString();
+  await saveUnlockedVault();
+  return wallet;
+}
+
+export async function updateWalletNotes(id: string, notes: string | null): Promise<WalletRecord> {
+  const wallet = findWalletById(id);
+  wallet.walletNotes = normalizeWalletNotes(notes);
+  wallet.updatedAt = new Date().toISOString();
+  await saveUnlockedVault();
+  return wallet;
+}
+
+export async function upsertAddressLabel(
+  id: string,
+  input: {
+    chain: unknown;
+    index: unknown;
+    address: unknown;
+    label: unknown;
+    notes?: unknown;
+  }
+): Promise<WalletRecord> {
+  const wallet = findWalletById(id);
+  const label = normalizeAddressLabelInput(input);
+  wallet.addressLabels = upsertAddressLabels(
+    wallet.addressLabels,
+    label,
+    new Date().toISOString()
+  );
+  wallet.updatedAt = new Date().toISOString();
+  await saveUnlockedVault();
+  return wallet;
+}
+
+export async function deleteAddressLabel(
+  id: string,
+  input: {
+    chain: unknown;
+    index: unknown;
+  }
+): Promise<WalletRecord> {
+  const wallet = findWalletById(id);
+  const label = normalizeAddressLabelDeleteInput(input);
+  wallet.addressLabels = deleteAddressLabels(wallet.addressLabels, label.chain, label.index);
+  wallet.updatedAt = new Date().toISOString();
+  await saveUnlockedVault();
+  return wallet;
+}
+
+export async function upsertTransactionLabel(
+  id: string,
+  input: {
+    txid: unknown;
+    label: unknown;
+    notes?: unknown;
+  }
+): Promise<WalletRecord> {
+  const wallet = findWalletById(id);
+  const label = normalizeTransactionLabelInput(input);
+  wallet.transactionLabels = upsertTransactionLabels(
+    wallet.transactionLabels,
+    label,
+    new Date().toISOString()
+  );
+  wallet.updatedAt = new Date().toISOString();
+  await saveUnlockedVault();
+  return wallet;
+}
+
+export async function deleteTransactionLabel(
+  id: string,
+  input: {
+    txid: unknown;
+  }
+): Promise<WalletRecord> {
+  const wallet = findWalletById(id);
+  const label = normalizeTransactionLabelDeleteInput(input);
+  wallet.transactionLabels = deleteTransactionLabels(wallet.transactionLabels, label.txid);
   wallet.updatedAt = new Date().toISOString();
   await saveUnlockedVault();
   return wallet;
@@ -335,9 +430,21 @@ export function normalizeWalletRecord(value: WalletRecord): WalletRecord {
     importFormat: normalizeImportFormat(value.importFormat) ?? importFormatForExistingKey(type),
     rawImport: typeof value.rawImport === "string" ? value.rawImport : null,
     notes: typeof value.notes === "string" ? value.notes : null,
+    walletNotes: normalizeWalletNotes(value.walletNotes),
+    addressLabels: normalizeStoredAddressLabels(value.addressLabels),
+    transactionLabels: normalizeStoredTransactionLabels(value.transactionLabels),
     derivationPath: value.derivationPath ?? accountPath ?? derivationPathFor(type, network, scriptType),
     gapLimit: value.gapLimit
   };
+}
+
+function findWalletById(id: string): WalletRecord {
+  const vault = requireUnlockedVault();
+  const wallet = vault.plaintext.wallets.find((candidate) => candidate.id === id);
+  if (!wallet) {
+    throw new WalletNotFoundError();
+  }
+  return wallet;
 }
 
 function derivableScriptType(wallet: WalletRecord): "legacy" | "nested-segwit" | "native-segwit" {
