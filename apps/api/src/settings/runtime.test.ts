@@ -6,21 +6,29 @@ import {
   registerRuntimeSettingsRoute
 } from "./runtime.js";
 
+const ALL_ENV_KEYS = [
+  "API_MODE",
+  "MEMPOOL_API_URL",
+  "FULCRUM_HOST",
+  "FULCRUM_PORT",
+  "FULCRUM_TLS_PORT",
+  "FULCRUM_USE_TLS",
+  "DEFAULT_NETWORK",
+  "DEFAULT_CURRENCY",
+  "DEFAULT_UNIT",
+  "SESSION_SECRET",
+  "RPC_PASSWORD",
+  "TOTP_SECRET"
+];
+
 test("runtime settings returns only safe settings", () => {
-  const original = snapshotEnv([
-    "API_MODE",
-    "MEMPOOL_API_URL",
-    "DEFAULT_NETWORK",
-    "DEFAULT_CURRENCY",
-    "DEFAULT_UNIT",
-    "SESSION_SECRET",
-    "RPC_PASSWORD",
-    "TOTP_SECRET"
-  ]);
+  const original = snapshotEnv(ALL_ENV_KEYS);
 
   try {
     process.env.API_MODE = "mempool";
-    process.env.MEMPOOL_API_URL = "https://user:pass@mempool.example/api?token=secret-token&view=compact";
+    process.env.MEMPOOL_API_URL =
+      "https://user:pass@mempool.example/api?token=secret-token&view=compact";
+    delete process.env.FULCRUM_HOST;
     process.env.DEFAULT_NETWORK = "mainnet";
     process.env.DEFAULT_CURRENCY = "KRW";
     process.env.DEFAULT_UNIT = "BTC";
@@ -33,17 +41,98 @@ test("runtime settings returns only safe settings", () => {
 
     assert.deepEqual(Object.keys(settings).sort(), [
       "apiMode",
+      "backendKind",
       "defaultCurrency",
       "defaultNetwork",
       "defaultUnit",
+      "fulcrum",
+      "isLocalMempool",
+      "mempoolApiHost",
       "mempoolApiUrl"
     ]);
+
     assert.equal(settings.apiMode, "mempool");
+    assert.equal(settings.backendKind, "mempool-public");
+    assert.equal(settings.mempoolApiHost, "mempool.example");
+    assert.equal(settings.isLocalMempool, false);
+    assert.equal(settings.fulcrum.configured, false);
+    assert.equal(settings.fulcrum.host, null);
     assert.equal(settings.defaultNetwork, "mainnet");
     assert.equal(settings.defaultCurrency, "KRW");
     assert.equal(settings.defaultUnit, "BTC");
-    assert.equal(settings.mempoolApiUrl, "https://****:****@mempool.example/api?token=****&view=compact");
-    assert.doesNotMatch(serialized, /do-not-return|secret-token|pass/);
+    assert.equal(
+      settings.mempoolApiUrl,
+      "https://****:****@mempool.example/api?token=****&view=compact"
+    );
+    assert.doesNotMatch(serialized, /do-not-return|secret-token|pass(?!port)/);
+  } finally {
+    restoreEnv(original);
+  }
+});
+
+test("runtime settings includes backendKind and does not expose secrets", () => {
+  const original = snapshotEnv(ALL_ENV_KEYS);
+
+  try {
+    process.env.API_MODE = "mempool";
+    process.env.MEMPOOL_API_URL = "https://mempool.space/api";
+    delete process.env.FULCRUM_HOST;
+    process.env.SESSION_SECRET = "super-secret-session-key";
+    process.env.RPC_PASSWORD = "super-secret-rpc-password";
+    process.env.TOTP_SECRET = "super-secret-totp";
+
+    const settings = getSafeRuntimeSettings();
+    const serialized = JSON.stringify(settings);
+
+    assert.equal(typeof settings.backendKind, "string");
+    assert.ok(
+      ["mempool-public", "mempool-local", "fulcrum", "unknown"].includes(
+        settings.backendKind
+      )
+    );
+    assert.equal(settings.backendKind, "mempool-public");
+    assert.doesNotMatch(serialized, /super-secret/);
+  } finally {
+    restoreEnv(original);
+  }
+});
+
+test("runtime settings detects local mempool URL", () => {
+  const original = snapshotEnv(["API_MODE", "MEMPOOL_API_URL", "FULCRUM_HOST"]);
+
+  try {
+    process.env.API_MODE = "mempool";
+    process.env.MEMPOOL_API_URL = "http://192.168.0.23:8080/api";
+    delete process.env.FULCRUM_HOST;
+
+    const settings = getSafeRuntimeSettings();
+
+    assert.equal(settings.backendKind, "mempool-local");
+    assert.equal(settings.isLocalMempool, true);
+    assert.equal(settings.mempoolApiHost, "192.168.0.23");
+  } finally {
+    restoreEnv(original);
+  }
+});
+
+test("runtime settings reports fulcrum as configured when FULCRUM_HOST is set", () => {
+  const original = snapshotEnv(ALL_ENV_KEYS);
+
+  try {
+    process.env.API_MODE = "mempool";
+    process.env.MEMPOOL_API_URL = "https://mempool.space/api";
+    process.env.FULCRUM_HOST = "127.0.0.1";
+    process.env.FULCRUM_PORT = "50001";
+    process.env.FULCRUM_TLS_PORT = "50002";
+    process.env.FULCRUM_USE_TLS = "false";
+
+    const settings = getSafeRuntimeSettings();
+
+    assert.equal(settings.fulcrum.configured, true);
+    assert.equal(settings.fulcrum.host, "127.0.0.1");
+    assert.equal(settings.fulcrum.port, 50001);
+    assert.equal(settings.fulcrum.tlsPort, 50002);
+    assert.equal(settings.fulcrum.useTls, false);
   } finally {
     restoreEnv(original);
   }
@@ -67,7 +156,10 @@ test("runtime settings endpoint requires authentication", async () => {
 
 test("runtime settings endpoint returns safe settings for authenticated users", async () => {
   const server = Fastify({ logger: false });
-  await registerRuntimeSettingsRoute(server, () => ({ username: "admin", expiresAt: Date.now() + 1_000 }));
+  await registerRuntimeSettingsRoute(server, () => ({
+    username: "admin",
+    expiresAt: Date.now() + 1_000
+  }));
 
   const response = await server.inject({
     method: "GET",
@@ -78,6 +170,9 @@ test("runtime settings endpoint returns safe settings for authenticated users", 
   const payload = response.json();
   assert.equal(typeof payload.apiMode, "string");
   assert.equal(typeof payload.mempoolApiUrl, "string");
+  assert.equal(typeof payload.backendKind, "string");
+  assert.ok(typeof payload.isLocalMempool === "boolean");
+  assert.ok(typeof payload.fulcrum === "object" && payload.fulcrum !== null);
   assert.equal(payload.sessionSecret, undefined);
   assert.equal(payload.rpcPassword, undefined);
   await server.close();

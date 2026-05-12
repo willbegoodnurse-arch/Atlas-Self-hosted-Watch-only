@@ -158,9 +158,31 @@ type MempoolStatusResponse = {
   cacheTtlSeconds: number;
 };
 
+type FulcrumRuntimeConfig = {
+  host: string | null;
+  port: number;
+  tlsPort: number;
+  useTls: boolean;
+  configured: boolean;
+};
+
+type FulcrumStatusResponse = {
+  status: "online" | "offline" | "not-configured";
+  host: string | null;
+  port: number;
+  useTls: boolean;
+  latencyMs: number | null;
+  checkedAt: string;
+  error: string | null;
+};
+
 type RuntimeSettingsResponse = {
   apiMode: string;
+  backendKind: "mempool-public" | "mempool-local" | "fulcrum" | "unknown";
   mempoolApiUrl: string;
+  mempoolApiHost: string;
+  isLocalMempool: boolean;
+  fulcrum: FulcrumRuntimeConfig;
   defaultNetwork: string;
   defaultCurrency: string;
   defaultUnit: string;
@@ -709,6 +731,7 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
   const [mempoolStatus, setMempoolStatus] = useState<MempoolStatusResponse | null>(null);
   const [mempoolStatusError, setMempoolStatusError] = useState("");
   const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettingsResponse | null>(null);
+  const [fulcrumStatus, setFulcrumStatus] = useState<FulcrumStatusResponse | null>(null);
   const [wallets, setWallets] = useState<WalletRecord[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -737,9 +760,10 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
   }
 
   async function refreshMempoolStatus() {
-    const [statusResult, settingsResult] = await Promise.allSettled([
+    const [statusResult, settingsResult, fulcrumResult] = await Promise.allSettled([
       apiRequest<MempoolStatusResponse>(apiUrl, "/api/status/mempool"),
-      apiRequest<RuntimeSettingsResponse>(apiUrl, "/api/settings/runtime")
+      apiRequest<RuntimeSettingsResponse>(apiUrl, "/api/settings/runtime"),
+      apiRequest<FulcrumStatusResponse>(apiUrl, "/api/status/fulcrum")
     ]);
 
     if (statusResult.status === "fulfilled") {
@@ -756,6 +780,12 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
       setRuntimeSettings(settingsResult.value);
     } else {
       setRuntimeSettings(null);
+    }
+
+    if (fulcrumResult.status === "fulfilled") {
+      setFulcrumStatus(fulcrumResult.value);
+    } else {
+      setFulcrumStatus(null);
     }
   }
 
@@ -943,6 +973,7 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
           detailWallet ? (
             <WalletDetailView
               apiUrl={apiUrl}
+              fulcrumStatus={fulcrumStatus}
               mempoolBadgeStatus={mempoolBadgeStatus}
               mempoolStatus={mempoolStatus}
               mempoolStatusError={mempoolStatusError}
@@ -1659,6 +1690,7 @@ function WalletCard({
 
 function WalletDetailView({
   apiUrl,
+  fulcrumStatus,
   mempoolBadgeStatus,
   mempoolStatus,
   mempoolStatusError,
@@ -1668,6 +1700,7 @@ function WalletDetailView({
   onWalletChange
 }: {
   apiUrl: string;
+  fulcrumStatus: FulcrumStatusResponse | null;
   mempoolBadgeStatus: StatusKind;
   mempoolStatus: MempoolStatusResponse | null;
   mempoolStatusError: string;
@@ -1713,6 +1746,7 @@ function WalletDetailView({
           </div>
           <ConnectionPanel
             error={mempoolStatusError}
+            fulcrumStatus={fulcrumStatus}
             mempoolStatus={mempoolStatus}
             refreshing={refreshingAll}
             runtimeSettings={runtimeSettings}
@@ -1773,12 +1807,14 @@ function WalletDetailView({
 
 function ConnectionPanel({
   error,
+  fulcrumStatus,
   mempoolStatus,
   refreshing,
   runtimeSettings,
   onRefreshAll
 }: {
   error: string;
+  fulcrumStatus: FulcrumStatusResponse | null;
   mempoolStatus: MempoolStatusResponse | null;
   refreshing: boolean;
   runtimeSettings: RuntimeSettingsResponse | null;
@@ -1787,15 +1823,32 @@ function ConnectionPanel({
   const status = mempoolStatus?.status ?? (error ? "offline" : "degraded");
   const badgeStatus: StatusKind =
     status === "online" ? "online" : status === "offline" ? "offline" : "degraded";
-  const endpoint = mempoolStatus?.baseUrl ?? mempoolStatus?.url ?? runtimeSettings?.mempoolApiUrl ?? "unknown";
+  const backendKind = runtimeSettings?.backendKind ?? "unknown";
+  const endpoint =
+    mempoolStatus?.baseUrl ??
+    mempoolStatus?.url ??
+    runtimeSettings?.mempoolApiUrl ??
+    "unknown";
   const tip = mempoolStatus?.tipHeight
     ? new Intl.NumberFormat("en-US").format(mempoolStatus.tipHeight)
     : "unknown";
   const latency =
-    typeof mempoolStatus?.latencyMs === "number" ? `${mempoolStatus.latencyMs}ms` : status === "offline" ? "timeout" : "unknown";
+    typeof mempoolStatus?.latencyMs === "number"
+      ? `${mempoolStatus.latencyMs}ms`
+      : status === "offline"
+        ? "timeout"
+        : "unknown";
   const checkedAt = formatCheckedAt(mempoolStatus?.checkedAt);
   const errors = mempoolStatus?.errors ?? (error ? [error] : []);
   const helper = getMempoolHelperText(badgeStatus);
+  const fulcrumConfigured =
+    runtimeSettings?.fulcrum?.configured ??
+    (fulcrumStatus !== null && fulcrumStatus.status !== "not-configured");
+  const guidance = getBackendGuidance(backendKind, fulcrumConfigured);
+
+  const fulcrumHost = fulcrumStatus?.host ?? runtimeSettings?.fulcrum?.host ?? null;
+  const fulcrumPort = fulcrumStatus?.port ?? runtimeSettings?.fulcrum?.port ?? null;
+  const fulcrumStatusLabel = fulcrumStatus?.status ?? (fulcrumConfigured ? "checking" : "not-configured");
 
   return (
     <div className="connection-panel">
@@ -1815,7 +1868,7 @@ function ConnectionPanel({
       </div>
       <div className="terminal-statusline connection-statusline">
         <StatusBadge label="MEMPOOL" status={badgeStatus} />
-        <span className="terminal-meta">mode {mempoolStatus?.mode ?? runtimeSettings?.apiMode ?? "mempool"}</span>
+        <span className="terminal-meta">backend {backendKind}</span>
         <span className="terminal-meta">tip {tip}</span>
         <span className="terminal-meta">latency {latency}</span>
       </div>
@@ -1823,21 +1876,36 @@ function ConnectionPanel({
         <summary>Connection details</summary>
         <div className="metadata-grid">
           <div>
+            <dt>Backend</dt>
+            <dd>{backendKind}</dd>
+          </div>
+          <div>
             <dt>Endpoint</dt>
-            <dd>{endpoint}</dd>
+            <dd title={endpoint}>{truncateEndpoint(endpoint)}</dd>
           </div>
           <div>
             <dt>Last check</dt>
             <dd>{checkedAt}</dd>
           </div>
-          <div>
-            <dt>Mode</dt>
-            <dd>{runtimeSettings?.apiMode ?? mempoolStatus?.mode ?? "mempool"}</dd>
-          </div>
         </div>
-        <p className="muted technical-line">
-          To use your own node, set MEMPOOL_API_URL in .env and restart the API server.
-        </p>
+        {fulcrumConfigured ? (
+          <div className="metadata-grid">
+            <div>
+              <dt>Fulcrum</dt>
+              <dd>
+                {fulcrumHost ?? "configured"}
+                {fulcrumPort ? `:${fulcrumPort}` : ""}
+              </dd>
+            </div>
+            <div>
+              <dt>Fulcrum status</dt>
+              <dd>{fulcrumStatusLabel}</dd>
+            </div>
+          </div>
+        ) : null}
+        {guidance ? (
+          <p className="muted technical-line">{guidance}</p>
+        ) : null}
         {errors.length ? <p className="status-message">{errors[0]}</p> : null}
       </details>
     </div>
@@ -2988,6 +3056,24 @@ function getMempoolHelperText(status: StatusKind): string {
     return "Mempool lookup is unavailable.";
   }
   return "Mempool lookup partially failed.";
+}
+
+function getBackendGuidance(backendKind: string, fulcrumConfigured: boolean): string {
+  if (fulcrumConfigured || backendKind === "fulcrum") {
+    return "Fulcrum 설정은 감지됐지만, 현재 잔고/거래 조회는 mempool-compatible HTTP backend를 사용합니다.";
+  }
+  if (backendKind === "mempool-public") {
+    return "공용 API 모드입니다. 테스트에는 편하지만, 프라이버시를 위해 로컬 백엔드를 권장합니다.";
+  }
+  if (backendKind === "mempool-local") {
+    return "Local mempool backend detected.";
+  }
+  return "";
+}
+
+function truncateEndpoint(endpoint: string): string {
+  if (endpoint.length <= 50) return endpoint;
+  return `${endpoint.slice(0, 47)}...`;
 }
 
 function formatCheckedAt(value: string | undefined): string {

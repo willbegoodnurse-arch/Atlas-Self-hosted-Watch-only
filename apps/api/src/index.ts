@@ -9,6 +9,7 @@ import { requireAuthenticatedSession } from "./auth/guard.js";
 import { checkMempoolHealth, getMempoolApiConfig } from "./mempool/usage.js";
 import { registerRuntimeSettingsRoute } from "./settings/runtime.js";
 import { registerVaultRoutes } from "./vault/routes.js";
+import { registerFulcrumStatusRoute } from "./fulcrum/diagnostics.js";
 
 const port = Number(process.env.API_PORT ?? 3011);
 const host = process.env.API_HOST ?? "0.0.0.0";
@@ -36,7 +37,7 @@ await server.register(rateLimit, {
 server.get("/api/status", async () => ({
   app: appName,
   status: "ok",
-  mode: "phase-5",
+  mode: "phase-11",
   watchOnly: true,
   walletFeaturesEnabled: true,
   storagePolicy: {
@@ -58,16 +59,9 @@ server.get("/api/status/mempool", async () => {
   };
 });
 
-server.get("/api/status/fulcrum", async () => ({
-  status: "not_configured",
-  host: process.env.FULCRUM_HOST ?? "127.0.0.1",
-  port: Number(process.env.FULCRUM_PORT ?? 50001),
-  tlsPort: Number(process.env.FULCRUM_TLS_PORT ?? 50002),
-  useTls: process.env.FULCRUM_USE_TLS === "true"
-}));
-
 await registerAuthRoutes(server);
 await registerRuntimeSettingsRoute(server, requireAuthenticatedSession);
+await registerFulcrumStatusRoute(server);
 await registerVaultRoutes(server);
 
 try {
