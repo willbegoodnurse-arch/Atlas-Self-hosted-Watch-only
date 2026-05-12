@@ -3,11 +3,13 @@ import * as bitcoin from "bitcoinjs-lib";
 import bs58check from "bs58check";
 import * as ecc from "tiny-secp256k1";
 
+bitcoin.initEccLib(ecc);
+
 export type BitcoinNetwork = "mainnet" | "testnet" | "signet";
 
 export type ExtendedPublicKeyKind = "xpub" | "ypub" | "zpub" | "tpub" | "upub" | "vpub";
 
-export type ScriptType = "legacy" | "nested-segwit" | "native-segwit";
+export type ScriptType = "legacy" | "nested-segwit" | "native-segwit" | "taproot";
 
 export type AddressChain = "receive" | "change";
 
@@ -125,7 +127,11 @@ export function accountDerivationPath(
   network: BitcoinNetwork
 ): string {
   const coinType = network === "mainnet" ? "0" : "1";
-  const purpose = scriptType === "legacy" ? "44" : scriptType === "nested-segwit" ? "49" : "84";
+  const purpose =
+    scriptType === "legacy" ? "44" :
+    scriptType === "nested-segwit" ? "49" :
+    scriptType === "taproot" ? "86" :
+    "84";
   return `m/${purpose}'/${coinType}'/0'`;
 }
 
@@ -188,7 +194,20 @@ function paymentAddress(
     );
   }
 
+  if (scriptType === "taproot") {
+    return requireAddress(
+      bitcoin.payments.p2tr({ internalPubkey: toXOnly(pubkey), network }).address
+    );
+  }
+
   return requireAddress(bitcoin.payments.p2wpkh({ pubkey, network }).address);
+}
+
+function toXOnly(pubkey: Buffer): Buffer {
+  if (pubkey.length !== 33) {
+    throw new Error("Expected 33-byte compressed public key for taproot derivation");
+  }
+  return pubkey.slice(1, 33);
 }
 
 function bitcoinNetwork(network: BitcoinNetwork): bitcoin.Network {

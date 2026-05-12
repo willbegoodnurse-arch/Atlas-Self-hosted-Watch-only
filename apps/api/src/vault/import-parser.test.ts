@@ -64,7 +64,32 @@ test("parses nested SegWit and taproot descriptors", () => {
     network: "mainnet"
   });
   assert.equal(taproot.scriptType, "taproot");
-  assert.match(taproot.unsupportedReason ?? "", /Taproot/);
+  assert.equal(taproot.masterFingerprint, "abcd1234");
+  assert.equal(taproot.accountPath, "m/86'/0'/0'");
+  assert.equal(taproot.unsupportedReason, null, "taproot descriptor should now be derivable");
+});
+
+test("tr() descriptor with xpub is stored as taproot with BIP86 account path", () => {
+  const parsed = parseWalletImport({
+    importText: `tr([deadbeef/86'/0'/0']${xpub}/0/*)`,
+    network: "mainnet"
+  });
+  assert.equal(parsed.importFormat, "descriptor");
+  assert.equal(parsed.scriptType, "taproot");
+  assert.equal(parsed.accountPath, "m/86'/0'/0'");
+  assert.equal(parsed.masterFingerprint, "deadbeef");
+  assert.equal(parsed.unsupportedReason, null);
+  assert.ok(parsed.extendedPublicKey !== null);
+});
+
+test("private key taproot descriptor is rejected", () => {
+  assert.throws(
+    () => parseWalletImport({
+      importText: `tr([abcd1234/86'/0'/0']xprv${"A".repeat(80)}/0/*)`,
+      network: "mainnet"
+    }),
+    /watch-only/i
+  );
 });
 
 test("parses key expression fingerprint and path", () => {

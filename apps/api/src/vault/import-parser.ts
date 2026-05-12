@@ -396,11 +396,8 @@ function applyOverrides(parsed: ParsedWalletImport, input: {
 }
 
 function unsupportedReasonForScript(scriptType: ScriptType): string | null {
-  if (scriptType === "taproot") {
-    return "Taproot descriptor metadata is stored, but taproot address derivation is not supported yet.";
-  }
   if (scriptType === "unknown") {
-    return "Script type is unknown; choose legacy, nested SegWit, or native SegWit before deriving addresses.";
+    return "Script type is unknown; choose legacy, nested SegWit, native SegWit, or taproot before deriving addresses.";
   }
   return null;
 }

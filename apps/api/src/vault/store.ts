@@ -457,16 +457,15 @@ function findWalletById(id: string): WalletRecord {
   return wallet;
 }
 
-function derivableScriptType(wallet: WalletRecord): "legacy" | "nested-segwit" | "native-segwit" {
+function derivableScriptType(wallet: WalletRecord): "legacy" | "nested-segwit" | "native-segwit" | "taproot" {
   if (
     wallet.scriptType !== "legacy" &&
     wallet.scriptType !== "nested-segwit" &&
-    wallet.scriptType !== "native-segwit"
+    wallet.scriptType !== "native-segwit" &&
+    wallet.scriptType !== "taproot"
   ) {
     throw new InvalidWalletInputError(
-      wallet.scriptType === "taproot"
-        ? "Taproot metadata is stored, but taproot address derivation is not supported yet"
-        : "Script type is unknown; edit the wallet import metadata before deriving addresses"
+      "Script type is unknown; edit the wallet import metadata before deriving addresses"
     );
   }
   return wallet.scriptType;

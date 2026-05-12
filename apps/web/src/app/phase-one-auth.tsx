@@ -3281,7 +3281,7 @@ function detectImportMetadata(
       masterFingerprint: origin?.[1]?.toLowerCase() ?? null,
       importFormat: "descriptor",
       privateInput: false,
-      warnings: descriptorScript === "taproot" ? ["Taproot metadata can be stored, but taproot address derivation is not supported yet."] : [],
+      warnings: [],
       unsupportedReason: key ? null : "Descriptor does not contain a supported extended public key."
     };
   }
@@ -3474,8 +3474,8 @@ function walletSafetyWarnings(wallet: WalletRecord): string[] {
   if ((wallet.type === "xpub" || wallet.type === "tpub") && wallet.scriptType !== "legacy") {
     warnings.push("xpub/tpub can be used with multiple policies. Verify the receive address on your cold wallet.");
   }
-  if (wallet.scriptType === "taproot") {
-    warnings.push("Taproot metadata is stored, but taproot address derivation is not supported in this phase.");
+  if (wallet.scriptType === "taproot" && wallet.importFormat !== "descriptor" && wallet.importFormat !== "key-expression") {
+    warnings.push("Taproot wallet via xpub/tpub: confirm BIP86 derivation path (m/86'/0'/0') before receiving funds.");
   }
   if (wallet.importFormat === "crypto-account-ur" || wallet.importFormat === "passport-setup-qr" || wallet.importFormat === "ur-xpub") {
     warnings.push("UR payloads are detected, but animated UR/BCUR decoding is not complete yet. Prefer descriptor/file import.");

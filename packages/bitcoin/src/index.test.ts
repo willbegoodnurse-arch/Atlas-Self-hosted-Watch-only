@@ -115,4 +115,90 @@ describe("deriveAddresses", () => {
     assert.match(result.addresses[0]?.address ?? "", /^bc1q/);
     assert.equal(result.addresses[0]?.path, "m/84'/0'/0'/0/0");
   });
+
+  // ---------------------------------------------------------------------------
+  // Phase 13: taproot / BIP86 address derivation
+  // ---------------------------------------------------------------------------
+
+  it("derives taproot BIP86 mainnet receive addresses (bc1p prefix)", () => {
+    const result = deriveAddresses({
+      extendedPublicKey: testVectors.xpub,
+      type: "xpub",
+      scriptType: "taproot",
+      accountPath: "m/86'/0'/0'",
+      network: "mainnet",
+      chain: "receive",
+      limit: 3
+    });
+
+    assert.equal(result.scriptType, "taproot");
+    assert.equal(result.addresses.length, 3);
+    for (const addr of result.addresses) {
+      assert.match(addr.address, /^bc1p/, `expected bc1p prefix, got ${addr.address}`);
+    }
+    assert.equal(result.addresses[0]?.path, "m/86'/0'/0'/0/0");
+  });
+
+  it("derives taproot BIP86 change address", () => {
+    const result = deriveAddresses({
+      extendedPublicKey: testVectors.xpub,
+      type: "xpub",
+      scriptType: "taproot",
+      accountPath: "m/86'/0'/0'",
+      network: "mainnet",
+      chain: "change",
+      limit: 1
+    });
+
+    assert.match(result.addresses[0]?.address ?? "", /^bc1p/);
+    assert.equal(result.addresses[0]?.path, "m/86'/0'/0'/1/0");
+  });
+
+  it("derives unique taproot addresses across indices 0, 1, 2", () => {
+    const result = deriveAddresses({
+      extendedPublicKey: testVectors.xpub,
+      type: "xpub",
+      scriptType: "taproot",
+      accountPath: "m/86'/0'/0'",
+      network: "mainnet",
+      chain: "receive",
+      limit: 3
+    });
+
+    const addrs = result.addresses.map((a) => a.address);
+    assert.equal(new Set(addrs).size, 3, "taproot addresses at indices 0/1/2 must be unique");
+  });
+
+  it("derives taproot testnet address with tb1p prefix", () => {
+    // Use xpub with explicit network=testnet override; tpub would normally be testnet
+    const result = deriveAddresses({
+      extendedPublicKey: testVectors.xpub,
+      type: "xpub",
+      scriptType: "taproot",
+      accountPath: "m/86'/1'/0'",
+      network: "testnet",
+      chain: "receive",
+      limit: 1
+    });
+
+    assert.equal(result.scriptType, "taproot");
+    assert.match(result.addresses[0]?.address ?? "", /^tb1p/, `expected tb1p prefix, got ${result.addresses[0]?.address}`);
+  });
+
+  it("taproot receive and change addresses differ", () => {
+    const result = deriveAddresses({
+      extendedPublicKey: testVectors.xpub,
+      type: "xpub",
+      scriptType: "taproot",
+      accountPath: "m/86'/0'/0'",
+      network: "mainnet",
+      chain: "both",
+      limit: 1
+    });
+
+    const receive = result.addresses.find((a) => a.chain === "receive");
+    const change = result.addresses.find((a) => a.chain === "change");
+    assert.ok(receive && change);
+    assert.notEqual(receive.address, change.address);
+  });
 });
