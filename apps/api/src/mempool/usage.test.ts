@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   aggregateBalance,
+  checkMempoolHealth,
   classifyMempoolAddressStats,
   discoverNextUnusedReceiveAddress,
   lookupAddressBalanceRecords,
@@ -20,7 +21,8 @@ function address(index: number, usage: AddressUsageRecord["usage"] = "unknown"):
     usage,
     txCount: usage === "used" ? 1 : usage === "unused" ? 0 : null,
     confirmedTxCount: usage === "used" ? 1 : usage === "unused" ? 0 : null,
-    mempoolTxCount: 0
+    mempoolTxCount: 0,
+    lookupError: usage === "unknown" ? "test lookup failed" : null
   };
 }
 
@@ -95,6 +97,32 @@ test("classifies malformed API payloads as unknown", () => {
   assert.equal(classifyMempoolAddressStats(null).usage, "unknown");
 });
 
+test("mempool health returns offline JSON on fetch failure", async () => {
+  const result = await checkMempoolHealth({
+    fetchTipHeight: async () => {
+      throw new Error("network timeout");
+    }
+  });
+
+  assert.equal(result.status, "offline");
+  assert.equal(result.tipHeight, null);
+  assert.equal(result.checks.tipHeight.status, "failed");
+  assert.match(result.errors[0] ?? "", /network timeout/);
+});
+
+test("mempool health includes checkedAt and latencyMs", async () => {
+  const result = await checkMempoolHealth({
+    fetchTipHeight: async () => "800000"
+  });
+
+  assert.equal(result.status, "online");
+  assert.equal(result.tipHeight, 800000);
+  assert.equal(typeof result.checkedAt, "string");
+  assert.ok(Number.isFinite(Date.parse(result.checkedAt)));
+  assert.equal(typeof result.latencyMs, "number");
+  assert.ok(result.latencyMs >= 0);
+});
+
 test("marks individual address lookup failures as unknown without throwing", async () => {
   const result = await lookupAddressUsageRecords(
     [
@@ -115,6 +143,7 @@ test("marks individual address lookup failures as unknown without throwing", asy
 
   assert.equal(result.lookupFailed, true);
   assert.equal(result.addresses[0]?.usage, "unknown");
+  assert.equal(result.failedAddresses[0]?.error, "network unavailable");
 });
 
 test("aggregates address balances into wallet totals", async () => {
@@ -179,11 +208,161 @@ test("keeps failed balance lookups graceful and excludes unknown balances from t
 
   assert.equal(result.lookupFailed, true);
   assert.equal(result.addresses[0]?.usage, "unknown");
+  assert.equal(result.failedAddresses[0]?.chain, "receive");
+  assert.equal(result.failedAddresses[0]?.index, 0);
+  assert.equal(result.failedAddresses[0]?.error, "mempool unavailable");
   assert.deepEqual(result.balance, {
     confirmedBalance: 0,
     unconfirmedBalance: 0,
     totalBalance: 0
   });
+});
+
+test("balance lookup succeeds after one retry", async () => {
+  let calls = 0;
+  const result = await lookupAddressBalanceRecords(
+    [
+      {
+        chain: "receive",
+        index: 0,
+        path: "m/84'/0'/0'/0/0",
+        address: "bc1qretry",
+        usage: "unknown"
+      }
+    ],
+    {
+      fetchAddressStats: async () => {
+        calls += 1;
+        if (calls === 1) {
+          throw new TypeError("fetch failed");
+        }
+        return {
+          chain_stats: {
+            tx_count: 1,
+            funded_txo_sum: 10_000,
+            spent_txo_sum: 2_000
+          },
+          mempool_stats: {
+            tx_count: 0,
+            funded_txo_sum: 0,
+            spent_txo_sum: 0
+          }
+        };
+      }
+    }
+  );
+
+  assert.equal(calls, 2);
+  assert.equal(result.lookupFailed, false);
+  assert.equal(result.failedAddresses.length, 0);
+  assert.equal(result.balance.totalBalance, 8_000);
+});
+
+test("one failed balance address returns partial data without throwing", async () => {
+  const result = await lookupAddressBalanceRecords(
+    [
+      {
+        chain: "receive",
+        index: 0,
+        path: "m/84'/0'/0'/0/0",
+        address: "bc1qok",
+        usage: "unknown"
+      },
+      {
+        chain: "change",
+        index: 0,
+        path: "m/84'/0'/0'/1/0",
+        address: "bc1qfail",
+        usage: "unknown"
+      }
+    ],
+    {
+      fetchAddressStats: async (candidate) => {
+        if (candidate === "bc1qfail") {
+          throw new Error("timeout");
+        }
+        return {
+          chain_stats: {
+            tx_count: 1,
+            funded_txo_sum: 5_000,
+            spent_txo_sum: 1_000
+          },
+          mempool_stats: {
+            tx_count: 0,
+            funded_txo_sum: 0,
+            spent_txo_sum: 0
+          }
+        };
+      }
+    }
+  );
+
+  assert.equal(result.lookupFailed, true);
+  assert.equal(result.failedAddresses.length, 1);
+  assert.equal(result.failedAddresses[0]?.chain, "change");
+  assert.equal(result.failedAddresses[0]?.error, "timeout");
+  assert.equal(result.balance.totalBalance, 4_000);
+});
+
+test("all failed balance addresses preserve failure reasons", async () => {
+  const result = await lookupAddressBalanceRecords(
+    [
+      {
+        chain: "receive",
+        index: 0,
+        path: "m/84'/0'/0'/0/0",
+        address: "bc1qfail0",
+        usage: "unknown"
+      },
+      {
+        chain: "change",
+        index: 0,
+        path: "m/84'/0'/0'/1/0",
+        address: "bc1qfail1",
+        usage: "unknown"
+      }
+    ],
+    {
+      fetchAddressStats: async () => {
+        throw new Error("connect timeout");
+      }
+    }
+  );
+
+  assert.equal(result.lookupFailed, true);
+  assert.equal(result.failedAddresses.length, 2);
+  assert.equal(result.failedAddresses.every((failed) => failed.error === "connect timeout"), true);
+  assert.deepEqual(result.balance, {
+    confirmedBalance: 0,
+    unconfirmedBalance: 0,
+    totalBalance: 0
+  });
+});
+
+test("address balance lookup does not retry malformed payloads as success", async () => {
+  let calls = 0;
+  const result = await lookupAddressBalanceRecords(
+    [
+      {
+        chain: "receive",
+        index: 0,
+        path: "m/84'/0'/0'/0/0",
+        address: "bc1qmalformed",
+        usage: "unknown"
+      }
+    ],
+    {
+      fetchAddressStats: async () => {
+        calls += 1;
+        return {};
+      }
+    }
+  );
+
+  assert.equal(calls, 1);
+  assert.equal(result.lookupFailed, true);
+  assert.equal(result.addresses[0]?.usage, "unknown");
+  assert.equal(result.failedAddresses[0]?.error, "invalid address stats payload");
 });
 
 test("aggregates an empty wallet balance to zero", () => {

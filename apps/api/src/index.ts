@@ -5,7 +5,9 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { authConfig } from "./auth/config.js";
+import { requireAuthenticatedSession } from "./auth/guard.js";
 import { checkMempoolHealth, getMempoolApiConfig } from "./mempool/usage.js";
+import { registerRuntimeSettingsRoute } from "./settings/runtime.js";
 import { registerVaultRoutes } from "./vault/routes.js";
 
 const port = Number(process.env.API_PORT ?? 3011);
@@ -65,6 +67,7 @@ server.get("/api/status/fulcrum", async () => ({
 }));
 
 await registerAuthRoutes(server);
+await registerRuntimeSettingsRoute(server, requireAuthenticatedSession);
 await registerVaultRoutes(server);
 
 try {

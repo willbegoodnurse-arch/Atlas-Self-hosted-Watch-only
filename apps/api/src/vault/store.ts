@@ -367,8 +367,15 @@ export async function deriveWalletBalance(
     result: {
       network: result.network,
       scriptType: result.scriptType,
+      status:
+        balance.failedAddresses.length === 0
+          ? "online"
+          : balance.failedAddresses.length === balance.addresses.length
+            ? "offline"
+            : "partial",
       usageStatus: balance.lookupFailed ? "partial" : "ready",
       lookupFailed: balance.lookupFailed,
+      failedAddresses: balance.failedAddresses,
       balance: balance.balance,
       receiveBalance: sumAddressBalances(receiveBalance),
       changeBalance: sumAddressBalances(changeBalance),

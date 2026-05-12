@@ -465,6 +465,34 @@ button:disabled {
   padding: 0;
 }
 
+.connection-panel {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.connection-summary {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.connection-summary .terminal-heading,
+.connection-summary .technical-line {
+  margin-bottom: 0;
+}
+
+.connection-statusline {
+  padding: 8px 0;
+}
+
+.connection-details .metadata-grid {
+  margin-top: 10px;
+}
+
 .metadata-details {
   border-top: 1px solid var(--line);
   padding-top: 10px;
@@ -833,7 +861,8 @@ label.tx-limit-select select {
 
   .brand-row,
   .toolbar-row,
-  .wallet-card-header {
+  .wallet-card-header,
+  .connection-summary {
     display: grid;
   }
 

@@ -1,4 +1,11 @@
-import { getMempoolApiConfig } from "./usage.js";
+import {
+  MEMPOOL_LOOKUP_CONCURRENCY,
+  errorMessage,
+  fetchMempoolJson,
+  mapWithConcurrency,
+  withMempoolRetry
+} from "./request.js";
+import { getMempoolRequestConfig } from "./usage.js";
 
 export type WalletAddress = {
   chain: "receive" | "change";
@@ -65,39 +72,32 @@ type TxCacheEntry = {
 
 const txCache = new Map<string, TxCacheEntry>();
 const txCacheTtlMs = 20_000;
-const requestTimeoutMs = 4_000;
 
 export async function lookupWalletTransactions(
   walletAddresses: WalletAddress[],
   txLimit: number,
-  options: { fetchAddressTxsFn?: FetchAddressTxsFn } = {}
+  options: { fetchAddressTxsFn?: FetchAddressTxsFn; concurrency?: number } = {}
 ): Promise<WalletTransactionsResult> {
   type LookupResult =
     | { ok: true; address: WalletAddress; txs: MempoolTx[] }
     | { ok: false; address: WalletAddress; error: string };
 
-  const results: LookupResult[] = new Array(walletAddresses.length);
-  let cursor = 0;
-  const concurrency = Math.min(4, walletAddresses.length || 1);
-
-  async function worker() {
-    while (cursor < walletAddresses.length) {
-      const i = cursor++;
-      const addr = walletAddresses[i];
+  const results = await mapWithConcurrency(
+    walletAddresses,
+    options.concurrency ?? MEMPOOL_LOOKUP_CONCURRENCY,
+    async (addr): Promise<LookupResult> => {
       try {
         const txs = await fetchAddressTxsResult(addr.address, options.fetchAddressTxsFn);
-        results[i] = { ok: true, address: addr, txs };
+        return { ok: true, address: addr, txs };
       } catch (error) {
-        results[i] = {
+        return {
           ok: false,
           address: addr,
-          error: error instanceof Error ? error.message : String(error)
+          error: errorMessage(error)
         };
       }
     }
-  }
-
-  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  );
 
   const failedAddresses: WalletTransactionsResult["failedAddresses"] = [];
   const txMap = new Map<string, MempoolTx>();
@@ -251,11 +251,11 @@ async function fetchAddressTxsResult(
   fetchFn?: FetchAddressTxsFn
 ): Promise<MempoolTx[]> {
   if (fetchFn) {
-    const data = await fetchFn(address);
+    const data = await withMempoolRetry(() => fetchFn(address));
     return parseMempoolTxArray(data);
   }
 
-  const config = getMempoolApiConfig();
+  const config = getMempoolRequestConfig();
   const cacheKey = `${config.url}|${address}`;
   const cached = txCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
@@ -263,15 +263,7 @@ async function fetchAddressTxsResult(
   }
 
   const url = `${config.url}/address/${encodeURIComponent(address)}/txs`;
-  const response = await fetch(url, {
-    signal: AbortSignal.timeout(requestTimeoutMs)
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-
-  const txs = parseMempoolTxArray(await response.json());
+  const txs = parseMempoolTxArray(await fetchMempoolJson(url));
   txCache.set(cacheKey, { expiresAt: Date.now() + txCacheTtlMs, value: txs });
   pruneExpiredTxCache();
   return txs;

@@ -319,6 +319,7 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
           walletId: wallet.id,
           network: result.network,
           scriptType: result.scriptType,
+          status: result.status,
           usageStatus: result.usageStatus,
           unit: "sats",
           confirmedBalance: result.balance.confirmedBalance,
@@ -327,6 +328,7 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
           receiveBalance: result.receiveBalance,
           changeBalance: result.changeBalance,
           addresses: result.addresses,
+          failedAddresses: result.failedAddresses,
           nextUnusedReceiveAddress:
             nextReceive?.result.nextUnusedReceiveAddress ?? null,
           discovery: nextReceive
@@ -342,10 +344,10 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
             lookupFailed:
               result.lookupFailed || Boolean(nextReceive?.result.lookupFailed)
           },
-          lookupError:
-            result.lookupFailed || nextReceive?.result.lookupFailed
-              ? "balance lookup failed"
-              : null
+          lookupError: result.lookupFailed ? "balance lookup failed" : null,
+          nextReceiveLookupError: nextReceive?.result.lookupFailed
+            ? "next receive lookup incomplete"
+            : null
         });
       } catch (error) {
         return handleVaultError(error, reply);

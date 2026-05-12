@@ -1,4 +1,12 @@
 import type { DerivedAddress } from "@watch-wallet/bitcoin";
+import {
+  MEMPOOL_LOOKUP_CONCURRENCY,
+  errorMessage,
+  fetchMempoolJson,
+  fetchMempoolText,
+  mapWithConcurrency,
+  withMempoolRetry
+} from "./request.js";
 
 export type AddressUsage = "used" | "unused" | "unknown";
 
@@ -7,6 +15,7 @@ export type AddressUsageRecord = Omit<DerivedAddress, "usage"> & {
   txCount: number | null;
   confirmedTxCount: number | null;
   mempoolTxCount: number | null;
+  lookupError: string | null;
 };
 
 export type AddressUsageLookup = {
@@ -14,6 +23,7 @@ export type AddressUsageLookup = {
   txCount: number | null;
   confirmedTxCount: number | null;
   mempoolTxCount: number | null;
+  lookupError: string | null;
 };
 
 export type AddressStatsLookup = AddressUsageLookup & {
@@ -45,6 +55,13 @@ export type NextUnusedReceiveResult = {
 
 type FetchAddressStats = (address: string) => Promise<unknown>;
 
+export type FailedAddressLookup = {
+  address: string;
+  chain: "receive" | "change";
+  index: number;
+  error: string;
+};
+
 type CacheEntry = {
   expiresAt: number;
   value: AddressStatsLookup;
@@ -52,9 +69,32 @@ type CacheEntry = {
 
 const usageCache = new Map<string, CacheEntry>();
 const cacheTtlMs = 45_000;
-const requestTimeoutMs = 4_000;
 
-export function getMempoolApiConfig() {
+type MempoolRequestConfig = {
+  mode: string;
+  url: string;
+  cacheTtlSeconds: number;
+};
+
+export type MempoolHealth = {
+  status: "online" | "degraded" | "offline";
+  mode: string;
+  url: string;
+  baseUrl: string;
+  tipHeight: number | null;
+  latencyMs: number;
+  checkedAt: string;
+  errors: string[];
+  checks: {
+    tipHeight: {
+      status: "ok" | "failed";
+      error: string | null;
+    };
+  };
+  cacheTtlSeconds: number;
+};
+
+export function getMempoolRequestConfig(): MempoolRequestConfig {
   return {
     mode: process.env.API_MODE ?? "mempool",
     url: sanitizeBaseUrl(process.env.MEMPOOL_API_URL ?? "http://localhost:8080/api"),
@@ -62,32 +102,65 @@ export function getMempoolApiConfig() {
   };
 }
 
-export async function checkMempoolHealth(): Promise<{
-  status: "online" | "offline";
-  tipHeight: number | null;
-}> {
-  const config = getMempoolApiConfig();
+export function getMempoolApiConfig() {
+  const config = getMempoolRequestConfig();
+  const baseUrl = maskSensitiveUrl(config.url);
+  return {
+    ...config,
+    url: baseUrl,
+    baseUrl
+  };
+}
+
+export async function checkMempoolHealth(options: {
+  fetchTipHeight?: () => Promise<string>;
+} = {}): Promise<MempoolHealth> {
+  const requestConfig = getMempoolRequestConfig();
+  const apiConfig = getMempoolApiConfig();
+  const startedAt = Date.now();
+
   try {
-    const response = await fetch(`${config.url}/blocks/tip/height`, {
-      signal: AbortSignal.timeout(requestTimeoutMs)
-    });
-    if (!response.ok) {
-      return {
-        status: "offline",
-        tipHeight: null
-      };
+    const tipText = options.fetchTipHeight
+      ? await withMempoolRetry(options.fetchTipHeight)
+      : await fetchMempoolText(`${requestConfig.url}/blocks/tip/height`);
+    const height = Number(tipText);
+    const tipHeight = Number.isInteger(height) && height > 0 ? height : null;
+    const latencyMs = Date.now() - startedAt;
+
+    if (tipHeight === null) {
+      return buildMempoolHealth({
+        ...apiConfig,
+        status: "degraded",
+        tipHeight,
+        latencyMs,
+        checkedAt: new Date().toISOString(),
+        error: "invalid tip height payload"
+      });
     }
 
-    const height = Number(await response.text());
     return {
-      status: Number.isInteger(height) && height > 0 ? "online" : "offline",
-      tipHeight: Number.isInteger(height) && height > 0 ? height : null
+      ...apiConfig,
+      status: "online",
+      tipHeight,
+      latencyMs,
+      checkedAt: new Date().toISOString(),
+      errors: [],
+      checks: {
+        tipHeight: {
+          status: "ok",
+          error: null
+        }
+      }
     };
-  } catch {
-    return {
+  } catch (error) {
+    return buildMempoolHealth({
+      ...apiConfig,
       status: "offline",
-      tipHeight: null
-    };
+      tipHeight: null,
+      latencyMs: Date.now() - startedAt,
+      checkedAt: new Date().toISOString(),
+      error: errorMessage(error)
+    });
   }
 }
 
@@ -97,29 +170,29 @@ export async function lookupAddressUsageRecords(
     fetchAddressStats?: FetchAddressStats;
     concurrency?: number;
   } = {}
-): Promise<{ addresses: AddressUsageRecord[]; lookupFailed: boolean }> {
-  const records: AddressUsageRecord[] = new Array(addresses.length);
+): Promise<{ addresses: AddressUsageRecord[]; lookupFailed: boolean; failedAddresses: FailedAddressLookup[] }> {
   let lookupFailed = false;
-  let cursor = 0;
-  const workerCount = Math.min(Math.max(options.concurrency ?? 4, 1), addresses.length || 1);
-
-  async function worker() {
-    while (cursor < addresses.length) {
-      const currentIndex = cursor;
-      cursor += 1;
-      const address = addresses[currentIndex];
+  const failedAddresses: FailedAddressLookup[] = [];
+  const records = await mapWithConcurrency(
+    addresses,
+    options.concurrency ?? MEMPOOL_LOOKUP_CONCURRENCY,
+    async (address) => {
       const usage = await lookupAddressUsage(address.address, {
         fetchAddressStats: options.fetchAddressStats
       });
       if (usage.usage === "unknown") {
         lookupFailed = true;
+        failedAddresses.push({
+          address: address.address,
+          chain: address.chain,
+          index: address.index,
+          error: usage.lookupError ?? "address lookup failed"
+        });
       }
-      records[currentIndex] = withUsage(address, usage);
+      return withUsage(address, usage);
     }
-  }
-
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return { addresses: records, lookupFailed };
+  );
+  return { addresses: records, lookupFailed, failedAddresses };
 }
 
 export async function lookupAddressBalanceRecords(
@@ -128,31 +201,38 @@ export async function lookupAddressBalanceRecords(
     fetchAddressStats?: FetchAddressStats;
     concurrency?: number;
   } = {}
-): Promise<{ addresses: AddressBalanceRecord[]; lookupFailed: boolean; balance: BalanceSummary }> {
-  const records: AddressBalanceRecord[] = new Array(addresses.length);
+): Promise<{
+  addresses: AddressBalanceRecord[];
+  lookupFailed: boolean;
+  failedAddresses: FailedAddressLookup[];
+  balance: BalanceSummary;
+}> {
   let lookupFailed = false;
-  let cursor = 0;
-  const workerCount = Math.min(Math.max(options.concurrency ?? 4, 1), addresses.length || 1);
-
-  async function worker() {
-    while (cursor < addresses.length) {
-      const currentIndex = cursor;
-      cursor += 1;
-      const address = addresses[currentIndex];
+  const failedAddresses: FailedAddressLookup[] = [];
+  const records = await mapWithConcurrency(
+    addresses,
+    options.concurrency ?? MEMPOOL_LOOKUP_CONCURRENCY,
+    async (address) => {
       const stats = await lookupAddressStats(address.address, {
         fetchAddressStats: options.fetchAddressStats
       });
       if (stats.usage === "unknown" || stats.totalBalance === null) {
         lookupFailed = true;
+        failedAddresses.push({
+          address: address.address,
+          chain: address.chain,
+          index: address.index,
+          error: stats.lookupError ?? "balance lookup failed"
+        });
       }
-      records[currentIndex] = withBalance(address, stats);
+      return withBalance(address, stats);
     }
-  }
+  );
 
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
   return {
     addresses: records,
     lookupFailed,
+    failedAddresses,
     balance: aggregateBalance(records)
   };
 }
@@ -243,7 +323,8 @@ export function classifyMempoolAddressStats(value: unknown): AddressStatsLookup 
     mempoolTxCount,
     confirmedBalance,
     unconfirmedBalance,
-    totalBalance: confirmedBalance + unconfirmedBalance
+    totalBalance: confirmedBalance + unconfirmedBalance,
+    lookupError: null
   };
 }
 
@@ -323,15 +404,16 @@ export async function lookupAddressStats(
   try {
     if (options.fetchAddressStats) {
       try {
-        return classifyMempoolAddressStats(await options.fetchAddressStats(address));
-      } catch {
-        return unknownStats();
+        const payload = await withMempoolRetry(() => options.fetchAddressStats!(address));
+        return classifyMempoolAddressStats(payload);
+      } catch (error) {
+        return unknownStats(errorMessage(error));
       }
     }
 
-    const config = getMempoolApiConfig();
+    const config = getMempoolRequestConfig();
     const requestUrl = `${config.url}/address/${encodeURIComponent(address)}`;
-    safeRequestUrl = `${config.url}/address/${maskAddress(address)}`;
+    safeRequestUrl = `${getMempoolApiConfig().baseUrl}/address/${maskAddress(address)}`;
     const cacheKey = `${config.url}|${address}`;
     const cached = usageCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
@@ -349,22 +431,9 @@ export async function lookupAddressStats(
       requestUrl: safeRequestUrl
     });
 
-    const response = await fetch(requestUrl, {
-      signal: AbortSignal.timeout(requestTimeoutMs)
-    });
-    if (!response.ok) {
-      debugMempoolLookup("http error", {
-        requestUrl: safeRequestUrl,
-        httpStatus: response.status,
-        usage: "unknown"
-      });
-      return unknownStats();
-    }
-
-    const lookup = classifyMempoolAddressStats(await response.json());
+    const lookup = classifyMempoolAddressStats(await fetchMempoolJson(requestUrl));
     debugMempoolLookup("response", {
       requestUrl: safeRequestUrl,
-      httpStatus: response.status,
       txCount: lookup.txCount,
       confirmedTxCount: lookup.confirmedTxCount,
       mempoolTxCount: lookup.mempoolTxCount,
@@ -382,8 +451,38 @@ export async function lookupAddressStats(
       error: error instanceof Error ? error.message : String(error),
       usage: "unknown"
     });
-    return unknownStats();
+    return unknownStats(errorMessage(error));
   }
+}
+
+function buildMempoolHealth(input: {
+  status: "degraded" | "offline";
+  mode: string;
+  url: string;
+  baseUrl: string;
+  tipHeight: number | null;
+  latencyMs: number;
+  checkedAt: string;
+  error: string;
+  cacheTtlSeconds: number;
+}): MempoolHealth {
+  return {
+    mode: input.mode,
+    url: input.url,
+    baseUrl: input.baseUrl,
+    cacheTtlSeconds: input.cacheTtlSeconds,
+    status: input.status,
+    tipHeight: input.tipHeight,
+    latencyMs: input.latencyMs,
+    checkedAt: input.checkedAt,
+    errors: [input.error],
+    checks: {
+      tipHeight: {
+        status: "failed",
+        error: input.error
+      }
+    }
+  };
 }
 
 function withUsage(address: DerivedAddress, usage: AddressUsageLookup): AddressUsageRecord {
@@ -392,7 +491,8 @@ function withUsage(address: DerivedAddress, usage: AddressUsageLookup): AddressU
     usage: usage.usage,
     txCount: usage.txCount,
     confirmedTxCount: usage.confirmedTxCount,
-    mempoolTxCount: usage.mempoolTxCount
+    mempoolTxCount: usage.mempoolTxCount,
+    lookupError: usage.lookupError
   };
 }
 
@@ -405,7 +505,7 @@ function withBalance(address: DerivedAddress, stats: AddressStatsLookup): Addres
   };
 }
 
-function unknownStats(): AddressStatsLookup {
+function unknownStats(error = "invalid address stats payload"): AddressStatsLookup {
   return {
     usage: "unknown",
     txCount: null,
@@ -413,7 +513,8 @@ function unknownStats(): AddressStatsLookup {
     mempoolTxCount: null,
     confirmedBalance: null,
     unconfirmedBalance: null,
-    totalBalance: null
+    totalBalance: null,
+    lookupError: error
   };
 }
 
@@ -425,6 +526,30 @@ function calculateBalance(stats: Record<string, unknown>): number | null {
 
 function sanitizeBaseUrl(value: string): string {
   return value.replace(/\/+$/, "");
+}
+
+function maskSensitiveUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.username) {
+      url.username = "****";
+    }
+    if (url.password) {
+      url.password = "****";
+    }
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (/token|secret|password|auth|key/i.test(key)) {
+        url.searchParams.set(key, "****");
+      }
+    }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return value.replace(/([?&][^=]*(?:token|secret|password|auth|key)[^=]*=)[^&]+/gi, "$1****");
+  }
+}
+
+function maskRequestUrl(value: string): string {
+  return maskSensitiveUrl(value).replace(/\/address\/([^/?]+)/, (_match, address: string) => `/address/${maskAddress(address)}`);
 }
 
 function readNonNegativeInteger(value: unknown): number | null {

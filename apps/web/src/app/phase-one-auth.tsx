@@ -96,6 +96,7 @@ type DerivedAddress = {
   confirmedBalance?: number | null;
   unconfirmedBalance?: number | null;
   totalBalance?: number | null;
+  lookupError?: string | null;
 };
 
 type BalanceSummary = {
@@ -108,6 +109,7 @@ type WalletBalanceResponse = {
   walletId: string;
   network: WalletRecord["network"];
   scriptType: WalletRecord["scriptType"];
+  status?: "online" | "partial" | "offline";
   usageStatus: "unknown" | "partial" | "ready";
   unit: "sats";
   confirmedBalance: number;
@@ -116,8 +118,15 @@ type WalletBalanceResponse = {
   receiveBalance?: BalanceSummary;
   changeBalance?: BalanceSummary;
   addresses: DerivedAddress[];
+  failedAddresses?: Array<{
+    address: string;
+    chain: "receive" | "change";
+    index: number;
+    error: string;
+  }>;
   nextUnusedReceiveAddress?: DerivedAddress | null;
   lookupError?: string | null;
+  nextReceiveLookupError?: string | null;
   discovery?: {
     checkedCount: number;
     gapLimit: number;
@@ -132,11 +141,29 @@ type WalletBalanceResponse = {
 };
 
 type MempoolStatusResponse = {
-  status: "online" | "offline";
+  status: "online" | "degraded" | "offline";
   mode: string;
   url: string;
+  baseUrl?: string;
   tipHeight: number | null;
+  latencyMs?: number;
+  checkedAt?: string;
+  errors?: string[];
+  checks?: {
+    tipHeight?: {
+      status: "ok" | "failed";
+      error: string | null;
+    };
+  };
   cacheTtlSeconds: number;
+};
+
+type RuntimeSettingsResponse = {
+  apiMode: string;
+  mempoolApiUrl: string;
+  defaultNetwork: string;
+  defaultCurrency: string;
+  defaultUnit: string;
 };
 
 type WalletTransactionRelatedAddress = {
@@ -681,6 +708,7 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
   const [status, setStatus] = useState<VaultStatus | null>(null);
   const [mempoolStatus, setMempoolStatus] = useState<MempoolStatusResponse | null>(null);
   const [mempoolStatusError, setMempoolStatusError] = useState("");
+  const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettingsResponse | null>(null);
   const [wallets, setWallets] = useState<WalletRecord[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -709,13 +737,25 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
   }
 
   async function refreshMempoolStatus() {
-    try {
-      const response = await apiRequest<MempoolStatusResponse>(apiUrl, "/api/status/mempool");
-      setMempoolStatus(response);
+    const [statusResult, settingsResult] = await Promise.allSettled([
+      apiRequest<MempoolStatusResponse>(apiUrl, "/api/status/mempool"),
+      apiRequest<RuntimeSettingsResponse>(apiUrl, "/api/settings/runtime")
+    ]);
+
+    if (statusResult.status === "fulfilled") {
+      setMempoolStatus(statusResult.value);
       setMempoolStatusError("");
-    } catch (error) {
+    } else {
       setMempoolStatus(null);
-      setMempoolStatusError(error instanceof Error ? error.message : "Mempool status unavailable");
+      setMempoolStatusError(
+        statusResult.reason instanceof Error ? statusResult.reason.message : "Mempool status unavailable"
+      );
+    }
+
+    if (settingsResult.status === "fulfilled") {
+      setRuntimeSettings(settingsResult.value);
+    } else {
+      setRuntimeSettings(null);
     }
   }
 
@@ -861,7 +901,11 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
     detailWalletId ? wallets.find((wallet) => wallet.id === detailWalletId) ?? null : null;
   const vaultBadgeStatus: StatusKind = status.unlocked ? "online" : status.initialized ? "locked" : "offline";
   const mempoolBadgeStatus: StatusKind =
-    mempoolStatus?.status === "online" ? "online" : mempoolStatusError ? "offline" : "degraded";
+    mempoolStatus?.status === "online"
+      ? "online"
+      : mempoolStatus?.status === "offline" || mempoolStatusError
+        ? "offline"
+        : "degraded";
 
   return (
     <div className="vault-workspace">
@@ -900,7 +944,11 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
             <WalletDetailView
               apiUrl={apiUrl}
               mempoolBadgeStatus={mempoolBadgeStatus}
+              mempoolStatus={mempoolStatus}
+              mempoolStatusError={mempoolStatusError}
+              runtimeSettings={runtimeSettings}
               wallet={detailWallet}
+              onRefreshConnection={refreshMempoolStatus}
               onWalletChange={handleReplaceWallet}
             />
           ) : (
@@ -1612,19 +1660,40 @@ function WalletCard({
 function WalletDetailView({
   apiUrl,
   mempoolBadgeStatus,
+  mempoolStatus,
+  mempoolStatusError,
+  runtimeSettings,
   wallet,
+  onRefreshConnection,
   onWalletChange
 }: {
   apiUrl: string;
   mempoolBadgeStatus: StatusKind;
+  mempoolStatus: MempoolStatusResponse | null;
+  mempoolStatusError: string;
+  runtimeSettings: RuntimeSettingsResponse | null;
   wallet: WalletRecord;
+  onRefreshConnection: () => Promise<void>;
   onWalletChange: (wallet: WalletRecord) => void;
 }) {
   const [balanceUnit, setBalanceUnit] = useState<"sats" | "btc">("sats");
   const [balanceBadgeStatus, setBalanceBadgeStatus] = useState<StatusKind>("degraded");
   const [txBadgeStatus, setTxBadgeStatus] = useState<StatusKind>("degraded");
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [refreshingAll, setRefreshingAll] = useState(false);
   const warnings = walletSafetyWarnings(wallet);
   const accountPath = wallet.accountPath ?? wallet.derivationPath ?? "not provided";
+
+  async function refreshAll() {
+    setRefreshingAll(true);
+    try {
+      await onRefreshConnection();
+      setRefreshToken((current) => current + 1);
+    } finally {
+      setRefreshingAll(false);
+    }
+  }
+
   return (
     <div className="wallet-detail-page">
       <div className="wallet-detail-header terminal-panel">
@@ -1642,6 +1711,13 @@ function WalletDetailView({
             <StatusBadge label="BALANCE" status={balanceBadgeStatus} />
             <StatusBadge label="TXS" status={txBadgeStatus} />
           </div>
+          <ConnectionPanel
+            error={mempoolStatusError}
+            mempoolStatus={mempoolStatus}
+            refreshing={refreshingAll}
+            runtimeSettings={runtimeSettings}
+            onRefreshAll={() => void refreshAll()}
+          />
           <WalletNotesEditor apiUrl={apiUrl} wallet={wallet} onWalletChange={onWalletChange} />
           <details className="metadata-details">
             <summary>Import details</summary>
@@ -1676,7 +1752,9 @@ function WalletDetailView({
       <WalletAddressPanel
         apiUrl={apiUrl}
         balanceUnit={balanceUnit}
+        mempoolBadgeStatus={mempoolBadgeStatus}
         onBalanceStatusChange={setBalanceBadgeStatus}
+        refreshToken={refreshToken}
         setBalanceUnit={setBalanceUnit}
         wallet={wallet}
         onWalletChange={onWalletChange}
@@ -1685,9 +1763,83 @@ function WalletDetailView({
         apiUrl={apiUrl}
         balanceUnit={balanceUnit}
         onTxStatusChange={setTxBadgeStatus}
+        refreshToken={refreshToken}
         wallet={wallet}
         onWalletChange={onWalletChange}
       />
+    </div>
+  );
+}
+
+function ConnectionPanel({
+  error,
+  mempoolStatus,
+  refreshing,
+  runtimeSettings,
+  onRefreshAll
+}: {
+  error: string;
+  mempoolStatus: MempoolStatusResponse | null;
+  refreshing: boolean;
+  runtimeSettings: RuntimeSettingsResponse | null;
+  onRefreshAll: () => void;
+}) {
+  const status = mempoolStatus?.status ?? (error ? "offline" : "degraded");
+  const badgeStatus: StatusKind =
+    status === "online" ? "online" : status === "offline" ? "offline" : "degraded";
+  const endpoint = mempoolStatus?.baseUrl ?? mempoolStatus?.url ?? runtimeSettings?.mempoolApiUrl ?? "unknown";
+  const tip = mempoolStatus?.tipHeight
+    ? new Intl.NumberFormat("en-US").format(mempoolStatus.tipHeight)
+    : "unknown";
+  const latency =
+    typeof mempoolStatus?.latencyMs === "number" ? `${mempoolStatus.latencyMs}ms` : status === "offline" ? "timeout" : "unknown";
+  const checkedAt = formatCheckedAt(mempoolStatus?.checkedAt);
+  const errors = mempoolStatus?.errors ?? (error ? [error] : []);
+  const helper = getMempoolHelperText(badgeStatus);
+
+  return (
+    <div className="connection-panel">
+      <div className="connection-summary">
+        <div>
+          <p className="terminal-heading">&gt; CONNECTION</p>
+          <p className="muted technical-line">{helper}</p>
+        </div>
+        <button
+          className="secondary-button compact-button"
+          disabled={refreshing}
+          type="button"
+          onClick={onRefreshAll}
+        >
+          {refreshing ? "Refreshing all" : "Refresh all"}
+        </button>
+      </div>
+      <div className="terminal-statusline connection-statusline">
+        <StatusBadge label="MEMPOOL" status={badgeStatus} />
+        <span className="terminal-meta">mode {mempoolStatus?.mode ?? runtimeSettings?.apiMode ?? "mempool"}</span>
+        <span className="terminal-meta">tip {tip}</span>
+        <span className="terminal-meta">latency {latency}</span>
+      </div>
+      <details className="metadata-details connection-details">
+        <summary>Connection details</summary>
+        <div className="metadata-grid">
+          <div>
+            <dt>Endpoint</dt>
+            <dd>{endpoint}</dd>
+          </div>
+          <div>
+            <dt>Last check</dt>
+            <dd>{checkedAt}</dd>
+          </div>
+          <div>
+            <dt>Mode</dt>
+            <dd>{runtimeSettings?.apiMode ?? mempoolStatus?.mode ?? "mempool"}</dd>
+          </div>
+        </div>
+        <p className="muted technical-line">
+          To use your own node, set MEMPOOL_API_URL in .env and restart the API server.
+        </p>
+        {errors.length ? <p className="status-message">{errors[0]}</p> : null}
+      </details>
     </div>
   );
 }
@@ -1776,14 +1928,18 @@ function WalletNotesEditor({
 function WalletAddressPanel({
   apiUrl,
   balanceUnit,
+  mempoolBadgeStatus,
   onBalanceStatusChange,
+  refreshToken,
   setBalanceUnit,
   wallet,
   onWalletChange
 }: {
   apiUrl: string;
   balanceUnit: "sats" | "btc";
+  mempoolBadgeStatus: StatusKind;
   onBalanceStatusChange: (status: StatusKind) => void;
+  refreshToken: number;
   setBalanceUnit: (unit: "sats" | "btc") => void;
   wallet: WalletRecord;
   onWalletChange: (wallet: WalletRecord) => void;
@@ -1796,6 +1952,8 @@ function WalletAddressPanel({
   const [receiveBalance, setReceiveBalance] = useState<BalanceSummary | null>(null);
   const [changeBalance, setChangeBalance] = useState<BalanceSummary | null>(null);
   const [usageLookupNote, setUsageLookupNote] = useState("");
+  const [nextReceiveLookupNote, setNextReceiveLookupNote] = useState("");
+  const [balanceFailedCount, setBalanceFailedCount] = useState(0);
   const [message, setMessage] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1809,7 +1967,7 @@ function WalletAddressPanel({
 
   useEffect(() => {
     void refreshAddresses();
-  }, [wallet.id, chain]);
+  }, [wallet.id, chain, refreshToken]);
 
   useEffect(() => {
     if (!qrAddress) {
@@ -1843,7 +2001,7 @@ function WalletAddressPanel({
         apiUrl,
         `/api/wallets/${wallet.id}/balance?chain=${chain}&limit=${wallet.gapLimit}`
       );
-      setAddresses(response.addresses);
+      setAddresses(response.addresses ?? []);
       setNextReceiveAddress(response.nextUnusedReceiveAddress ?? null);
       setBalance({
         confirmedBalance: response.confirmedBalance,
@@ -1853,7 +2011,15 @@ function WalletAddressPanel({
       setReceiveBalance(response.receiveBalance ?? null);
       setChangeBalance(response.changeBalance ?? null);
       setUsageLookupNote(response.lookupError ?? "");
-      onBalanceStatusChange(response.lookupError ? "degraded" : "online");
+      setNextReceiveLookupNote(response.nextReceiveLookupError ?? "");
+      setBalanceFailedCount(response.failedAddresses?.length ?? 0);
+      onBalanceStatusChange(
+        response.status === "offline"
+          ? "offline"
+          : response.lookupError || response.status === "partial"
+            ? "degraded"
+            : "online"
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to look up wallet balance");
       setAddresses([]);
@@ -1862,6 +2028,8 @@ function WalletAddressPanel({
       setReceiveBalance(null);
       setChangeBalance(null);
       setUsageLookupNote("");
+      setNextReceiveLookupNote("");
+      setBalanceFailedCount(0);
       onBalanceStatusChange("offline");
     } finally {
       setLoading(false);
@@ -1949,12 +2117,22 @@ function WalletAddressPanel({
     unknownAddressCount
   });
   const qrLabel = qrAddress ? getAddressLabel(wallet, qrAddress.chain, qrAddress.index) : null;
+  const nextReceiveMessage = getNextReceiveMessage({
+    loading,
+    mempoolBadgeStatus,
+    usageLookupFailed: usageLookupFailed || Boolean(nextReceiveLookupNote)
+  });
 
   return (
     <section className="wallet-address-panel">
       {message ? <p className="status-message">{message}</p> : null}
       {copyMessage ? <p className="status-message">{copyMessage}</p> : null}
-      {usageLookupNote ? <p className="status-message">Some address balances could not be fetched. Total may be incomplete.</p> : null}
+      {usageLookupNote ? (
+        <p className="status-message">
+          Some address balances could not be fetched. Total may be incomplete.
+          {balanceFailedCount > 0 ? ` Failed lookups: ${balanceFailedCount}.` : ""}
+        </p>
+      ) : null}
 
       <div className="balance-summary">
         <div className="wallet-card-header">
@@ -2050,9 +2228,7 @@ function WalletAddressPanel({
           </dd>
         ) : (
           <dd>
-            {usageLookupFailed
-              ? "Usage lookup failed; no confirmed unused receive address is available yet."
-              : "Run usage lookup after unlocking the vault to calculate this address."}
+            {nextReceiveMessage}
           </dd>
         )}
       </div>
@@ -2062,8 +2238,13 @@ function WalletAddressPanel({
           <p className="terminal-heading">&gt; ADDRESSES</p>
           <p className="muted technical-line">unknown balances are excluded from totals</p>
         </div>
-        <button className="secondary-button compact-button" type="button" onClick={() => void refreshAddresses()}>
-          Refresh
+        <button
+          className="secondary-button compact-button"
+          disabled={loading}
+          type="button"
+          onClick={() => void refreshAddresses()}
+        >
+          {loading ? "Refreshing balance" : "Refresh balance"}
         </button>
       </div>
 
@@ -2221,12 +2402,14 @@ function TransactionHistoryPanel({
   apiUrl,
   balanceUnit,
   onTxStatusChange,
+  refreshToken,
   wallet,
   onWalletChange
 }: {
   apiUrl: string;
   balanceUnit: "sats" | "btc";
   onTxStatusChange: (status: StatusKind) => void;
+  refreshToken: number;
   wallet: WalletRecord;
   onWalletChange: (wallet: WalletRecord) => void;
 }) {
@@ -2244,7 +2427,7 @@ function TransactionHistoryPanel({
 
   useEffect(() => {
     void refreshTransactions();
-  }, [wallet.id, txLimit]);
+  }, [wallet.id, txLimit, refreshToken]);
 
   async function refreshTransactions() {
     setLoading(true);
@@ -2254,9 +2437,9 @@ function TransactionHistoryPanel({
         apiUrl,
         `/api/wallets/${wallet.id}/transactions?chain=both&addressLimit=${wallet.gapLimit}&txLimit=${txLimit}`
       );
-      setTransactions(response.transactions);
+      setTransactions(response.transactions ?? []);
       setTxStatus(response.status);
-      setFailedCount(response.failedAddresses.length);
+      setFailedCount(response.failedAddresses?.length ?? 0);
       onTxStatusChange(response.status === "online" ? "online" : response.status === "offline" ? "offline" : "degraded");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to load transaction history");
@@ -2329,8 +2512,13 @@ function TransactionHistoryPanel({
           <p className="terminal-heading">&gt; TRANSACTIONS</p>
           <p className="muted technical-line">unit: {balanceUnit}</p>
         </div>
-        <button className="secondary-button compact-button" type="button" onClick={() => void refreshTransactions()}>
-          Refresh
+        <button
+          className="secondary-button compact-button"
+          disabled={loading}
+          type="button"
+          onClick={() => void refreshTransactions()}
+        >
+          {loading ? "Refreshing transactions" : "Refresh transactions"}
         </button>
       </div>
       {failedCount > 0 ? (
@@ -2766,6 +2954,57 @@ function getEmptyUsageMessage({
   }
 
   return "No addresses to show for this filter.";
+}
+
+function getNextReceiveMessage({
+  loading,
+  mempoolBadgeStatus,
+  usageLookupFailed
+}: {
+  loading: boolean;
+  mempoolBadgeStatus: StatusKind;
+  usageLookupFailed: boolean;
+}): string {
+  if (loading) {
+    return "Calculating next receive address...";
+  }
+
+  if (mempoolBadgeStatus === "degraded" || mempoolBadgeStatus === "offline") {
+    return "Mempool lookup is degraded. Next receive may be incomplete.";
+  }
+
+  if (usageLookupFailed) {
+    return "Address usage lookup is incomplete. Refresh to calculate the next receive address.";
+  }
+
+  return "Address usage lookup is incomplete. Refresh to calculate the next receive address.";
+}
+
+function getMempoolHelperText(status: StatusKind): string {
+  if (status === "online") {
+    return "Mempool lookup is healthy.";
+  }
+  if (status === "offline") {
+    return "Mempool lookup is unavailable.";
+  }
+  return "Mempool lookup partially failed.";
+}
+
+function formatCheckedAt(value: string | undefined): string {
+  if (!value) {
+    return "unknown";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "unknown";
+  }
+
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
 }
 
 function getAddressLabel(
