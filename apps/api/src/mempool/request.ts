@@ -1,4 +1,7 @@
-export const MEMPOOL_REQUEST_TIMEOUT_MS = 4_000;
+export const MEMPOOL_LOOKUP_TIMEOUT_MS = 4_000;
+export const MEMPOOL_REQUEST_TIMEOUT_MS = MEMPOOL_LOOKUP_TIMEOUT_MS;
+export const MEMPOOL_HEALTH_TIMEOUT_MS = 15_000;
+export const MEMPOOL_HEALTH_RETRY_DELAY_MS = 400;
 export const MEMPOOL_LOOKUP_CONCURRENCY = 4;
 export const MEMPOOL_RETRY_COUNT = 1;
 
@@ -54,9 +57,30 @@ export async function fetchMempoolText(url: string): Promise<string> {
   });
 }
 
+export async function fetchMempoolHealthText(url: string): Promise<string> {
+  return withMempoolRetry(
+    async () => {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(MEMPOOL_HEALTH_TIMEOUT_MS),
+        headers: {
+          accept: "text/plain",
+          "cache-control": "no-cache"
+        }
+      });
+      if (!response.ok) {
+        throw new MempoolHttpError(response.status);
+      }
+      return response.text();
+    },
+    MEMPOOL_RETRY_COUNT,
+    MEMPOOL_HEALTH_RETRY_DELAY_MS
+  );
+}
+
 export async function withMempoolRetry<T>(
   operation: () => Promise<T>,
-  retryCount = MEMPOOL_RETRY_COUNT
+  retryCount = MEMPOOL_RETRY_COUNT,
+  retryDelayMs = 0
 ): Promise<T> {
   let lastError: unknown = null;
 
@@ -67,6 +91,9 @@ export async function withMempoolRetry<T>(
       lastError = error;
       if (attempt >= retryCount || !isRetryableMempoolError(error)) {
         throw error;
+      }
+      if (retryDelayMs > 0) {
+        await new Promise<void>(resolve => { setTimeout(resolve, retryDelayMs); });
       }
     }
   }

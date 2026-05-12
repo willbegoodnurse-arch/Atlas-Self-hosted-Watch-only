@@ -1,9 +1,10 @@
 import type { DerivedAddress } from "@watch-wallet/bitcoin";
 import {
+  MEMPOOL_HEALTH_RETRY_DELAY_MS,
   MEMPOOL_LOOKUP_CONCURRENCY,
   errorMessage,
+  fetchMempoolHealthText,
   fetchMempoolJson,
-  fetchMempoolText,
   mapWithConcurrency,
   withMempoolRetry
 } from "./request.js";
@@ -121,8 +122,8 @@ export async function checkMempoolHealth(options: {
 
   try {
     const tipText = options.fetchTipHeight
-      ? await withMempoolRetry(options.fetchTipHeight)
-      : await fetchMempoolText(`${requestConfig.url}/blocks/tip/height`);
+      ? await withMempoolRetry(options.fetchTipHeight, undefined, MEMPOOL_HEALTH_RETRY_DELAY_MS)
+      : await fetchMempoolHealthText(`${requestConfig.url}/blocks/tip/height`);
     const height = Number(tipText);
     const tipHeight = Number.isInteger(height) && height > 0 ? height : null;
     const latencyMs = Date.now() - startedAt;

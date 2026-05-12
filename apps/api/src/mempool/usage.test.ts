@@ -110,6 +110,43 @@ test("mempool health returns offline JSON on fetch failure", async () => {
   assert.match(result.errors[0] ?? "", /network timeout/);
 });
 
+test("mempool health retries once on timeout error and succeeds", async () => {
+  let calls = 0;
+  const result = await checkMempoolHealth({
+    fetchTipHeight: async () => {
+      calls += 1;
+      if (calls === 1) {
+        const err = new Error("The operation was aborted due to timeout");
+        err.name = "TimeoutError";
+        throw err;
+      }
+      return "850000";
+    }
+  });
+
+  assert.equal(calls, 2, "should have retried once");
+  assert.equal(result.status, "online");
+  assert.equal(result.tipHeight, 850000);
+});
+
+test("mempool health returns offline JSON when both retry attempts timeout", async () => {
+  let calls = 0;
+  const result = await checkMempoolHealth({
+    fetchTipHeight: async () => {
+      calls += 1;
+      const err = new Error("The operation was aborted due to timeout");
+      err.name = "TimeoutError";
+      throw err;
+    }
+  });
+
+  assert.equal(calls, 2, "should have attempted twice");
+  assert.equal(result.status, "offline");
+  assert.equal(result.tipHeight, null);
+  assert.match(result.errors[0] ?? "", /timeout/i);
+  assert.equal(result.checks.tipHeight.status, "failed");
+});
+
 test("mempool health includes checkedAt and latencyMs", async () => {
   const result = await checkMempoolHealth({
     fetchTipHeight: async () => "800000"
