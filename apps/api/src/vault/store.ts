@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { deriveAddresses } from "@watch-wallet/bitcoin";
-import type { AddressChain } from "@watch-wallet/bitcoin";
+import type { AddressChain, DerivedAddress } from "@watch-wallet/bitcoin";
 import { constants } from "node:fs";
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -390,7 +390,7 @@ export async function getWalletTransactions(
     limit: input.addressLimit
   });
 
-  const walletAddresses = addressResult.addresses.map((a) => ({
+  const walletAddresses = addressResult.addresses.map((a: DerivedAddress) => ({
     chain: a.chain,
     index: a.index,
     address: a.address

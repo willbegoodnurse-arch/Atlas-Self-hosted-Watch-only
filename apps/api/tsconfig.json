@@ -6,5 +6,8 @@
     "outDir": "dist",
     "rootDir": "src"
   },
+  "references": [
+    { "path": "../../packages/bitcoin" }
+  ],
   "include": ["src/**/*.ts"]
 }
