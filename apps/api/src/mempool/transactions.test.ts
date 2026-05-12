@@ -277,3 +277,178 @@ test("parseMempoolTxArray skips non-array input and malformed entries", () => {
   assert.equal(result.length, 1);
   assert.equal(result[0].txid, "goodtx");
 });
+
+// ---------------------------------------------------------------------------
+// Phase 12: pagination and scanSummary tests
+// ---------------------------------------------------------------------------
+
+test("pages default is 1 when not specified", async () => {
+  let callCount = 0;
+
+  await lookupWalletTransactions(
+    [receiveAddr0],
+    50,
+    {
+      fetchAddressTxsPageFn: async () => {
+        callCount++;
+        return [];
+      }
+    }
+  );
+
+  assert.equal(callCount, 1, "default pages=1 should fetch exactly once");
+});
+
+test("pages are clamped to max 3", async () => {
+  let callCount = 0;
+
+  await lookupWalletTransactions(
+    [receiveAddr0],
+    50,
+    {
+      pages: 10,
+      fetchAddressTxsPageFn: async (_addr, lastSeenTxid) => {
+        callCount++;
+        if (lastSeenTxid === null) {
+          return [confirmedTx("px1", 1_700_000_001, 800_000,
+            [{ address: "bc1qexternal", value: 1_000 }],
+            [{ address: "bc1qreceive0", value: 1_000 }])];
+        }
+        return [confirmedTx(`px${callCount}`, 1_700_000_001 - callCount, 800_000 - callCount,
+          [{ address: "bc1qexternal", value: 1_000 }],
+          [{ address: "bc1qreceive0", value: 1_000 }])];
+      }
+    }
+  );
+
+  assert.ok(callCount <= 3, `should fetch at most 3 pages, got ${callCount}`);
+});
+
+test("pagination requests next page using last confirmed txid", async () => {
+  const tx1 = confirmedTx("txfirst", 1_700_000_002, 800_001,
+    [{ address: "bc1qexternal", value: 50_000 }],
+    [{ address: "bc1qreceive0", value: 50_000 }]);
+  const tx2 = confirmedTx("txlast", 1_700_000_001, 800_000,
+    [{ address: "bc1qexternal", value: 30_000 }],
+    [{ address: "bc1qreceive0", value: 30_000 }]);
+  const tx3 = confirmedTx("txpage2", 1_700_000_000, 799_999,
+    [{ address: "bc1qexternal", value: 20_000 }],
+    [{ address: "bc1qreceive0", value: 20_000 }]);
+
+  let capturedLastTxid: string | null | undefined = undefined;
+
+  const result = await lookupWalletTransactions(
+    [receiveAddr0],
+    50,
+    {
+      pages: 2,
+      fetchAddressTxsPageFn: async (_addr, lastSeenTxid) => {
+        if (lastSeenTxid === null) return [tx1, tx2];
+        capturedLastTxid = lastSeenTxid;
+        return [tx3];
+      }
+    }
+  );
+
+  assert.equal(capturedLastTxid, "txlast", "page 2 should use last confirmed txid from page 1");
+  assert.equal(result.transactions.length, 3);
+});
+
+test("pagination deduplicates txs across pages", async () => {
+  const sharedTx = confirmedTx("txshared", 1_700_000_001, 800_000,
+    [{ address: "bc1qexternal", value: 50_000 }],
+    [{ address: "bc1qreceive0", value: 50_000 }]);
+  const page2Only = confirmedTx("txpage2only", 1_700_000_000, 799_999,
+    [{ address: "bc1qexternal", value: 20_000 }],
+    [{ address: "bc1qreceive0", value: 20_000 }]);
+
+  const result = await lookupWalletTransactions(
+    [receiveAddr0],
+    50,
+    {
+      pages: 2,
+      fetchAddressTxsPageFn: async (_addr, lastSeenTxid) => {
+        if (lastSeenTxid === null) return [sharedTx];
+        return [sharedTx, page2Only];
+      }
+    }
+  );
+
+  assert.equal(result.transactions.length, 2, "shared tx should appear only once");
+});
+
+test("pagination failure on page 2 returns partial status with page 1 data", async () => {
+  const page1Tx = confirmedTx("txp1", 1_700_000_001, 800_000,
+    [{ address: "bc1qexternal", value: 50_000 }],
+    [{ address: "bc1qreceive0", value: 50_000 }]);
+
+  const result = await lookupWalletTransactions(
+    [receiveAddr0],
+    50,
+    {
+      pages: 2,
+      fetchAddressTxsPageFn: async (_addr, lastSeenTxid) => {
+        if (lastSeenTxid === null) return [page1Tx];
+        throw new Error("network timeout on page 2");
+      }
+    }
+  );
+
+  assert.equal(result.status, "partial", "pagination failure should yield partial status");
+  assert.equal(result.transactions.length, 1, "should still have page 1 data");
+  assert.equal(result.failedAddresses.length, 0, "address itself is not failed");
+});
+
+test("scanSummary includes receive and change scanned counts", async () => {
+  const result = await lookupWalletTransactions(
+    [receiveAddr0, receiveAddr1, changeAddr0],
+    50,
+    { fetchAddressTxsFn: async () => [] }
+  );
+
+  assert.equal(result.scanSummary.receiveScanned, 2);
+  assert.equal(result.scanSummary.changeScanned, 1);
+  assert.equal(result.scanSummary.pagesPerAddress, 1);
+  assert.equal(result.scanSummary.failedLookups, 0);
+  assert.equal(result.scanSummary.truncated, false);
+});
+
+test("scanSummary truncated flag is true when txLimit cuts results", async () => {
+  const txs = Array.from({ length: 5 }, (_, i) =>
+    confirmedTx(
+      `ttrunc${i.toString().padStart(2, "0")}`,
+      1_700_000_000 + i,
+      800_000 + i,
+      [{ address: "bc1qexternal", value: 1_000 }],
+      [{ address: "bc1qreceive0", value: 1_000 }]
+    )
+  );
+
+  const result = await lookupWalletTransactions(
+    [receiveAddr0],
+    3,
+    { fetchAddressTxsFn: async () => txs }
+  );
+
+  assert.equal(result.transactions.length, 3);
+  assert.equal(result.scanSummary.truncated, true);
+  assert.equal(result.scanSummary.uniqueTransactions, 5);
+});
+
+test("scanSummary uniqueTransactions counts deduplicated txs before truncation", async () => {
+  const sharedTx = confirmedTx("txshared2", 1_700_000_002, 800_002,
+    [{ address: "bc1qexternal", value: 100_000 }],
+    [
+      { address: "bc1qreceive0", value: 50_000 },
+      { address: "bc1qreceive1", value: 50_000 }
+    ]);
+
+  const result = await lookupWalletTransactions(
+    [receiveAddr0, receiveAddr1],
+    50,
+    { fetchAddressTxsFn: async () => [sharedTx] }
+  );
+
+  assert.equal(result.scanSummary.uniqueTransactions, 1, "deduped count");
+  assert.equal(result.scanSummary.receiveScanned, 2);
+});

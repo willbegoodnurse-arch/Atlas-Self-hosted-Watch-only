@@ -92,6 +92,7 @@ type WalletTransactionsQuery = {
   chain?: string;
   addressLimit?: string;
   txLimit?: string;
+  pages?: string;
 };
 
 export async function registerVaultRoutes(server: FastifyInstance): Promise<void> {
@@ -374,9 +375,14 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
         );
         return reply.send({
           walletId: wallet.id,
+          chain: validation.value.chain,
+          addressLimit: validation.value.addressLimit,
+          txLimit: validation.value.txLimit,
+          pages: validation.value.pages,
           status: result.status,
           transactions: result.transactions,
           failedAddresses: result.failedAddresses,
+          scanSummary: result.scanSummary,
           mempool: getMempoolApiConfig()
         });
       } catch (error) {
@@ -643,6 +649,7 @@ function validateTransactionsQuery(query: WalletTransactionsQuery):
         chain: "receive" | "change" | "both";
         addressLimit: number;
         txLimit: number;
+        pages: number;
       };
     }
   | { ok: false; error: string } {
@@ -657,8 +664,13 @@ function validateTransactionsQuery(query: WalletTransactionsQuery):
   }
 
   const parsedTxLimit = query.txLimit === undefined ? 50 : Number(query.txLimit);
-  if (!Number.isInteger(parsedTxLimit) || parsedTxLimit < 1 || parsedTxLimit > 200) {
-    return { ok: false, error: "Transaction limit must be an integer from 1 to 200" };
+  if (!Number.isInteger(parsedTxLimit) || parsedTxLimit < 1 || parsedTxLimit > 300) {
+    return { ok: false, error: "Transaction limit must be an integer from 1 to 300" };
+  }
+
+  const parsedPages = query.pages === undefined ? 1 : Number(query.pages);
+  if (!Number.isInteger(parsedPages) || parsedPages < 1 || parsedPages > 3) {
+    return { ok: false, error: "Pages must be an integer from 1 to 3" };
   }
 
   return {
@@ -666,7 +678,8 @@ function validateTransactionsQuery(query: WalletTransactionsQuery):
     value: {
       chain,
       addressLimit: parsedAddressLimit,
-      txLimit: parsedTxLimit
+      txLimit: parsedTxLimit,
+      pages: parsedPages
     }
   };
 }

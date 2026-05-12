@@ -207,8 +207,21 @@ type WalletTransaction = {
   relatedAddresses: WalletTransactionRelatedAddress[];
 };
 
+type WalletScanSummary = {
+  receiveScanned: number;
+  changeScanned: number;
+  pagesPerAddress: number;
+  uniqueTransactions: number;
+  failedLookups: number;
+  truncated: boolean;
+};
+
 type WalletTransactionsResponse = {
   walletId: string;
+  chain: string;
+  addressLimit: number;
+  txLimit: number;
+  pages: number;
   status: "online" | "partial" | "offline";
   transactions: WalletTransaction[];
   failedAddresses: Array<{
@@ -217,6 +230,7 @@ type WalletTransactionsResponse = {
     index: number;
     error: string;
   }>;
+  scanSummary?: WalletScanSummary;
   mempool: {
     mode: string;
     url: string;
@@ -1795,6 +1809,7 @@ function WalletDetailView({
       />
       <TransactionHistoryPanel
         apiUrl={apiUrl}
+        backendKind={runtimeSettings?.backendKind ?? "unknown"}
         balanceUnit={balanceUnit}
         onTxStatusChange={setTxBadgeStatus}
         refreshToken={refreshToken}
@@ -2468,6 +2483,7 @@ function WalletAddressPanel({
 
 function TransactionHistoryPanel({
   apiUrl,
+  backendKind,
   balanceUnit,
   onTxStatusChange,
   refreshToken,
@@ -2475,6 +2491,7 @@ function TransactionHistoryPanel({
   onWalletChange
 }: {
   apiUrl: string;
+  backendKind: string;
   balanceUnit: "sats" | "btc";
   onTxStatusChange: (status: StatusKind) => void;
   refreshToken: number;
@@ -2483,10 +2500,12 @@ function TransactionHistoryPanel({
 }) {
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [txStatus, setTxStatus] = useState<"online" | "partial" | "offline" | null>(null);
-  const [failedCount, setFailedCount] = useState(0);
+  const [scanSummary, setScanSummary] = useState<WalletScanSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [txLimit, setTxLimit] = useState(25);
+  const [txLimit, setTxLimit] = useState(50);
+  const [addressLimit, setAddressLimit] = useState(20);
+  const [txPages, setTxPages] = useState(1);
   const [editingTxid, setEditingTxid] = useState("");
   const [txLabelDraft, setTxLabelDraft] = useState("");
   const [txNotesDraft, setTxNotesDraft] = useState("");
@@ -2495,7 +2514,7 @@ function TransactionHistoryPanel({
 
   useEffect(() => {
     void refreshTransactions();
-  }, [wallet.id, txLimit, refreshToken]);
+  }, [wallet.id, txLimit, addressLimit, txPages, refreshToken]);
 
   async function refreshTransactions() {
     setLoading(true);
@@ -2503,17 +2522,17 @@ function TransactionHistoryPanel({
     try {
       const response = await apiRequest<WalletTransactionsResponse>(
         apiUrl,
-        `/api/wallets/${wallet.id}/transactions?chain=both&addressLimit=${wallet.gapLimit}&txLimit=${txLimit}`
+        `/api/wallets/${wallet.id}/transactions?chain=both&addressLimit=${addressLimit}&txLimit=${txLimit}&pages=${txPages}`
       );
       setTransactions(response.transactions ?? []);
       setTxStatus(response.status);
-      setFailedCount(response.failedAddresses?.length ?? 0);
+      setScanSummary(response.scanSummary ?? null);
       onTxStatusChange(response.status === "online" ? "online" : response.status === "offline" ? "offline" : "degraded");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to load transaction history");
       setTransactions([]);
       setTxStatus(null);
-      setFailedCount(0);
+      setScanSummary(null);
       onTxStatusChange("offline");
     } finally {
       setLoading(false);
@@ -2573,6 +2592,10 @@ function TransactionHistoryPanel({
     }
   }
 
+  const isDeepScan = addressLimit > 20 || txPages > 1;
+  const isPublicBackend = backendKind === "mempool-public";
+  const failedCount = scanSummary?.failedLookups ?? 0;
+
   return (
     <section className="tx-history-panel wallet-address-panel">
       <div className="wallet-card-header">
@@ -2586,27 +2609,74 @@ function TransactionHistoryPanel({
           type="button"
           onClick={() => void refreshTransactions()}
         >
-          {loading ? "Refreshing transactions" : "Refresh transactions"}
+          {loading ? "Refreshing…" : "Refresh txs"}
         </button>
       </div>
+
+      <details className="metadata-details scan-controls-details">
+        <summary className="muted">
+          scan: both · {addressLimit} addr · {txPages} page/addr
+        </summary>
+        <div className="scan-controls-grid">
+          <label className="scan-control-label">
+            <span>Addresses</span>
+            <select
+              value={addressLimit}
+              disabled={loading}
+              onChange={(e) => setAddressLimit(Number(e.target.value))}
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </label>
+          <label className="scan-control-label">
+            <span>Pages/addr</span>
+            <select
+              value={txPages}
+              disabled={loading}
+              onChange={(e) => setTxPages(Number(e.target.value))}
+            >
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+              <option value={3}>3</option>
+            </select>
+          </label>
+          <label className="scan-control-label">
+            <span>Show</span>
+            <select
+              value={txLimit}
+              disabled={loading}
+              onChange={(e) => setTxLimit(Number(e.target.value))}
+            >
+              <option value={25}>25 txs</option>
+              <option value={50}>50 txs</option>
+              <option value={100}>100 txs</option>
+              <option value={200}>200 txs</option>
+            </select>
+          </label>
+        </div>
+        {isDeepScan && isPublicBackend ? (
+          <p className="muted technical-line">Deep scans can be slow on public APIs.</p>
+        ) : null}
+      </details>
+
+      {scanSummary && !loading ? (
+        <p className="muted technical-line scan-summary-line">
+          Scanned recv {scanSummary.receiveScanned} · chg {scanSummary.changeScanned} · {scanSummary.pagesPerAddress} page/addr · {scanSummary.uniqueTransactions} txs
+          {scanSummary.truncated ? " · results may be truncated" : ""}
+        </p>
+      ) : null}
+
       {failedCount > 0 ? (
-        <p className="status-message">{failedCount} address lookup(s) failed. Transaction history may be incomplete.</p>
+        <p className="status-message">
+          {failedCount} address lookup(s) failed. History may be incomplete.
+          {isPublicBackend ? " Public API may rate-limit deep scans. Try a local mempool backend." : " Increase timeout or lower scan depth."}
+        </p>
       ) : null}
 
       {message ? <p className="status-message">{message}</p> : null}
-
-      <label className="tx-limit-select">
-        <span>Show</span>
-        <select
-          value={txLimit}
-          onChange={(event) => setTxLimit(Number(event.target.value))}
-        >
-          <option value={10}>10 transactions</option>
-          <option value={25}>25 transactions</option>
-          <option value={50}>50 transactions</option>
-          <option value={100}>100 transactions</option>
-        </select>
-      </label>
 
       {loading ? (
         <TerminalSkeleton label="LOADING TRANSACTIONS" rows={4} />
@@ -2614,7 +2684,7 @@ function TransactionHistoryPanel({
         <p className="muted">
           {txStatus === "offline"
             ? "Transaction lookup failed. Check mempool connection."
-            : "No transactions found for this wallet."}
+            : "No transactions found for scanned addresses."}
         </p>
       ) : (
         <div className="tx-list">

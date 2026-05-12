@@ -390,6 +390,7 @@ export async function getWalletTransactions(
     chain: "receive" | "change" | "both";
     addressLimit: number;
     txLimit: number;
+    pages: number;
   }
 ): Promise<{ wallet: WalletRecord; result: WalletTransactionsResult }> {
   const { wallet, result: addressResult } = deriveWalletAddresses(id, {
@@ -403,7 +404,9 @@ export async function getWalletTransactions(
     address: a.address
   }));
 
-  const result = await lookupWalletTransactions(walletAddresses, input.txLimit);
+  const result = await lookupWalletTransactions(walletAddresses, input.txLimit, {
+    pages: input.pages
+  });
   return { wallet, result };
 }
 

@@ -32,6 +32,15 @@ export type WalletTransaction = {
   relatedAddresses: RelatedAddress[];
 };
 
+export type ScanSummary = {
+  receiveScanned: number;
+  changeScanned: number;
+  pagesPerAddress: number;
+  uniqueTransactions: number;
+  failedLookups: number;
+  truncated: boolean;
+};
+
 export type WalletTransactionsResult = {
   status: "online" | "partial" | "offline";
   transactions: WalletTransaction[];
@@ -41,6 +50,7 @@ export type WalletTransactionsResult = {
     index: number;
     error: string;
   }>;
+  scanSummary: ScanSummary;
 };
 
 type MempoolTx = {
@@ -64,6 +74,7 @@ type MempoolTx = {
 };
 
 type FetchAddressTxsFn = (address: string) => Promise<unknown>;
+type FetchAddressTxsPageFn = (address: string, lastSeenTxid: string | null) => Promise<unknown>;
 
 type TxCacheEntry = {
   expiresAt: number;
@@ -76,10 +87,17 @@ const txCacheTtlMs = 20_000;
 export async function lookupWalletTransactions(
   walletAddresses: WalletAddress[],
   txLimit: number,
-  options: { fetchAddressTxsFn?: FetchAddressTxsFn; concurrency?: number } = {}
+  options: {
+    fetchAddressTxsFn?: FetchAddressTxsFn;
+    fetchAddressTxsPageFn?: FetchAddressTxsPageFn;
+    concurrency?: number;
+    pages?: number;
+  } = {}
 ): Promise<WalletTransactionsResult> {
+  const pagesPerAddress = Math.max(1, Math.min(3, options.pages ?? 1));
+
   type LookupResult =
-    | { ok: true; address: WalletAddress; txs: MempoolTx[] }
+    | { ok: true; address: WalletAddress; txs: MempoolTx[]; paginationFailed: boolean }
     | { ok: false; address: WalletAddress; error: string };
 
   const results = await mapWithConcurrency(
@@ -87,8 +105,12 @@ export async function lookupWalletTransactions(
     options.concurrency ?? MEMPOOL_LOOKUP_CONCURRENCY,
     async (addr): Promise<LookupResult> => {
       try {
-        const txs = await fetchAddressTxsResult(addr.address, options.fetchAddressTxsFn);
-        return { ok: true, address: addr, txs };
+        const { txs, paginationFailed } = await fetchAddressTxsAllPages(
+          addr.address,
+          pagesPerAddress,
+          options
+        );
+        return { ok: true, address: addr, txs, paginationFailed };
       } catch (error) {
         return {
           ok: false,
@@ -101,6 +123,7 @@ export async function lookupWalletTransactions(
 
   const failedAddresses: WalletTransactionsResult["failedAddresses"] = [];
   const txMap = new Map<string, MempoolTx>();
+  let hasPaginationFailure = false;
 
   for (const result of results) {
     if (!result.ok) {
@@ -111,6 +134,7 @@ export async function lookupWalletTransactions(
         error: result.error
       });
     } else {
+      if (result.paginationFailed) hasPaginationFailure = true;
       for (const tx of result.txs) {
         if (!txMap.has(tx.txid)) {
           txMap.set(tx.txid, tx);
@@ -127,20 +151,32 @@ export async function lookupWalletTransactions(
   }
 
   transactions.sort(compareTransactions);
+  const truncated = transactions.length > txLimit;
+  const uniqueTransactions = transactions.length;
   const limited = transactions.slice(0, txLimit);
 
   const successCount = results.length - failedAddresses.length;
   const status: WalletTransactionsResult["status"] =
-    failedAddresses.length === 0
+    failedAddresses.length === 0 && !hasPaginationFailure
       ? "online"
       : successCount === 0
         ? "offline"
         : "partial";
 
+  const scanSummary: ScanSummary = {
+    receiveScanned: walletAddresses.filter((a) => a.chain === "receive").length,
+    changeScanned: walletAddresses.filter((a) => a.chain === "change").length,
+    pagesPerAddress,
+    uniqueTransactions,
+    failedLookups: failedAddresses.length,
+    truncated
+  };
+
   return {
     status,
     transactions: limited,
-    failedAddresses
+    failedAddresses,
+    scanSummary
   };
 }
 
@@ -246,15 +282,83 @@ export function compareTransactions(
   return a.txid < b.txid ? -1 : a.txid > b.txid ? 1 : 0;
 }
 
-async function fetchAddressTxsResult(
+async function fetchAddressTxsAllPages(
   address: string,
-  fetchFn?: FetchAddressTxsFn
-): Promise<MempoolTx[]> {
-  if (fetchFn) {
-    const data = await withMempoolRetry(() => fetchFn(address));
-    return parseMempoolTxArray(data);
+  pages: number,
+  options: {
+    fetchAddressTxsFn?: FetchAddressTxsFn;
+    fetchAddressTxsPageFn?: FetchAddressTxsPageFn;
+  }
+): Promise<{ txs: MempoolTx[]; paginationFailed: boolean }> {
+  const allTxs: MempoolTx[] = [];
+  const seenTxids = new Set<string>();
+  let paginationFailed = false;
+
+  for (let pageIndex = 0; pageIndex < pages; pageIndex++) {
+    const lastSeenTxid = pageIndex === 0 ? null : findLastConfirmedTxid(allTxs);
+
+    if (pageIndex > 0 && lastSeenTxid === null) {
+      break;
+    }
+
+    let pageTxs: MempoolTx[];
+
+    try {
+      if (options.fetchAddressTxsPageFn) {
+        const raw = await withMempoolRetry(() =>
+          options.fetchAddressTxsPageFn!(address, lastSeenTxid)
+        );
+        pageTxs = parseMempoolTxArray(raw);
+      } else if (options.fetchAddressTxsFn) {
+        if (pageIndex > 0) break;
+        const raw = await withMempoolRetry(() => options.fetchAddressTxsFn!(address));
+        pageTxs = parseMempoolTxArray(raw);
+      } else {
+        pageTxs = await fetchAddressTxsFromRealMempool(address, lastSeenTxid);
+      }
+    } catch (error) {
+      if (pageIndex === 0) throw error;
+      paginationFailed = true;
+      break;
+    }
+
+    let newCount = 0;
+    for (const tx of pageTxs) {
+      if (!seenTxids.has(tx.txid)) {
+        seenTxids.add(tx.txid);
+        allTxs.push(tx);
+        newCount++;
+      }
+    }
+
+    if (newCount === 0) break;
   }
 
+  return { txs: allTxs, paginationFailed };
+}
+
+function findLastConfirmedTxid(txs: MempoolTx[]): string | null {
+  for (let i = txs.length - 1; i >= 0; i--) {
+    if (txs[i].status.confirmed) {
+      return txs[i].txid;
+    }
+  }
+  return null;
+}
+
+async function fetchAddressTxsFromRealMempool(
+  address: string,
+  lastSeenTxid: string | null
+): Promise<MempoolTx[]> {
+  if (lastSeenTxid === null) {
+    return fetchAddressTxsFirstPage(address);
+  }
+  const config = getMempoolRequestConfig();
+  const url = `${config.url}/address/${encodeURIComponent(address)}/txs/chain/${encodeURIComponent(lastSeenTxid)}`;
+  return parseMempoolTxArray(await fetchMempoolJson(url));
+}
+
+async function fetchAddressTxsFirstPage(address: string): Promise<MempoolTx[]> {
   const config = getMempoolRequestConfig();
   const cacheKey = `${config.url}|${address}`;
   const cached = txCache.get(cacheKey);
