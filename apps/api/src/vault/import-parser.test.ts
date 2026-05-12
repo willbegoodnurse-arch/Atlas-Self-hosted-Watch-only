@@ -149,3 +149,50 @@ test("detects unsupported UR payloads without throwing", () => {
   assert.equal(parsed.extendedPublicKey, null);
   assert.match(parsed.unsupportedReason ?? "", /UR decoding/);
 });
+
+test("detects ur:crypto-hdkey as crypto-hdkey-ur without throwing", () => {
+  const parsed = parseWalletImport({
+    importText: "ur:crypto-hdkey/oxaxhdclaxzmfegdlp",
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.importFormat, "crypto-hdkey-ur");
+  assert.equal(parsed.extendedPublicKey, null);
+  assert.match(parsed.unsupportedReason ?? "", /UR decoding/);
+});
+
+test("detects ur:crypto-psbt as psbt-ur with unsupportedReason", () => {
+  const parsed = parseWalletImport({
+    importText: "ur:crypto-psbt/lpaoaxlfaohhaadaao",
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.importFormat, "psbt-ur");
+  assert.equal(parsed.extendedPublicKey, null);
+  assert.match(parsed.unsupportedReason ?? "", /PSBT/);
+  assert.equal(parsed.rawImport, null);
+});
+
+test("detects raw PSBT base64 as psbt-ur with unsupportedReason", () => {
+  const parsed = parseWalletImport({
+    importText: "cHNidP8BAAoBAAAAAA==",
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.importFormat, "psbt-ur");
+  assert.equal(parsed.extendedPublicKey, null);
+  assert.match(parsed.unsupportedReason ?? "", /PSBT/);
+  assert.equal(parsed.rawImport, null);
+});
+
+test("detects BBQr B$ prefix as bbqr with unsupportedReason", () => {
+  const parsed = parseWalletImport({
+    importText: "B$ZZ0110AABBCCDDEE",
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.importFormat, "bbqr");
+  assert.equal(parsed.extendedPublicKey, null);
+  assert.match(parsed.unsupportedReason ?? "", /BBQr/);
+  assert.equal(parsed.rawImport, null);
+});

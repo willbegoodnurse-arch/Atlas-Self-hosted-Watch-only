@@ -37,6 +37,44 @@ export function parseWalletImport(input: {
   const sourceDevice = input.sourceDevice ?? "other";
   const fallbackNetwork = input.network ?? "mainnet";
   const notes = sanitizeOptionalText(input.notes, 500);
+  // BBQr multipart QR (Coldcard)
+  if (importText.startsWith("B$")) {
+    return {
+      extendedPublicKey: null,
+      type: null,
+      sourceDevice,
+      network: fallbackNetwork,
+      scriptType: "unknown",
+      accountPath: null,
+      masterFingerprint: null,
+      importFormat: "bbqr",
+      rawImport: null,
+      notes,
+      warnings: [],
+      unsupportedReason:
+        "BBQr multipart QR detected. Export a descriptor or Generic JSON from Coldcard and import via Paste or File."
+    };
+  }
+
+  // Raw PSBT base64 magic bytes
+  if (importText.startsWith("cHNidP8B")) {
+    return {
+      extendedPublicKey: null,
+      type: null,
+      sourceDevice,
+      network: fallbackNetwork,
+      scriptType: "unknown",
+      accountPath: null,
+      masterFingerprint: null,
+      importFormat: "psbt-ur",
+      rawImport: null,
+      notes,
+      warnings: [],
+      unsupportedReason:
+        "PSBT signing requests cannot be saved as watch-only wallets. Export an xpub or descriptor from the device instead."
+    };
+  }
+
   const json = parseJson(importText);
 
   if (json) {
@@ -259,11 +297,32 @@ function parseUr(
     return null;
   }
 
-  const importFormat: ImportFormat = lower.startsWith("ur:crypto-account")
-    ? sourceDevice === "passport-core"
-      ? "passport-setup-qr"
-      : "crypto-account-ur"
-    : "ur-xpub";
+  if (lower.startsWith("ur:crypto-psbt")) {
+    return {
+      extendedPublicKey: null,
+      type: null,
+      sourceDevice,
+      network,
+      scriptType: "unknown",
+      accountPath: null,
+      masterFingerprint: null,
+      importFormat: "psbt-ur",
+      rawImport: null,
+      notes,
+      warnings: [],
+      unsupportedReason:
+        "PSBT signing requests cannot be saved as watch-only wallets. Export an xpub or descriptor from the device instead."
+    };
+  }
+
+  let importFormat: ImportFormat;
+  if (lower.startsWith("ur:crypto-account")) {
+    importFormat = sourceDevice === "passport-core" ? "passport-setup-qr" : "crypto-account-ur";
+  } else if (lower.startsWith("ur:crypto-hdkey")) {
+    importFormat = "crypto-hdkey-ur";
+  } else {
+    importFormat = "ur-xpub";
+  }
 
   return {
     extendedPublicKey: extractExtendedPublicKey(value),
@@ -276,7 +335,7 @@ function parseUr(
     importFormat,
     rawImport: value.trim(),
     notes,
-    warnings: ["UR import was detected, but animated UR/BCUR decoding is not fully supported yet."],
+    warnings: ["UR payload detected. Animated UR/BCUR decoding is not fully supported yet."],
     unsupportedReason: "UR decoding is not supported yet; use descriptor, file, or pasted xpub export."
   };
 }

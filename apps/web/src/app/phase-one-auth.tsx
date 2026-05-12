@@ -80,8 +80,11 @@ type ImportFormat =
   | "key-expression"
   | "coldcard-json"
   | "crypto-account-ur"
+  | "crypto-hdkey-ur"
   | "ur-xpub"
   | "passport-setup-qr"
+  | "bbqr"
+  | "psbt-ur"
   | "unknown";
 
 type DerivedAddress = {
@@ -1142,6 +1145,9 @@ function WalletCreateForm({
   const [gapLimit, setGapLimit] = useState(20);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerMessage, setScannerMessage] = useState("");
+  const [qrFrames, setQrFrames] = useState<string[]>([]);
+  const [qrFrameTotal, setQrFrameTotal] = useState<number | null>(null);
+  const [qrFrameFormat, setQrFrameFormat] = useState<string>("");
   const scannerControls = useRef<IScannerControls | null>(null);
   const scannerVideo = useRef<HTMLVideoElement | null>(null);
   const detected = useMemo(() => detectImportMetadata(importText, network, sourceDevice), [
@@ -1220,19 +1226,42 @@ function WalletCreateForm({
           }
 
           const scannedValue = result.getText();
-          const scanPreview = detectImportMetadata(scannedValue, network, sourceDevice);
-          if (!scanPreview.extendedPublicKey && !scanPreview.importFormat.startsWith("ur")) {
-            setScannerMessage("QR did not contain a supported xpub, descriptor, key expression, JSON, or UR payload.");
+          const classification = classifyQrFrame(scannedValue);
+
+          if (classification.format === "psbt-ur") {
+            setScannerMessage("PSBT signing request detected. This wallet only accepts watch-only exports (xpub, descriptor, JSON).");
+            stopScanner();
+            setScannerOpen(false);
+            return;
+          }
+
+          if (classification.format === "bbqr") {
+            setScannerMessage("BBQr multipart QR detected. Export a descriptor or Generic JSON from Coldcard and import via Paste or File.");
+            stopScanner();
+            setScannerOpen(false);
+            return;
+          }
+
+          if (classification.animated) {
+            setQrFrames((prev) => prev.includes(scannedValue) ? prev : [...prev, scannedValue]);
+            setQrFrameTotal(classification.totalFrames);
+            setQrFrameFormat(classification.format);
+            setScannerMessage("Animated QR detected. Keep scanning until all frames are collected, then use Try Import.");
+            return;
+          }
+
+          if (!classification.watchOnlyCandidate) {
+            setScannerMessage("QR did not contain a supported watch-only import payload.");
             return;
           }
 
           setImportText(scannedValue);
-          setScannerMessage(scanPreview.unsupportedReason ?? "Watch-only import QR scanned.");
+          setScannerMessage("Watch-only import QR scanned.");
           stopScanner();
           setScannerOpen(false);
         }
       );
-      setScannerMessage("Point the camera at a static xpub, descriptor, key expression, JSON, or UR QR.");
+      setScannerMessage("Point the camera at an xpub, descriptor, key expression, JSON, or UR QR.");
     } catch (error) {
       stopScanner();
       setScannerMessage(error instanceof Error ? error.message : "Unable to start QR scanner.");
@@ -1254,6 +1283,34 @@ function WalletCreateForm({
   function closeScanner() {
     stopScanner();
     setScannerOpen(false);
+  }
+
+  function resetFrames() {
+    setQrFrames([]);
+    setQrFrameTotal(null);
+    setQrFrameFormat("");
+    setScannerMessage("Frames cleared. Point the camera at the animated QR again.");
+  }
+
+  function tryImportFromFrames() {
+    for (const frame of qrFrames) {
+      const embedded = extractExtendedPublicKey(frame);
+      if (embedded) {
+        setImportText(frame);
+        setScannerMessage("Extracted watch-only data from animated QR frames.");
+        stopScanner();
+        setScannerOpen(false);
+        return;
+      }
+    }
+    if (qrFrames.length > 0) {
+      setImportText(qrFrames[0]!);
+      setScannerMessage("Using first QR frame — animated UR decoding is limited. Verify the import preview carefully.");
+      stopScanner();
+      setScannerOpen(false);
+      return;
+    }
+    setScannerMessage("No frames collected yet. Point the camera at the animated QR.");
   }
 
   return (
@@ -1418,6 +1475,21 @@ function WalletCreateForm({
               </button>
             </div>
             <video ref={scannerVideo} className="scanner-video" muted playsInline />
+            {qrFrameFormat ? (
+              <p className="muted">
+                format: {qrFrameFormat} &bull; frames: {qrFrames.length}{qrFrameTotal ? `/${qrFrameTotal}` : ""}
+              </p>
+            ) : null}
+            {qrFrames.length > 0 ? (
+              <div className="tab-row">
+                <button className="secondary-button compact-button" type="button" onClick={resetFrames}>
+                  Reset
+                </button>
+                <button className="compact-button" type="button" onClick={tryImportFromFrames}>
+                  Try Import
+                </button>
+              </div>
+            ) : null}
             {scannerMessage ? <p className="muted">{scannerMessage}</p> : null}
           </div>
         </div>
@@ -1441,13 +1513,13 @@ const sourceDeviceOptions: Array<{ value: SourceDevice; label: string }> = [
 
 function DeviceGuidance({ sourceDevice }: { sourceDevice: SourceDevice }) {
   const guidance: Record<SourceDevice, string> = {
-    coldcard: "Coldcard: use Export Wallet > Descriptor or Generic JSON. Confirm XFP, account path, xpub/zpub, and script type.",
-    keystone: "Keystone: descriptor file import is preferred. crypto-account QR is detected, but full UR decoding is not complete yet.",
-    seedsigner: "SeedSigner: use Export Xpub > Sparrow or a plain xpub/UR xpub QR. Animated UR frames are detected but not fully decoded yet.",
-    krux: "Krux: import extended public key QR or SD text, then verify fingerprint, derivation, and script type match the device.",
-    "passport-core": "Passport Core: use Pair Wallet > Sparrow > Single Sig, descriptor, or xpub export. Verify the first receive address on Passport.",
-    jade: "Jade: import the account xpub or descriptor, then verify the first receive address on-device.",
-    other: "Other device: prefer descriptor or [fingerprint/path]xpub import when available. Confirm source device, script type, account path, and first receive address before receiving funds."
+    coldcard: "Coldcard: use Export Wallet > Descriptor or Generic JSON — static QR or file. BBQr multipart QR is detected but not fully decoded; use file/paste instead. Confirm XFP, account path, and script type.",
+    keystone: "Keystone: animated crypto-account UR QR is detected via frame collection — scan all frames then use Try Import. Descriptor file import is also available. Verify the first receive address on-device.",
+    seedsigner: "SeedSigner: static xpub or UR xpub QR is supported. For animated UR, scan all frames then use Try Import. Verify fingerprint, derivation path, and script type.",
+    krux: "Krux: xpub/ypub/zpub QR or SD card text export. Verify fingerprint, derivation path, and script type match the device display.",
+    "passport-core": "Passport Core: animated setup QR is detected via frame collection — scan all frames then use Try Import. Descriptor or xpub export also supported. Verify the first receive address on Passport.",
+    jade: "Jade: use Account Export > Xpub or descriptor export. Verify the first receive address on the device before receiving funds.",
+    other: "Other device: prefer descriptor or [fingerprint/path]xpub import. Confirm script type, account path, and first receive address before receiving funds."
   };
 
   return (
@@ -3247,9 +3319,46 @@ function detectImportMetadata(
     };
   }
 
-  const ur = trimmed.toLowerCase();
-  if (ur.startsWith("ur:")) {
+  // BBQr multipart
+  if (trimmed.startsWith("B$")) {
+    return {
+      ...emptyImportDetection(),
+      importFormat: "bbqr",
+      warnings: [],
+      unsupportedReason: "BBQr multipart QR detected. Export a descriptor or Generic JSON from Coldcard and import via Paste or File."
+    };
+  }
+
+  // Raw PSBT
+  if (trimmed.startsWith("cHNidP8B")) {
+    return {
+      ...emptyImportDetection(),
+      importFormat: "psbt-ur",
+      warnings: [],
+      unsupportedReason: "PSBT signing request detected. This is not a watch-only wallet export. Use xpub or descriptor export instead."
+    };
+  }
+
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith("ur:")) {
+    if (lower.startsWith("ur:crypto-psbt")) {
+      return {
+        ...emptyImportDetection(),
+        importFormat: "psbt-ur",
+        warnings: [],
+        unsupportedReason: "PSBT signing request detected. This is not a watch-only wallet export. Use xpub or descriptor export instead."
+      };
+    }
+
     const key = extractExtendedPublicKey(trimmed);
+    let importFormat: ImportFormat;
+    if (lower.startsWith("ur:crypto-account")) {
+      importFormat = sourceDevice === "passport-core" ? "passport-setup-qr" : "crypto-account-ur";
+    } else if (lower.startsWith("ur:crypto-hdkey")) {
+      importFormat = "crypto-hdkey-ur";
+    } else {
+      importFormat = "ur-xpub";
+    }
     return {
       extendedPublicKey: key,
       type: key ? key.slice(0, 4) as ExtendedPublicKeyType : null,
@@ -3257,14 +3366,10 @@ function detectImportMetadata(
       scriptType: key ? scriptTypeForKey(key) : "unknown",
       accountPath: null,
       masterFingerprint: null,
-      importFormat: ur.startsWith("ur:crypto-account")
-        ? sourceDevice === "passport-core"
-          ? "passport-setup-qr"
-          : "crypto-account-ur"
-        : "ur-xpub",
+      importFormat,
       privateInput: false,
       warnings: ["UR payload detected. Animated UR/BCUR decoding is not fully supported yet."],
-      unsupportedReason: key ? null : "UR decoding unsupported yet. Use descriptor/file/paste xpub import."
+      unsupportedReason: key ? null : "UR decoding not available yet. Use descriptor/file/paste xpub import."
     };
   }
 
@@ -3341,6 +3446,99 @@ function emptyImportDetection() {
     warnings: [],
     unsupportedReason: null
   };
+}
+
+type QrFrameFormat =
+  | "plain-xpub"
+  | "descriptor"
+  | "key-expression"
+  | "coldcard-json"
+  | "crypto-account-ur"
+  | "crypto-hdkey-ur"
+  | "ur-xpub"
+  | "ur-animated"
+  | "bbqr"
+  | "psbt-ur"
+  | "unknown";
+
+type QrFrameClassification = {
+  format: QrFrameFormat;
+  animated: boolean;
+  watchOnlyCandidate: boolean;
+  frameIndex: number | null;
+  totalFrames: number | null;
+};
+
+function classifyQrFrame(frame: string): QrFrameClassification {
+  const trimmed = frame.trim();
+  if (!trimmed) {
+    return { format: "unknown", animated: false, watchOnlyCandidate: false, frameIndex: null, totalFrames: null };
+  }
+
+  if (trimmed.startsWith("B$")) {
+    return { format: "bbqr", animated: true, watchOnlyCandidate: false, frameIndex: null, totalFrames: null };
+  }
+
+  if (trimmed.startsWith("cHNidP8B")) {
+    return { format: "psbt-ur", animated: false, watchOnlyCandidate: false, frameIndex: null, totalFrames: null };
+  }
+
+  const lower = trimmed.toLowerCase();
+
+  if (lower.startsWith("ur:")) {
+    if (lower.startsWith("ur:crypto-psbt")) {
+      return { format: "psbt-ur", animated: isUrAnimated(trimmed), watchOnlyCandidate: false, frameIndex: urFrameIdx(trimmed), totalFrames: urFrameTotal(trimmed) };
+    }
+
+    const animated = isUrAnimated(trimmed);
+    const frameIndex = urFrameIdx(trimmed);
+    const totalFrames = urFrameTotal(trimmed);
+
+    if (animated) {
+      return { format: "ur-animated", animated: true, watchOnlyCandidate: true, frameIndex, totalFrames };
+    }
+    if (lower.startsWith("ur:crypto-account")) {
+      return { format: "crypto-account-ur", animated: false, watchOnlyCandidate: true, frameIndex: null, totalFrames: null };
+    }
+    if (lower.startsWith("ur:crypto-hdkey")) {
+      return { format: "crypto-hdkey-ur", animated: false, watchOnlyCandidate: true, frameIndex: null, totalFrames: null };
+    }
+    return { format: "ur-xpub", animated: false, watchOnlyCandidate: true, frameIndex: null, totalFrames: null };
+  }
+
+  const stripped = trimmed.replace(/#[a-z0-9]+$/i, "");
+  if (stripped.startsWith("sh(wpkh(") || stripped.startsWith("wpkh(") || stripped.startsWith("pkh(") || stripped.startsWith("tr(")) {
+    return { format: "descriptor", animated: false, watchOnlyCandidate: true, frameIndex: null, totalFrames: null };
+  }
+
+  if (/^\[[0-9a-fA-F]{8}/.test(trimmed) && /\b(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,}/.test(trimmed)) {
+    return { format: "key-expression", animated: false, watchOnlyCandidate: true, frameIndex: null, totalFrames: null };
+  }
+
+  if (trimmed.startsWith("{")) {
+    const hasXpub = /\b(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,}/.test(trimmed);
+    return { format: "coldcard-json", animated: false, watchOnlyCandidate: hasXpub, frameIndex: null, totalFrames: null };
+  }
+
+  if (/\b(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,}/.test(trimmed)) {
+    return { format: "plain-xpub", animated: false, watchOnlyCandidate: true, frameIndex: null, totalFrames: null };
+  }
+
+  return { format: "unknown", animated: false, watchOnlyCandidate: false, frameIndex: null, totalFrames: null };
+}
+
+function isUrAnimated(value: string): boolean {
+  return /^ur:[^/]+\/\d+of\d+\//i.test(value) || /^ur:[^/]+\/\d+-\d+\//i.test(value);
+}
+
+function urFrameIdx(value: string): number | null {
+  const m = value.match(/^ur:[^/]+\/(\d+)of\d+\//i) ?? value.match(/^ur:[^/]+\/(\d+)-\d+\//i);
+  return m?.[1] !== undefined ? parseInt(m[1], 10) : null;
+}
+
+function urFrameTotal(value: string): number | null {
+  const m = value.match(/^ur:[^/]+\/\d+of(\d+)\//i) ?? value.match(/^ur:[^/]+\/\d+-(\d+)\//i);
+  return m?.[1] !== undefined ? parseInt(m[1], 10) : null;
 }
 
 function looksPrivateImport(value: string): boolean {
@@ -3477,8 +3675,13 @@ function walletSafetyWarnings(wallet: WalletRecord): string[] {
   if (wallet.scriptType === "taproot" && wallet.importFormat !== "descriptor" && wallet.importFormat !== "key-expression") {
     warnings.push("Taproot wallet via xpub/tpub: confirm BIP86 derivation path (m/86'/0'/0') before receiving funds.");
   }
-  if (wallet.importFormat === "crypto-account-ur" || wallet.importFormat === "passport-setup-qr" || wallet.importFormat === "ur-xpub") {
-    warnings.push("UR payloads are detected, but animated UR/BCUR decoding is not complete yet. Prefer descriptor/file import.");
+  if (
+    wallet.importFormat === "crypto-account-ur" ||
+    wallet.importFormat === "crypto-hdkey-ur" ||
+    wallet.importFormat === "passport-setup-qr" ||
+    wallet.importFormat === "ur-xpub"
+  ) {
+    warnings.push("UR payload import: animated UR/BCUR decoding is not complete yet. Verify addresses match your device.");
   }
   return warnings;
 }

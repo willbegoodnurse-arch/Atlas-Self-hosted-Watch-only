@@ -16,8 +16,11 @@ export type ImportFormat =
   | "key-expression"
   | "coldcard-json"
   | "crypto-account-ur"
+  | "crypto-hdkey-ur"
   | "ur-xpub"
   | "passport-setup-qr"
+  | "bbqr"
+  | "psbt-ur"
   | "unknown";
 
 export type AddressLabel = {
