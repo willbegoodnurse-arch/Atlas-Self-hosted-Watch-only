@@ -12,6 +12,8 @@ import {
 } from "../mempool/usage.js";
 import { lookupWalletTransactions } from "../mempool/transactions.js";
 import type { WalletTransactionsResult } from "../mempool/transactions.js";
+import { lookupWalletUtxos } from "../mempool/utxos.js";
+import type { WalletUtxosResult } from "../mempool/utxos.js";
 import {
   accountPathFor,
   defaultScriptTypeForExistingKey,
@@ -406,6 +408,32 @@ export async function getWalletTransactions(
 
   const result = await lookupWalletTransactions(walletAddresses, input.txLimit, {
     pages: input.pages
+  });
+  return { wallet, result };
+}
+
+export async function getWalletUtxos(
+  id: string,
+  input: {
+    chain: "receive" | "change" | "both";
+    addressLimit: number;
+    includeUnconfirmed: boolean;
+  }
+): Promise<{ wallet: WalletRecord; result: WalletUtxosResult }> {
+  const { wallet, result: addressResult } = deriveWalletAddresses(id, {
+    chain: input.chain,
+    limit: input.addressLimit
+  });
+
+  const walletAddresses = addressResult.addresses.map((a: DerivedAddress) => ({
+    chain: a.chain,
+    index: a.index,
+    address: a.address,
+    path: a.path
+  }));
+
+  const result = await lookupWalletUtxos(walletAddresses, {
+    includeUnconfirmed: input.includeUnconfirmed
   });
   return { wallet, result };
 }

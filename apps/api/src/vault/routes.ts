@@ -15,6 +15,7 @@ import {
   deriveWalletNextReceiveAddress,
   getVaultStatus,
   getWalletTransactions,
+  getWalletUtxos,
   initVault,
   listWallets,
   lockVault,
@@ -93,6 +94,12 @@ type WalletTransactionsQuery = {
   addressLimit?: string;
   txLimit?: string;
   pages?: string;
+};
+
+type WalletUtxosQuery = {
+  chain?: string;
+  addressLimit?: string;
+  includeUnconfirmed?: string;
 };
 
 export async function registerVaultRoutes(server: FastifyInstance): Promise<void> {
@@ -391,6 +398,41 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
     }
   );
 
+  server.get<{ Querystring: WalletUtxosQuery; Params: { id: string } }>(
+    "/api/wallets/:id/utxos",
+    async (request, reply) => {
+      if (!ensureAuthenticated(request, reply)) {
+        return;
+      }
+
+      const validation = validateUtxosQuery(request.query);
+      if (!validation.ok) {
+        return reply.code(400).send({ error: validation.error });
+      }
+
+      try {
+        const { wallet, result } = await getWalletUtxos(
+          request.params.id,
+          validation.value
+        );
+        return reply.send({
+          walletId: wallet.id,
+          chain: validation.value.chain,
+          addressLimit: validation.value.addressLimit,
+          includeUnconfirmed: validation.value.includeUnconfirmed,
+          unit: "sats",
+          status: result.status,
+          utxos: result.utxos,
+          summary: result.summary,
+          failedAddresses: result.failedAddresses,
+          mempool: getMempoolApiConfig()
+        });
+      } catch (error) {
+        return handleVaultError(error, reply);
+      }
+    }
+  );
+
   server.patch<{ Body: WalletPatchBody; Params: { id: string } }>(
     "/api/wallets/:id",
     async (request, reply) => {
@@ -681,6 +723,34 @@ function validateTransactionsQuery(query: WalletTransactionsQuery):
       txLimit: parsedTxLimit,
       pages: parsedPages
     }
+  };
+}
+
+function validateUtxosQuery(query: WalletUtxosQuery):
+  | {
+      ok: true;
+      value: {
+        chain: "receive" | "change" | "both";
+        addressLimit: number;
+        includeUnconfirmed: boolean;
+      };
+    }
+  | { ok: false; error: string } {
+  const chain = query.chain ?? "both";
+  if (chain !== "receive" && chain !== "change" && chain !== "both") {
+    return { ok: false, error: "Address chain must be receive, change, or both" };
+  }
+
+  const parsedLimit = query.addressLimit === undefined ? 20 : Number(query.addressLimit);
+  if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
+    return { ok: false, error: "Address limit must be an integer from 1 to 100" };
+  }
+
+  const includeUnconfirmed = query.includeUnconfirmed === "false" ? false : true;
+
+  return {
+    ok: true,
+    value: { chain, addressLimit: parsedLimit, includeUnconfirmed }
   };
 }
 

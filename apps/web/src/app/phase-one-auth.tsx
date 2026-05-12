@@ -219,6 +219,48 @@ type WalletScanSummary = {
   truncated: boolean;
 };
 
+type WalletUtxo = {
+  txid: string;
+  vout: number;
+  outpoint: string;
+  valueSats: number;
+  status: "confirmed" | "unconfirmed";
+  blockHeight: number | null;
+  blockTime: number | null;
+  address: string;
+  chain: "receive" | "change";
+  index: number;
+  path: string | null;
+};
+
+type UtxoSummary = {
+  totalUtxos: number;
+  confirmedUtxos: number;
+  unconfirmedUtxos: number;
+  totalSats: number;
+  confirmedSats: number;
+  unconfirmedSats: number;
+  largestUtxoSats: number | null;
+  smallestUtxoSats: number | null;
+};
+
+type WalletUtxosResponse = {
+  walletId: string;
+  chain: string;
+  addressLimit: number;
+  includeUnconfirmed: boolean;
+  unit: "sats";
+  status: "online" | "partial" | "offline";
+  utxos: WalletUtxo[];
+  summary: UtxoSummary;
+  failedAddresses: Array<{
+    address: string;
+    chain: "receive" | "change";
+    index: number;
+    error: string;
+  }>;
+};
+
 type WalletTransactionsResponse = {
   walletId: string;
   chain: string;
@@ -1798,6 +1840,7 @@ function WalletDetailView({
   const [balanceUnit, setBalanceUnit] = useState<"sats" | "btc">("sats");
   const [balanceBadgeStatus, setBalanceBadgeStatus] = useState<StatusKind>("degraded");
   const [txBadgeStatus, setTxBadgeStatus] = useState<StatusKind>("degraded");
+  const [utxoBadgeStatus, setUtxoBadgeStatus] = useState<StatusKind>("degraded");
   const [refreshToken, setRefreshToken] = useState(0);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const warnings = walletSafetyWarnings(wallet);
@@ -1829,6 +1872,7 @@ function WalletDetailView({
             <StatusBadge label="MEMPOOL" status={mempoolBadgeStatus} />
             <StatusBadge label="BALANCE" status={balanceBadgeStatus} />
             <StatusBadge label="TXS" status={txBadgeStatus} />
+            <StatusBadge label="UTXOS" status={utxoBadgeStatus} />
           </div>
           <ConnectionPanel
             error={mempoolStatusError}
@@ -1888,7 +1932,248 @@ function WalletDetailView({
         wallet={wallet}
         onWalletChange={onWalletChange}
       />
+      <UtxoPanel
+        apiUrl={apiUrl}
+        balanceUnit={balanceUnit}
+        onUtxoStatusChange={setUtxoBadgeStatus}
+        refreshToken={refreshToken}
+        wallet={wallet}
+      />
     </div>
+  );
+}
+
+function UtxoPanel({
+  apiUrl,
+  balanceUnit,
+  onUtxoStatusChange,
+  refreshToken,
+  wallet
+}: {
+  apiUrl: string;
+  balanceUnit: "sats" | "btc";
+  onUtxoStatusChange: (status: StatusKind) => void;
+  refreshToken: number;
+  wallet: WalletRecord;
+}) {
+  const [utxoResponse, setUtxoResponse] = useState<WalletUtxosResponse | null>(null);
+  const [utxoStatus, setUtxoStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const [message, setMessage] = useState("");
+  const [chain, setChain] = useState<"both" | "receive" | "change">("both");
+  const [addressLimit, setAddressLimit] = useState(20);
+  const [includeUnconfirmed, setIncludeUnconfirmed] = useState(true);
+
+  useEffect(() => {
+    void fetchUtxos();
+  }, [wallet.id, refreshToken]);
+
+  async function fetchUtxos() {
+    setUtxoStatus("loading");
+    setMessage("");
+    try {
+      const params = new URLSearchParams({
+        chain,
+        addressLimit: String(addressLimit),
+        includeUnconfirmed: String(includeUnconfirmed)
+      });
+      const response = await apiRequest<WalletUtxosResponse>(
+        apiUrl,
+        `/api/wallets/${wallet.id}/utxos?${params}`
+      );
+      setUtxoResponse(response);
+      setUtxoStatus("loaded");
+      onUtxoStatusChange(
+        response.status === "online" ? "online" :
+        response.status === "offline" ? "offline" : "degraded"
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to load UTXOs");
+      setUtxoResponse(null);
+      setUtxoStatus("error");
+      onUtxoStatusChange("offline");
+    }
+  }
+
+  const summary = utxoResponse?.summary;
+  const utxos = utxoResponse?.utxos ?? [];
+
+  return (
+    <section className="tx-history-panel wallet-address-panel">
+      <div className="wallet-card-header">
+        <p className="terminal-heading">&gt; UTXOS</p>
+        <button
+          className="secondary-button compact-button"
+          disabled={utxoStatus === "loading"}
+          type="button"
+          onClick={() => void fetchUtxos()}
+        >
+          {utxoStatus === "loading" ? "Loading..." : "Refresh"}
+        </button>
+      </div>
+
+      <details className="scan-controls-details">
+        <summary>Scan controls</summary>
+        <div className="scan-controls-grid">
+          <label>
+            <span>Chain</span>
+            <select
+              value={chain}
+              onChange={(e) => setChain(e.target.value as "both" | "receive" | "change")}
+            >
+              <option value="both">both</option>
+              <option value="receive">receive</option>
+              <option value="change">change</option>
+            </select>
+          </label>
+          <label>
+            <span>Address depth</span>
+            <select
+              value={addressLimit}
+              onChange={(e) => setAddressLimit(Number(e.target.value))}
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </label>
+          <label>
+            <span>Unconfirmed</span>
+            <select
+              value={includeUnconfirmed ? "true" : "false"}
+              onChange={(e) => setIncludeUnconfirmed(e.target.value === "true")}
+            >
+              <option value="true">include</option>
+              <option value="false">exclude</option>
+            </select>
+          </label>
+          <button
+            className="compact-button"
+            disabled={utxoStatus === "loading"}
+            type="button"
+            onClick={() => void fetchUtxos()}
+          >
+            Apply
+          </button>
+        </div>
+        {addressLimit > 20 ? (
+          <p className="muted scan-hint">Deep UTXO scans can be slow on public APIs.</p>
+        ) : null}
+      </details>
+
+      {utxoResponse ? (
+        <div className="terminal-statusline">
+          <span
+            className={
+              utxoResponse.status === "online" ? "status-badge status-online" :
+              utxoResponse.status === "offline" ? "status-badge status-offline" :
+              "status-badge status-degraded"
+            }
+          >
+            [UTXO: {utxoResponse.status.toUpperCase()}]
+          </span>
+          {utxoResponse.status !== "online" ? (
+            <span className="muted">
+              {utxoResponse.status === "offline"
+                ? "UTXO lookup unavailable. Check backend connection."
+                : "Some address UTXOs could not be fetched. Results may be incomplete."}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {message ? <p className="status-message">{message}</p> : null}
+
+      {summary && utxoStatus === "loaded" ? (
+        <div className="terminal-panel utxo-summary">
+          <p className="terminal-heading">&gt; SUMMARY</p>
+          <dl className="utxo-summary-grid">
+            <div>
+              <dt>total utxos</dt>
+              <dd>{summary.totalUtxos}</dd>
+            </div>
+            <div>
+              <dt>confirmed</dt>
+              <dd>{summary.confirmedUtxos}</dd>
+            </div>
+            <div>
+              <dt>unconfirmed</dt>
+              <dd>{summary.unconfirmedUtxos}</dd>
+            </div>
+            <div>
+              <dt>total</dt>
+              <dd>{formatBalance(summary.totalSats, balanceUnit)}</dd>
+            </div>
+            <div>
+              <dt>confirmed sats</dt>
+              <dd>{formatBalance(summary.confirmedSats, balanceUnit)}</dd>
+            </div>
+            <div>
+              <dt>unconfirmed sats</dt>
+              <dd>{formatBalance(summary.unconfirmedSats, balanceUnit)}</dd>
+            </div>
+            {summary.largestUtxoSats !== null ? (
+              <div>
+                <dt>largest</dt>
+                <dd>{formatBalance(summary.largestUtxoSats, balanceUnit)}</dd>
+              </div>
+            ) : null}
+            {summary.smallestUtxoSats !== null ? (
+              <div>
+                <dt>smallest</dt>
+                <dd>{formatBalance(summary.smallestUtxoSats, balanceUnit)}</dd>
+              </div>
+            ) : null}
+          </dl>
+        </div>
+      ) : null}
+
+      {utxoStatus === "loaded" && utxos.length === 0 ? (
+        <p className="muted">No UTXOs found in scanned address range.</p>
+      ) : null}
+
+      {utxos.length > 0 ? (
+        <div className="utxo-list">
+          {utxos.map((utxo) => {
+            const addrLabel = getAddressLabel(wallet, utxo.chain, utxo.index);
+            const txLabel = getTransactionLabel(wallet, utxo.txid);
+            return (
+              <div key={utxo.outpoint} className="utxo-row terminal-panel">
+                <div className="utxo-amount-line">
+                  <span className="utxo-value">{formatBalance(utxo.valueSats, balanceUnit)}</span>
+                  <span className={utxo.status === "confirmed" ? "status-badge status-online" : "status-badge status-degraded"}>
+                    {utxo.status}
+                  </span>
+                  <span className="muted utxo-chain-index">
+                    {utxo.chain} #{utxo.index}
+                  </span>
+                </div>
+                <div className="utxo-meta-line">
+                  <span className="utxo-address muted">{truncateMiddle(utxo.address, 20)}</span>
+                  {addrLabel ? (
+                    <span className="label-pill">{addrLabel.label}</span>
+                  ) : null}
+                </div>
+                <div className="utxo-meta-line">
+                  <span className="muted utxo-outpoint">{truncateMiddle(utxo.outpoint, 24)}</span>
+                  {utxo.blockHeight ? (
+                    <span className="muted">block {utxo.blockHeight}</span>
+                  ) : (
+                    <span className="muted">mempool</span>
+                  )}
+                </div>
+                {utxo.path ? (
+                  <div className="utxo-path muted">{utxo.path}</div>
+                ) : null}
+                {txLabel ? (
+                  <div className="utxo-tx-label muted">{txLabel.label}</div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -3261,6 +3546,13 @@ function formatBalance(sats: number, unit: "sats" | "btc"): string {
   }
 
   return `${new Intl.NumberFormat("en-US").format(sats)} sats`;
+}
+
+function truncateMiddle(str: string, maxLen: number): string {
+  if (str.length <= maxLen) return str;
+  const tail = Math.floor((maxLen - 3) / 2);
+  const head = maxLen - 3 - tail;
+  return str.slice(0, head) + "..." + str.slice(str.length - tail);
 }
 
 function extractExtendedPublicKey(value: string): string | null {
