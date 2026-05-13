@@ -1262,6 +1262,10 @@ function WalletCreateForm({
     sourceDevice
   ]);
   const effectiveScriptType = scriptType !== "unknown" ? scriptType : detected.scriptType;
+  const networkMismatch =
+    detected.network !== null &&
+    !(detected.network === "testnet" && (network === "testnet" || network === "signet")) &&
+    detected.network !== network;
   const canSave =
     Boolean(detected.extendedPublicKey) &&
     !detected.privateInput &&
@@ -1274,13 +1278,10 @@ function WalletCreateForm({
   }, []);
 
   useEffect(() => {
-    if (detected.network && detected.network !== network) {
-      setNetwork(detected.network);
-    }
     if (detected.scriptType !== "unknown") {
       setScriptType(detected.scriptType);
     }
-  }, [detected.network, detected.scriptType]);
+  }, [detected.scriptType]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1421,10 +1422,19 @@ function WalletCreateForm({
 
   return (
     <form className="form-stack vault-section" onSubmit={handleSubmit}>
-      <h2>Register wallet</h2>
-      <p className="muted">
-        Extended public keys and descriptors reveal wallet history. Store locally and do not share.
-      </p>
+      <h2>Register watch-only wallet</h2>
+      <div className="terminal-panel import-notice">
+        <p className="terminal-heading">&gt; WATCH-ONLY IMPORT ONLY</p>
+        <p className="muted">
+          Enter only <strong>xpub, ypub, zpub, tpub, upub, or vpub</strong> extended public keys,
+          output descriptors, or compatible JSON exports from your hardware wallet.
+          Never enter seed phrases, private keys, or wallet passwords.
+        </p>
+        <p className="muted">
+          Wallet data is stored in this server's encrypted vault. Extended public keys reveal your
+          wallet's address history — treat them as sensitive, not as private keys.
+        </p>
+      </div>
       <div className="form-grid">
         <label>
           <span>Wallet name</span>
@@ -1468,6 +1478,17 @@ function WalletCreateForm({
           </select>
         </label>
       </div>
+      {networkMismatch ? (
+        <p className="status-message">
+          Network mismatch: this looks like a {detected.network} key ({detected.type ?? "unknown prefix"}),
+          but the selected network is {network}.
+          {detected.network === "mainnet"
+            ? " xpub/ypub/zpub are mainnet keys."
+            : " tpub/upub/vpub are testnet keys (also compatible with signet)."}
+          {" "}Verify the network before saving.
+        </p>
+      ) : null}
+
       <div className="tab-row">
         <button
           className={importMethod === "paste" ? "compact-button" : "secondary-button compact-button"}
@@ -1528,7 +1549,12 @@ function WalletCreateForm({
       <div className="form-grid">
         <label>
           <span>Detected key</span>
-          <input readOnly value={detected.type ?? "Waiting for watch-only import"} />
+          <input
+            readOnly
+            value={detected.type
+              ? `${detected.type} — ${describeKeyType(detected.type)}`
+              : "Waiting for watch-only import"}
+          />
         </label>
         <label>
           <span>Account path</span>
@@ -1559,7 +1585,9 @@ function WalletCreateForm({
         </label>
       </div>
       <DeviceGuidance sourceDevice={sourceDevice} />
-      {detected.privateInput ? <p className="status-message">{watchOnlyImportError}</p> : null}
+      {detected.privateInput ? (
+        <p className="status-message">{detected.unsupportedReason ?? watchOnlyImportError}</p>
+      ) : null}
       {detected.warnings.length ? (
         <div className="terminal-panel import-preview">
           {detected.warnings.map((warning) => (
@@ -1665,6 +1693,11 @@ function WalletList({
 
   return (
     <div className="wallet-list">
+      <p className="muted storage-notice">
+        {wallets.length} watch-only wallet{wallets.length !== 1 ? "s" : ""} stored in this server's encrypted vault.
+        Extended public keys are privacy-sensitive — they are not private keys and cannot spend funds,
+        but they reveal your wallet's address history.
+      </p>
       {wallets.map((wallet) => (
         <WalletCard
           apiUrl={apiUrl}
@@ -1699,6 +1732,7 @@ function WalletCard({
   onUpdate: (id: string, input: { name: string; gapLimit: number }) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
   const [miniBalance, setMiniBalance] = useState<BalanceSummary | null>(null);
   const [miniBalanceStatus, setMiniBalanceStatus] = useState<"loading" | "ready" | "degraded" | "offline">("loading");
   const [name, setName] = useState(wallet.name);
@@ -1789,16 +1823,45 @@ function WalletCard({
           >
             {editing ? "Cancel" : "Edit"}
           </button>
-          <button
-            className="danger-button compact-button"
-            disabled={busy}
-            type="button"
-            onClick={() => void onDelete(wallet.id)}
-          >
-            Delete
-          </button>
+          {deleteConfirming ? (
+            <>
+              <button
+                className="danger-button compact-button"
+                disabled={busy}
+                type="button"
+                onClick={() => void onDelete(wallet.id)}
+              >
+                Confirm remove
+              </button>
+              <button
+                className="secondary-button compact-button"
+                type="button"
+                onClick={() => setDeleteConfirming(false)}
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              className="secondary-button compact-button"
+              type="button"
+              onClick={() => setDeleteConfirming(true)}
+            >
+              Remove
+            </button>
+          )}
         </div>
       </div>
+
+      {deleteConfirming ? (
+        <div className="terminal-panel remove-confirm-panel">
+          <p className="muted">
+            Remove <strong>{wallet.name}</strong> from the vault?
+            This removes the watch-only wallet data only — it does not affect funds or the real wallet.
+            You can re-add it later using the xpub/ypub/zpub.
+          </p>
+        </div>
+      ) : null}
 
       {editing ? (
         <form className="form-grid edit-grid" onSubmit={handleSubmit}>
@@ -1828,24 +1891,30 @@ function WalletCard({
           <dt>Total</dt>
           <dd>
             {miniBalanceStatus === "loading"
-              ? "syncing..."
-              : formatBalance(miniBalance?.totalBalance ?? 0, "sats")}
+              ? "syncing…"
+              : miniBalance != null
+                ? formatBalance(miniBalance.totalBalance, "sats")
+                : "—"}
           </dd>
         </div>
         <div>
           <dt>Confirmed</dt>
           <dd>
             {miniBalanceStatus === "loading"
-              ? "..."
-              : formatBalance(miniBalance?.confirmedBalance ?? 0, "sats")}
+              ? "…"
+              : miniBalance != null
+                ? formatBalance(miniBalance.confirmedBalance, "sats")
+                : "—"}
           </dd>
         </div>
         <div>
           <dt>Unconfirmed</dt>
           <dd>
             {miniBalanceStatus === "loading"
-              ? "..."
-              : formatBalance(miniBalance?.unconfirmedBalance ?? 0, "sats")}
+              ? "…"
+              : miniBalance != null
+                ? formatBalance(miniBalance.unconfirmedBalance, "sats")
+                : "—"}
           </dd>
         </div>
       </dl>
@@ -4419,12 +4488,13 @@ function detectImportMetadata(
   if (!trimmed) {
     return emptyImportDetection();
   }
-  if (looksPrivateImport(trimmed)) {
+  const privateWarning = looksPrivateImport(trimmed);
+  if (privateWarning !== null) {
     return {
       ...emptyImportDetection(),
       privateInput: true,
       warnings: [],
-      unsupportedReason: watchOnlyImportError
+      unsupportedReason: privateWarning
     };
   }
 
@@ -4559,8 +4629,8 @@ function detectImportMetadata(
   return {
     ...emptyImportDetection(),
     importFormat: "unknown",
-    warnings: ["No supported watch-only import payload detected."],
-    unsupportedReason: "Unsupported import format"
+    warnings: ["This input does not look like an xpub/ypub/zpub, descriptor, key expression, or supported JSON format."],
+    unsupportedReason: "Unsupported import format — expected xpub/ypub/zpub, descriptor, or compatible JSON export"
   };
 }
 
@@ -4672,13 +4742,22 @@ function urFrameTotal(value: string): number | null {
   return m?.[1] !== undefined ? parseInt(m[1], 10) : null;
 }
 
-function looksPrivateImport(value: string): boolean {
+function looksPrivateImport(value: string): string | null {
+  if (/\b(xprv|yprv|zprv|tprv|uprv|vprv)[1-9a-hj-np-z]+\b/i.test(value)) {
+    return "This looks like an extended private key (xprv/yprv/zprv). Never enter private keys into this app.";
+  }
+  if (/\b[5KL][1-9A-HJ-NP-Za-km-z]{50,51}\b/.test(value)) {
+    return "This looks like a WIF private key. Never enter private keys into this app.";
+  }
   const lower = value.trim().toLowerCase();
   const words = lower.match(/\b[a-z]{3,10}\b/g) ?? [];
-  return /\b(xprv|yprv|zprv|tprv|uprv|vprv)[1-9a-hj-np-z]+\b/i.test(value) ||
-    /\b[5KL][1-9A-HJ-NP-Za-km-z]{50,51}\b/.test(value) ||
-    /(wif|privatekey|private_key|privkey|seed phrase|mnemonic)/i.test(value) ||
-    ((words.length === 12 || words.length === 18 || words.length === 24) && lower === words.join(" "));
+  if ((words.length === 12 || words.length === 18 || words.length === 24) && lower === words.join(" ")) {
+    return "This looks like a seed phrase (mnemonic). Never enter seed phrases into this app.";
+  }
+  if (/(wif|privatekey|private_key|privkey|seed phrase|mnemonic)/i.test(value)) {
+    return "This input contains keywords associated with private keys or seed phrases. Never enter either into this app.";
+  }
+  return null;
 }
 
 function descriptorScriptType(value: string): WalletScriptType | null {
@@ -4782,6 +4861,17 @@ function deviceAlias(sourceDevice: SourceDevice): string {
 
 function formatScriptType(scriptType: WalletScriptType): string {
   return scriptType.replace("-", " ");
+}
+
+function describeKeyType(type: ExtendedPublicKeyType): string {
+  switch (type) {
+    case "xpub": return "mainnet — legacy or native segwit";
+    case "ypub": return "mainnet nested segwit (P2SH-P2WPKH)";
+    case "zpub": return "mainnet native segwit (P2WPKH)";
+    case "tpub": return "testnet/signet";
+    case "upub": return "testnet/signet nested segwit";
+    case "vpub": return "testnet/signet native segwit";
+  }
 }
 
 function maskRawImport(value: string): string {
