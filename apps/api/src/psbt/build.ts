@@ -31,9 +31,17 @@ const SEGWIT_MARKER_VBYTES = 2;
 const OUTPUT_VBYTES = 43;
 
 export type CreatePsbtInput = {
-  recipientAddress: string;
-  amountSats: number;
+  recipientAddress?: string;
+  amountSats?: number;
+  recipients?: Array<{
+    address: string;
+    amountSats: number;
+  }>;
   feeRateSatsPerVbyte: number;
+  selectedUtxos?: Array<{
+    txid: string;
+    vout: number;
+  }>;
   addressLimit?: number;
 };
 
@@ -103,6 +111,11 @@ type SelectionResult = {
   changeSats: number;
 };
 
+type RecipientOutput = {
+  address: string;
+  amountSats: number;
+};
+
 export function selectConfirmedUtxos(
   utxos: UtxoLike[],
   amountSats: number,
@@ -145,6 +158,60 @@ export function selectConfirmedUtxos(
   throw new InsufficientFundsError(
     `Insufficient funds: ${totalInputSats} sats available, ${minimumRequired} sats required`
   );
+}
+
+export function buildSelectedUtxoPlan(
+  selected: UtxoLike[],
+  recipientTotalSats: number,
+  feeRateSatsPerVbyte: number,
+  scriptType: SupportedScriptType,
+  recipientCount: number
+): SelectionResult {
+  if (selected.length === 0) {
+    throw new InvalidPsbtParamsError("No UTXO selected");
+  }
+
+  const totalInputSats = selected.reduce((sum, utxo) => sum + utxo.valueSats, 0);
+  const withChangeVbytes = estimatePsbtVbytes(scriptType, selected.length, recipientCount + 1);
+  const withChangeFee = Math.ceil(withChangeVbytes * feeRateSatsPerVbyte);
+
+  if (totalInputSats < recipientTotalSats + withChangeFee) {
+    const noChangeVbytes = estimatePsbtVbytes(scriptType, selected.length, recipientCount);
+    const noChangeFee = Math.ceil(noChangeVbytes * feeRateSatsPerVbyte);
+    if (totalInputSats >= recipientTotalSats + noChangeFee) {
+      return {
+        selected,
+        totalInputSats,
+        feeSats: totalInputSats - recipientTotalSats,
+        estimatedVbytes: noChangeVbytes,
+        changeSats: 0
+      };
+    }
+
+    throw new InsufficientFundsError(
+      `Insufficient selected input: ${totalInputSats} sats selected, ${recipientTotalSats + withChangeFee} sats required`
+    );
+  }
+
+  const rawChange = totalInputSats - recipientTotalSats - withChangeFee;
+  if (rawChange >= DUST_THRESHOLD_SATS) {
+    return {
+      selected,
+      totalInputSats,
+      feeSats: withChangeFee,
+      estimatedVbytes: withChangeVbytes,
+      changeSats: rawChange
+    };
+  }
+
+  const noChangeVbytes = estimatePsbtVbytes(scriptType, selected.length, recipientCount);
+  return {
+    selected,
+    totalInputSats,
+    feeSats: totalInputSats - recipientTotalSats,
+    estimatedVbytes: noChangeVbytes,
+    changeSats: 0
+  };
 }
 
 type ChangeAddressResult = {
@@ -199,17 +266,14 @@ export async function createWalletPsbt(
   } = {}
 ): Promise<CreatePsbtResult> {
   if (
-    !Number.isInteger(input.feeRateSatsPerVbyte) ||
+    typeof input.feeRateSatsPerVbyte !== "number" ||
+    !Number.isFinite(input.feeRateSatsPerVbyte) ||
     input.feeRateSatsPerVbyte < MIN_FEE_RATE ||
     input.feeRateSatsPerVbyte > MAX_FEE_RATE
   ) {
     throw new InvalidPsbtParamsError(
       `Fee rate must be between ${MIN_FEE_RATE} and ${MAX_FEE_RATE} sats/vbyte`
     );
-  }
-
-  if (!Number.isInteger(input.amountSats) || input.amountSats < 1) {
-    throw new InvalidPsbtParamsError("Amount must be a positive integer in sats");
   }
 
   if (!SUPPORTED_SCRIPT_TYPES.includes(wallet.scriptType as SupportedScriptType)) {
@@ -223,13 +287,20 @@ export async function createWalletPsbt(
   const psbtNetwork: "mainnet" | "testnet" =
     wallet.network === "mainnet" ? "mainnet" : "testnet";
 
-  try {
-    validateAddressForNetwork(input.recipientAddress, psbtNetwork);
-  } catch (e) {
-    throw new InvalidPsbtParamsError(e instanceof Error ? e.message : "Invalid recipient address");
+  const recipients = normalizeRecipients(input);
+  for (const recipient of recipients) {
+    try {
+      validateAddressForNetwork(recipient.address, psbtNetwork);
+    } catch (e) {
+      throw new InvalidPsbtParamsError(e instanceof Error ? e.message : "Invalid recipient address");
+    }
   }
+  const recipientTotalSats = recipients.reduce((sum, recipient) => sum + recipient.amountSats, 0);
 
   const addressLimit = input.addressLimit ?? 20;
+  if (!Number.isInteger(addressLimit) || addressLimit < 1 || addressLimit > 200) {
+    throw new InvalidPsbtParamsError("Address limit must be an integer from 1 to 200");
+  }
   const xpubType = wallet.type as ExtendedPublicKeyKind;
 
   const derivedAddresses = deriveAddresses({
@@ -251,15 +322,23 @@ export async function createWalletPsbt(
 
   const utxosResult = await lookupWalletUtxos(walletAddresses, {
     fetchUtxosFn: options.fetchUtxosFn,
-    includeUnconfirmed: false
+    includeUnconfirmed: Boolean(input.selectedUtxos?.length)
   });
 
-  const selection = selectConfirmedUtxos(
-    utxosResult.utxos,
-    input.amountSats,
-    input.feeRateSatsPerVbyte,
-    scriptType
-  );
+  const selection = input.selectedUtxos?.length
+    ? buildSelectedUtxoPlan(
+        resolveSelectedUtxos(utxosResult.utxos, input.selectedUtxos),
+        recipientTotalSats,
+        input.feeRateSatsPerVbyte,
+        scriptType,
+        recipients.length
+      )
+    : selectConfirmedUtxos(
+        utxosResult.utxos,
+        recipientTotalSats,
+        input.feeRateSatsPerVbyte,
+        scriptType
+      );
 
   let changeAddress: ChangeAddressResult | null = null;
   if (selection.changeSats > 0) {
@@ -268,9 +347,11 @@ export async function createWalletPsbt(
     });
   }
 
-  const psbtOutputs: PsbtOutputDescriptor[] = [
-    { address: input.recipientAddress, valueSats: input.amountSats, type: "recipient" }
-  ];
+  const psbtOutputs: PsbtOutputDescriptor[] = recipients.map((recipient) => ({
+    address: recipient.address,
+    valueSats: recipient.amountSats,
+    type: "recipient"
+  }));
   if (changeAddress) {
     psbtOutputs.push({
       address: changeAddress.address,
@@ -324,4 +405,72 @@ export async function createWalletPsbt(
     changeAddress: changeAddress?.address ?? null,
     changeSats: selection.changeSats
   };
+}
+
+function normalizeRecipients(input: CreatePsbtInput): RecipientOutput[] {
+  const recipients = input.recipients ?? (
+    input.recipientAddress !== undefined && input.amountSats !== undefined
+      ? [{ address: input.recipientAddress, amountSats: input.amountSats }]
+      : []
+  );
+
+  if (recipients.length === 0) {
+    throw new InvalidPsbtParamsError("At least one recipient output is required");
+  }
+
+  if (recipients.length > 10) {
+    throw new InvalidPsbtParamsError("At most 10 recipient outputs are supported");
+  }
+
+  return recipients.map((recipient) => {
+    const address = recipient.address.trim();
+    if (!address) {
+      throw new InvalidPsbtParamsError("Recipient address is required");
+    }
+    if (!Number.isInteger(recipient.amountSats) || recipient.amountSats < 1) {
+      throw new InvalidPsbtParamsError("Recipient amount must be a positive integer in sats");
+    }
+    if (recipient.amountSats < DUST_THRESHOLD_SATS) {
+      throw new InvalidPsbtParamsError(`Recipient output is below dust threshold (${DUST_THRESHOLD_SATS} sats)`);
+    }
+    return {
+      address,
+      amountSats: recipient.amountSats
+    };
+  });
+}
+
+function resolveSelectedUtxos(
+  trackedUtxos: UtxoLike[],
+  selected: Array<{ txid: string; vout: number }>
+): UtxoLike[] {
+  if (selected.length === 0) {
+    throw new InvalidPsbtParamsError("No UTXO selected");
+  }
+  if (selected.length > 100) {
+    throw new InvalidPsbtParamsError("At most 100 selected UTXOs are supported");
+  }
+
+  const byOutpoint = new Map(trackedUtxos.map((utxo) => [`${utxo.txid.toLowerCase()}:${utxo.vout}`, utxo]));
+  const resolved: UtxoLike[] = [];
+  const seen = new Set<string>();
+
+  for (const item of selected) {
+    const key = `${item.txid.toLowerCase()}:${item.vout}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    const utxo = byOutpoint.get(key);
+    if (!utxo) {
+      throw new InvalidPsbtParamsError("Selected UTXO is not tracked or no longer available");
+    }
+    if (!utxo.address || !Number.isInteger(utxo.valueSats) || utxo.path === null) {
+      throw new InvalidPsbtParamsError("This UTXO does not have enough data to build a PSBT");
+    }
+    resolved.push(utxo);
+  }
+
+  return resolved;
 }

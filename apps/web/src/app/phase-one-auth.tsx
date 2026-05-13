@@ -295,6 +295,17 @@ type CreatePsbtResponse = {
   changeSats: number;
 };
 
+type FeeEstimatesResponse = {
+  status: "online";
+  estimates: {
+    fastestFee: number | null;
+    halfHourFee: number | null;
+    hourFee: number | null;
+    economyFee: number | null;
+    minimumFee: number | null;
+  };
+};
+
 type VerifyPsbtResponse = {
   status: "valid" | "warning" | "invalid";
   signed: boolean;
@@ -2213,7 +2224,7 @@ function WalletDetailView({
         wallet={wallet}
         onWalletChange={onWalletChange}
       />
-      <CreatePsbtPanel
+      <CreatePsbtBuilderPanel
         apiUrl={apiUrl}
         balanceUnit={balanceUnit}
         wallet={wallet}
@@ -2555,6 +2566,557 @@ function UtxoPanel({
         </div>
       ) : null}
     </section>
+  );
+}
+
+function CreatePsbtBuilderPanel({
+  apiUrl,
+  balanceUnit,
+  wallet
+}: {
+  apiUrl: string;
+  balanceUnit: "sats" | "btc";
+  wallet: WalletRecord;
+}) {
+  const [builderUtxos, setBuilderUtxos] = useState<WalletUtxo[]>([]);
+  const [utxoLoadStatus, setUtxoLoadStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const [utxoLoadMessage, setUtxoLoadMessage] = useState("");
+  const [selectedOutpoints, setSelectedOutpoints] = useState<string[]>([]);
+  const [recipients, setRecipients] = useState([
+    { id: "recipient-1", address: "", amount: "", unit: "sats" as "sats" | "btc" }
+  ]);
+  const [feeRateInput, setFeeRateInput] = useState("5");
+  const [feeEstimates, setFeeEstimates] = useState<FeeEstimatesResponse["estimates"] | null>(null);
+  const [feeEstimateMessage, setFeeEstimateMessage] = useState("");
+  const [addressLimit, setAddressLimit] = useState(20);
+  const [psbtResult, setPsbtResult] = useState<CreatePsbtResponse | null>(null);
+  const [psbtStatus, setPsbtStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [psbtMessage, setPsbtMessage] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"text" | "qr" | "animated" | "bbqr">("text");
+  const [qrDataUrl, setQrDataUrl] = useState("");
+
+  useEffect(() => {
+    void refreshBuilderUtxos();
+    void refreshFeeEstimates();
+  }, [wallet.id, addressLimit]);
+
+  const selectedUtxos = useMemo(
+    () => builderUtxos.filter((utxo) => selectedOutpoints.includes(utxo.outpoint)),
+    [builderUtxos, selectedOutpoints]
+  );
+  const selectedInputSats = selectedUtxos.reduce((sum, utxo) => sum + utxo.valueSats, 0);
+  const selectedHasUnconfirmed = selectedUtxos.some((utxo) => utxo.status === "unconfirmed");
+  const selectedHasUnknownClassification = false;
+  const draftPlan = buildDraftSpendingPlan();
+
+  useEffect(() => {
+    if (!psbtResult || exportFormat !== "qr") {
+      setQrDataUrl("");
+      return;
+    }
+
+    void QRCode.toDataURL(psbtResult.psbtBase64, {
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 320
+    })
+      .then(setQrDataUrl)
+      .catch(() => {
+        setQrDataUrl("");
+        setPsbtMessage("PSBT is too large for a single QR. Use text export, or animated QR when available.");
+      });
+  }, [psbtResult, exportFormat]);
+
+  async function refreshBuilderUtxos() {
+    setUtxoLoadStatus("loading");
+    setUtxoLoadMessage("");
+    try {
+      const response = await apiRequest<WalletUtxosResponse>(
+        apiUrl,
+        `/api/wallets/${wallet.id}/utxos?chain=both&addressLimit=${addressLimit}&includeUnconfirmed=true`
+      );
+      setBuilderUtxos(response.utxos ?? []);
+      setSelectedOutpoints((current) =>
+        current.filter((outpoint) => response.utxos.some((utxo) => utxo.outpoint === outpoint))
+      );
+      setUtxoLoadStatus("loaded");
+    } catch (error) {
+      setUtxoLoadMessage(error instanceof Error ? error.message : "Backend unavailable while loading tracked UTXOs");
+      setUtxoLoadStatus("error");
+    }
+  }
+
+  async function refreshFeeEstimates() {
+    setFeeEstimateMessage("");
+    try {
+      const response = await apiRequest<FeeEstimatesResponse>(apiUrl, "/api/fees/recommended");
+      setFeeEstimates(response.estimates);
+    } catch {
+      setFeeEstimates(null);
+      setFeeEstimateMessage("Fee estimates unavailable. Enter a custom fee rate.");
+    }
+  }
+
+  function toggleUtxo(utxo: WalletUtxo) {
+    setSelectedOutpoints((current) =>
+      current.includes(utxo.outpoint)
+        ? current.filter((outpoint) => outpoint !== utxo.outpoint)
+        : [...current, utxo.outpoint]
+    );
+    setPsbtResult(null);
+  }
+
+  function addRecipient() {
+    setRecipients((current) => [
+      ...current,
+      { id: `recipient-${Date.now()}-${current.length}`, address: "", amount: "", unit: "sats" as const }
+    ]);
+    setPsbtResult(null);
+  }
+
+  function removeRecipient(id: string) {
+    setRecipients((current) => current.length === 1 ? current : current.filter((recipient) => recipient.id !== id));
+    setPsbtResult(null);
+  }
+
+  function updateRecipient(
+    id: string,
+    patch: Partial<{ address: string; amount: string; unit: "sats" | "btc" }>
+  ) {
+    setRecipients((current) =>
+      current.map((recipient) => recipient.id === id ? { ...recipient, ...patch } : recipient)
+    );
+    setPsbtResult(null);
+  }
+
+  function applyFeePreset(kind: "fastest" | "medium" | "slow") {
+    const value =
+      kind === "fastest"
+        ? feeEstimates?.fastestFee
+        : kind === "medium"
+          ? feeEstimates?.halfHourFee ?? feeEstimates?.hourFee
+          : feeEstimates?.economyFee ?? feeEstimates?.minimumFee ?? feeEstimates?.hourFee;
+    if (value) {
+      setFeeRateInput(String(value));
+      setPsbtResult(null);
+    }
+  }
+
+  async function handleCreate() {
+    if (draftPlan.errors.length > 0) {
+      setPsbtMessage(draftPlan.errors[0] ?? "Spending plan is incomplete.");
+      setPsbtStatus("error");
+      return;
+    }
+
+    setPsbtStatus("loading");
+    setPsbtMessage("");
+    setPsbtResult(null);
+
+    try {
+      const result = await apiRequest<CreatePsbtResponse>(
+        apiUrl,
+        `/api/wallets/${wallet.id}/psbt`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            recipients: draftPlan.recipients,
+            selectedUtxos: selectedUtxos.map((utxo) => ({ txid: utxo.txid, vout: utxo.vout })),
+            feeRateSatsPerVbyte: draftPlan.feeRate,
+            addressLimit
+          }),
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+      setPsbtResult(result);
+      setPsbtStatus("done");
+    } catch (error) {
+      setPsbtMessage(error instanceof Error ? error.message : "Failed to create unsigned PSBT");
+      setPsbtStatus("error");
+    }
+  }
+
+  async function copyPsbt() {
+    if (!psbtResult) return;
+    try {
+      await navigator.clipboard.writeText(psbtResult.psbtBase64);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setPsbtMessage("Clipboard copy failed. Select and copy manually.");
+    }
+  }
+
+  function downloadPsbt() {
+    if (!psbtResult) return;
+    const blob = new Blob([psbtResult.psbtBase64], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${wallet.name.replace(/\s+/g, "-")}-unsigned.psbt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function goToVerification() {
+    const verify = document.getElementById("signed-psbt-verification") as HTMLDetailsElement | null;
+    if (verify) {
+      verify.open = true;
+      verify.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
+  function buildDraftSpendingPlan() {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    const parsedRecipients: Array<{ address: string; amountSats: number }> = [];
+
+    if (selectedUtxos.length === 0) {
+      errors.push("No UTXO selected.");
+    }
+
+    for (const recipient of recipients) {
+      const address = recipient.address.trim();
+      if (!address) {
+        errors.push("Invalid recipient address: recipient address is required.");
+      } else if (!looksLikeAddressForWalletNetwork(address, wallet.network)) {
+        errors.push("Invalid recipient address for this wallet network.");
+      }
+      const parsed = parseAmountToSats(recipient.amount, recipient.unit);
+      if (parsed.error) {
+        errors.push(parsed.error);
+      } else if (parsed.sats !== null) {
+        if (parsed.sats < 546) {
+          errors.push("Output below dust threshold.");
+        }
+        parsedRecipients.push({ address: recipient.address.trim(), amountSats: parsed.sats });
+      }
+    }
+
+    const feeRate = parseFeeRate(feeRateInput);
+    if (feeRate === null) {
+      errors.push("Fee rate invalid.");
+    }
+
+    const recipientTotalSats = parsedRecipients.reduce((sum, recipient) => sum + recipient.amountSats, 0);
+    const estimatedVbytes = estimateBuilderVbytes(wallet.scriptType, selectedUtxos.length, parsedRecipients.length + 1);
+    const estimatedFeeSats = feeRate !== null && estimatedVbytes !== null ? Math.ceil(estimatedVbytes * feeRate) : null;
+    const changeSats = estimatedFeeSats !== null ? selectedInputSats - recipientTotalSats - estimatedFeeSats : null;
+
+    if (estimatedVbytes === null) {
+      errors.push("This wallet script type is not supported for PSBT creation.");
+    }
+    if (estimatedFeeSats === null) {
+      errors.push("Fee unavailable.");
+    } else if (selectedInputSats > 0 && selectedInputSats < recipientTotalSats + estimatedFeeSats) {
+      errors.push("Amount exceeds selected input.");
+    }
+    if (changeSats !== null && changeSats > 0 && changeSats < 546) {
+      warnings.push("Dust warning: change is below dust threshold and may be absorbed into the fee.");
+    }
+    if (changeSats !== null && changeSats >= 546) {
+      warnings.push("Change address will be selected from wallet change derivation when the unsigned PSBT is created.");
+    }
+    if (selectedHasUnconfirmed) {
+      warnings.push("One or more selected tracked UTXOs is unconfirmed.");
+    }
+
+    return {
+      recipients: parsedRecipients,
+      recipientTotalSats,
+      feeRate,
+      estimatedVbytes,
+      estimatedFeeSats,
+      changeSats,
+      errors: [...new Set(errors)],
+      warnings
+    };
+  }
+
+  return (
+    <details className="tx-history-panel wallet-address-panel create-psbt-details">
+      <summary className="wallet-card-header">
+        <p className="terminal-heading">&gt; UNSIGNED PSBT BUILDER</p>
+      </summary>
+
+      <div className="psbt-safety-notice muted">
+        Creates an unsigned PSBT only. Sign it with an external wallet that holds the private keys.
+        Nothing is broadcast from this step. Never enter seed phrases or private keys here.
+      </div>
+
+      <div className="wallet-card-header">
+        <div>
+          <p className="terminal-heading">&gt; SELECTED TRACKED UTXOs</p>
+          <p className="muted technical-line">
+            {selectedUtxos.length} selected / {formatBalance(selectedInputSats, "sats")} ({formatBalance(selectedInputSats, "btc")})
+            {selectedHasUnconfirmed ? " / includes unconfirmed" : ""}
+            {selectedHasUnknownClassification ? " / includes unknown classification" : ""}
+          </p>
+        </div>
+        <button className="secondary-button compact-button" type="button" onClick={() => void refreshBuilderUtxos()}>
+          {utxoLoadStatus === "loading" ? "Loading..." : "Refresh UTXOs"}
+        </button>
+      </div>
+
+      <label className="psbt-field">
+        <span>Address depth</span>
+        <select value={addressLimit} onChange={(event) => setAddressLimit(Number(event.target.value))}>
+          <option value={10}>10</option>
+          <option value={20}>20</option>
+          <option value={50}>50</option>
+          <option value={100}>100</option>
+        </select>
+      </label>
+
+      {utxoLoadMessage ? <p className="status-message">{utxoLoadMessage}</p> : null}
+
+      <div className="psbt-utxo-select-list">
+        {builderUtxos.map((utxo) => {
+          const addressLabel = getAddressLabel(wallet, utxo.chain, utxo.index);
+          const txLabel = getTransactionLabel(wallet, utxo.txid);
+          const utxoNote = getUtxoNote(wallet, utxo.txid, utxo.vout);
+          return (
+            <label className="psbt-utxo-select-row" key={utxo.outpoint}>
+              <input
+                checked={selectedOutpoints.includes(utxo.outpoint)}
+                type="checkbox"
+                onChange={() => toggleUtxo(utxo)}
+              />
+              <span>
+                <strong>{formatBalance(utxo.valueSats, "sats")}</strong>
+                <span className="muted"> ({formatBalance(utxo.valueSats, "btc")})</span>
+              </span>
+              <code>{truncateMiddle(utxo.txid, 18)}:{utxo.vout}</code>
+              <span className="muted">{truncateMiddle(utxo.address, 18)}</span>
+              <span className={`status-badge ${utxo.status === "confirmed" ? "status-online" : "status-degraded"}`}>{utxo.status}</span>
+              <span className="muted">{utxo.chain} #{utxo.index}</span>
+              {addressLabel ? <span className="label-pill">{addressLabel.label}</span> : null}
+              {utxoNote ? <span className="muted">{utxoNote.note}</span> : null}
+              {txLabel?.notes ? <span className="muted">{txLabel.notes}</span> : null}
+            </label>
+          );
+        })}
+        {utxoLoadStatus === "loaded" && builderUtxos.length === 0 ? (
+          <p className="muted">No tracked UTXOs found in the selected scan depth.</p>
+        ) : null}
+      </div>
+
+      <div className="psbt-form">
+        <div className="wallet-card-header">
+          <p className="terminal-heading">&gt; RECIPIENT OUTPUTS</p>
+          <button className="secondary-button compact-button" type="button" onClick={addRecipient}>
+            Add recipient
+          </button>
+        </div>
+        {recipients.map((recipient, index) => {
+          const parsed = parseAmountToSats(recipient.amount, recipient.unit);
+          const recipientLabel = getAddressLabelByAddress(wallet, recipient.address.trim());
+          return (
+            <div className="recipient-row" key={recipient.id}>
+              <label className="psbt-field">
+                <span>Recipient {index + 1} address</span>
+                <input
+                  className="psbt-input"
+                  type="text"
+                  value={recipient.address}
+                  placeholder={wallet.network === "mainnet" ? "bc1q..." : "tb1q..."}
+                  onChange={(event) => updateRecipient(recipient.id, { address: event.target.value })}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                {recipientLabel ? <span className="label-pill">{recipientLabel.label}</span> : null}
+              </label>
+              <label className="psbt-field">
+                <span>Amount</span>
+                <input
+                  className="psbt-input"
+                  inputMode="decimal"
+                  value={recipient.amount}
+                  placeholder={recipient.unit === "sats" ? "70000000" : "0.70000000"}
+                  onChange={(event) => updateRecipient(recipient.id, { amount: event.target.value })}
+                />
+              </label>
+              <label className="psbt-field">
+                <span>Unit</span>
+                <select
+                  value={recipient.unit}
+                  onChange={(event) => updateRecipient(recipient.id, { unit: event.target.value as "sats" | "btc" })}
+                >
+                  <option value="sats">sats</option>
+                  <option value="btc">BTC</option>
+                </select>
+                <span className="muted psbt-field-hint">
+                  {parsed.sats !== null ? `= ${formatBalance(parsed.sats, "sats")}` : parsed.error || "Enter an amount"}
+                </span>
+              </label>
+              <button
+                className="secondary-button compact-button"
+                disabled={recipients.length === 1}
+                type="button"
+                onClick={() => removeRecipient(recipient.id)}
+              >
+                Remove
+              </button>
+            </div>
+          );
+        })}
+
+        <label className="psbt-field">
+          <span>Fee rate (sat/vB)</span>
+          <input
+            className="psbt-input"
+            inputMode="decimal"
+            value={feeRateInput}
+            onChange={(event) => {
+              setFeeRateInput(event.target.value);
+              setPsbtResult(null);
+            }}
+          />
+          {parseFeeRate(feeRateInput) !== null && parseFeeRate(feeRateInput)! < 5 ? (
+            <span className="muted psbt-field-hint">Low fee rate may not confirm quickly.</span>
+          ) : null}
+        </label>
+
+        <div className="button-row">
+          <button className="secondary-button compact-button" disabled={!feeEstimates?.fastestFee} type="button" onClick={() => applyFeePreset("fastest")}>
+            Fastest
+          </button>
+          <button className="secondary-button compact-button" disabled={!feeEstimates} type="button" onClick={() => applyFeePreset("medium")}>
+            Medium
+          </button>
+          <button className="secondary-button compact-button" disabled={!feeEstimates} type="button" onClick={() => applyFeePreset("slow")}>
+            Slow
+          </button>
+          <button className="secondary-button compact-button" type="button" onClick={() => void refreshFeeEstimates()}>
+            Refresh fees
+          </button>
+        </div>
+        {feeEstimateMessage ? <p className="status-message">{feeEstimateMessage}</p> : null}
+      </div>
+
+      <div className="spending-plan terminal-panel">
+        <p className="terminal-heading">&gt; SPENDING PLAN</p>
+        <div className="spending-plan-flow">
+          <div>
+            <p className="terminal-meta">Input UTXOs</p>
+            {selectedUtxos.length ? selectedUtxos.map((utxo) => (
+              <div className="spending-plan-line" key={utxo.outpoint}>
+                <strong>{formatBalance(utxo.valueSats, "btc")}</strong>
+                <span className="muted">{formatBalance(utxo.valueSats, "sats")} / {truncateMiddle(utxo.outpoint, 18)}</span>
+              </div>
+            )) : <p className="muted">No UTXO selected.</p>}
+          </div>
+          <div>
+            <p className="terminal-meta">Outputs</p>
+            {draftPlan.recipients.map((recipient, index) => (
+              <div className="spending-plan-line" key={`${recipient.address}-${index}`}>
+                <strong>Recipient {index + 1}: {formatBalance(recipient.amountSats, "btc")}</strong>
+                <span className="muted">{formatBalance(recipient.amountSats, "sats")} / {truncateMiddle(recipient.address, 22)}</span>
+              </div>
+            ))}
+            {draftPlan.changeSats !== null && draftPlan.changeSats >= 546 ? (
+              <div className="spending-plan-line">
+                <strong>Change: {formatBalance(draftPlan.changeSats, "btc")}</strong>
+                <span className="muted">{formatBalance(draftPlan.changeSats, "sats")} / selected when created</span>
+              </div>
+            ) : null}
+            {draftPlan.estimatedFeeSats !== null ? (
+              <div className="spending-plan-line fee-line">
+                <strong>Fee: {formatBalance(draftPlan.estimatedFeeSats, "btc")}</strong>
+                <span className="muted">{formatBalance(draftPlan.estimatedFeeSats, "sats")} / {draftPlan.feeRate} sat/vB</span>
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <p className="muted">Estimated fee may change after final signing.</p>
+        {draftPlan.errors.map((error) => <p className="status-message" key={error}>{error}</p>)}
+        {draftPlan.warnings.map((warning) => <p className="psbt-status-warning muted" key={warning}>{warning}</p>)}
+      </div>
+
+      <button
+        className="compact-button"
+        type="button"
+        disabled={psbtStatus === "loading" || draftPlan.errors.length > 0}
+        onClick={() => void handleCreate()}
+      >
+        {psbtStatus === "loading" ? "Building PSBT..." : "Create Unsigned PSBT"}
+      </button>
+
+      {psbtMessage ? <p className="status-message">{psbtMessage}</p> : null}
+
+      {psbtResult && psbtStatus === "done" ? (
+        <div className="psbt-result terminal-panel">
+          <p className="terminal-heading">&gt; UNSIGNED PSBT READY</p>
+
+          <dl className="utxo-summary-grid">
+            <div>
+              <dt>inputs</dt>
+              <dd>{psbtResult.inputs.length} UTXOs / {formatBalance(psbtResult.totalInputSats, balanceUnit)}</dd>
+            </div>
+            <div>
+              <dt>recipient total</dt>
+              <dd>{formatBalance(psbtResult.outputs.filter((o) => o.type === "recipient").reduce((sum, output) => sum + output.valueSats, 0), balanceUnit)}</dd>
+            </div>
+            <div>
+              <dt>fee</dt>
+              <dd>{formatBalance(psbtResult.feeSats, balanceUnit)} ({psbtResult.feeRateSatsPerVbyte} sat/vB, ~{psbtResult.estimatedVbytes} vB)</dd>
+            </div>
+            <div>
+              <dt>change</dt>
+              <dd>{formatBalance(psbtResult.changeSats, balanceUnit)}</dd>
+            </div>
+          </dl>
+
+          {psbtResult.changeAddress ? (
+            <p className="muted psbt-change-addr">Change address: {psbtResult.changeAddress}</p>
+          ) : (
+            <p className="muted psbt-change-addr">No change output (dust absorbed into fee)</p>
+          )}
+
+          <div className="psbt-base64-block">
+            <p className="terminal-heading">&gt; EXPORT UNSIGNED PSBT</p>
+            <label className="psbt-field">
+              <span>Export format</span>
+              <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "text" | "qr" | "animated" | "bbqr")}>
+                <option value="text">Text</option>
+                <option value="qr">QR</option>
+                <option value="animated">Animated QR - coming later</option>
+                <option value="bbqr">BBQr - coming later</option>
+              </select>
+            </label>
+            {exportFormat === "text" ? (
+              <textarea className="psbt-textarea" readOnly value={psbtResult.psbtBase64} rows={4} />
+            ) : null}
+            {exportFormat === "qr" ? (
+              qrDataUrl ? (
+                <img alt="Unsigned PSBT QR" className="qr-preview" src={qrDataUrl} />
+              ) : (
+                <p className="status-message">Single QR unavailable for this PSBT size. Use text export.</p>
+              )
+            ) : null}
+            {exportFormat === "animated" || exportFormat === "bbqr" ? (
+              <p className="muted">This export format is intentionally deferred until safe encoding and tests are added.</p>
+            ) : null}
+            <div className="psbt-actions">
+              <button className="compact-button" type="button" onClick={() => void copyPsbt()}>
+                {copied ? "Copied!" : "Copy PSBT"}
+              </button>
+              <button className="secondary-button compact-button" type="button" onClick={downloadPsbt}>
+                Download .psbt
+              </button>
+              <button className="secondary-button compact-button" type="button" onClick={goToVerification}>
+                Go to signed PSBT verification
+              </button>
+            </div>
+          </div>
+
+          <p className="muted psbt-safety-footer">
+            1. Export this unsigned PSBT. 2. Sign it externally. 3. Paste the signed PSBT into Verify Signed PSBT. 4. Verify every output before broadcasting elsewhere.
+          </p>
+        </div>
+      ) : null}
+    </details>
   );
 }
 
@@ -2986,7 +3548,7 @@ function VerifyPsbtPanel({
   }
 
   return (
-    <details className="tx-history-panel wallet-address-panel create-psbt-details">
+    <details id="signed-psbt-verification" className="tx-history-panel wallet-address-panel create-psbt-details">
       <summary className="wallet-card-header">
         <p className="terminal-heading">&gt; VERIFY SIGNED PSBT</p>
       </summary>
@@ -4735,6 +5297,66 @@ function addressLabelKey(address: Pick<DerivedAddress, "chain" | "index">): stri
 
 function formatNullableBalance(value: number | null | undefined, unit: "sats" | "btc"): string {
   return value === null || value === undefined ? "—" : formatBalance(value, unit);
+}
+
+function parseAmountToSats(value: string, unit: "sats" | "btc"): { sats: number | null; error: string } {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { sats: null, error: "Invalid amount." };
+  }
+
+  if (unit === "sats") {
+    if (!/^\d+$/.test(trimmed)) {
+      return { sats: null, error: "Sats amount must be an integer." };
+    }
+    const sats = Number(trimmed);
+    if (!Number.isSafeInteger(sats) || sats <= 0) {
+      return { sats: null, error: "Invalid amount." };
+    }
+    return { sats, error: "" };
+  }
+
+  if (!/^\d+(\.\d{1,8})?$/.test(trimmed)) {
+    return { sats: null, error: "BTC amount must use up to 8 decimals." };
+  }
+  const [whole, fraction = ""] = trimmed.split(".");
+  const sats = Number(BigInt(whole) * 100_000_000n + BigInt(fraction.padEnd(8, "0")));
+  if (!Number.isSafeInteger(sats) || sats <= 0) {
+    return { sats: null, error: "Invalid amount." };
+  }
+  return { sats, error: "" };
+}
+
+function parseFeeRate(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+    return null;
+  }
+  const feeRate = Number(trimmed);
+  return Number.isFinite(feeRate) && feeRate >= 1 && feeRate <= 1000 ? feeRate : null;
+}
+
+function estimateBuilderVbytes(
+  scriptType: WalletScriptType,
+  inputCount: number,
+  outputCount: number
+): number | null {
+  const inputVbytes =
+    scriptType === "native-segwit" ? 68 :
+    scriptType === "nested-segwit" ? 91 :
+    scriptType === "taproot" ? 58 :
+    null;
+  if (inputVbytes === null) {
+    return null;
+  }
+  return 12 + inputCount * inputVbytes + outputCount * 43;
+}
+
+function looksLikeAddressForWalletNetwork(address: string, network: WalletRecord["network"]): boolean {
+  if (network === "mainnet") {
+    return /^(bc1|[13])/.test(address);
+  }
+  return /^(tb1|[mn2])/.test(address);
 }
 
 function loadedBalance(value: number | undefined, loading: boolean, unit: "sats" | "btc"): string {

@@ -6,6 +6,7 @@ import rateLimit from "@fastify/rate-limit";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { authConfig } from "./auth/config.js";
 import { requireAuthenticatedSession } from "./auth/guard.js";
+import { lookupFeeEstimates } from "./mempool/fees.js";
 import { checkMempoolHealth, getMempoolApiConfig } from "./mempool/usage.js";
 import { registerRuntimeSettingsRoute } from "./settings/runtime.js";
 import { registerVaultRoutes } from "./vault/routes.js";
@@ -71,6 +72,27 @@ server.get("/api/status/mempool", async () => {
   return {
     ...health,
     ...getMempoolApiConfig()
+  };
+});
+
+server.get("/api/fees/recommended", async (request, reply) => {
+  if (!requireAuthenticatedSession(request, reply)) {
+    return;
+  }
+
+  const estimates = await lookupFeeEstimates();
+  if (!estimates) {
+    return reply.code(503).send({
+      status: "unavailable",
+      error: "Fee estimates unavailable. Enter a custom fee rate.",
+      mempool: getMempoolApiConfig()
+    });
+  }
+
+  return {
+    status: "online",
+    estimates,
+    mempool: getMempoolApiConfig()
   };
 });
 

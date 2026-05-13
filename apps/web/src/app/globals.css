@@ -663,6 +663,52 @@ code {
   margin: 0;
 }
 
+.psbt-utxo-select-list,
+.spending-plan {
+  display: grid;
+  gap: 10px;
+}
+
+.psbt-utxo-select-row,
+.recipient-row {
+  display: grid;
+  grid-template-columns: auto repeat(6, minmax(0, auto));
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+  font-size: 12px;
+}
+
+.recipient-row {
+  grid-template-columns: minmax(220px, 1fr) minmax(120px, 0.5fr) minmax(110px, 0.35fr) auto;
+}
+
+.spending-plan-flow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.spending-plan-line {
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
+}
+
+.fee-line {
+  color: var(--amber);
+}
+
+.qr-preview {
+  width: min(320px, 100%);
+  height: auto;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 8px;
+}
+
 .usage-used {
   border-color: #4d7f64;
   color: var(--green);
@@ -880,8 +926,14 @@ label.tx-limit-select select {
   .balance-grid,
   .metadata-grid,
   .qr-context,
-  .address-row {
+  .address-row,
+  .recipient-row,
+  .spending-plan-flow {
     grid-template-columns: 1fr;
+  }
+
+  .psbt-utxo-select-row {
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
   .address-row-header {

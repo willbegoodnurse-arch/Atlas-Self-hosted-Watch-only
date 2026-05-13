@@ -123,7 +123,15 @@ type WalletUtxosQuery = {
 type CreatePsbtBody = {
   recipientAddress?: string;
   amountSats?: number;
+  recipients?: Array<{
+    address?: unknown;
+    amountSats?: unknown;
+  }>;
   feeRateSatsPerVbyte?: number;
+  selectedUtxos?: Array<{
+    txid?: unknown;
+    vout?: unknown;
+  }>;
   addressLimit?: number;
 };
 
@@ -1239,31 +1247,39 @@ function validateCreatePsbtBody(body: CreatePsbtBody | undefined):
   | {
       ok: true;
       value: {
-        recipientAddress: string;
-        amountSats: number;
+        recipientAddress?: string;
+        amountSats?: number;
+        recipients?: Array<{
+          address: string;
+          amountSats: number;
+        }>;
         feeRateSatsPerVbyte: number;
+        selectedUtxos?: Array<{
+          txid: string;
+          vout: number;
+        }>;
         addressLimit: number;
       };
     }
   | { ok: false; error: string } {
-  const recipientAddress = body?.recipientAddress;
-  if (typeof recipientAddress !== "string" || recipientAddress.trim().length === 0) {
-    return { ok: false, error: "recipientAddress is required" };
-  }
-
-  const amountSats = body?.amountSats;
-  if (typeof amountSats !== "number" || !Number.isInteger(amountSats) || amountSats < 1) {
-    return { ok: false, error: "amountSats must be a positive integer" };
-  }
-
   const feeRateSatsPerVbyte = body?.feeRateSatsPerVbyte;
   if (
     typeof feeRateSatsPerVbyte !== "number" ||
-    !Number.isInteger(feeRateSatsPerVbyte) ||
+    !Number.isFinite(feeRateSatsPerVbyte) ||
     feeRateSatsPerVbyte < 1 ||
     feeRateSatsPerVbyte > 1000
   ) {
-    return { ok: false, error: "feeRateSatsPerVbyte must be an integer from 1 to 1000" };
+    return { ok: false, error: "feeRateSatsPerVbyte must be a number from 1 to 1000" };
+  }
+
+  const recipientsValidation = validatePsbtRecipients(body);
+  if (!recipientsValidation.ok) {
+    return recipientsValidation;
+  }
+
+  const selectedUtxosValidation = validateSelectedUtxos(body?.selectedUtxos);
+  if (!selectedUtxosValidation.ok) {
+    return selectedUtxosValidation;
   }
 
   const rawLimit = body?.addressLimit;
@@ -1274,6 +1290,85 @@ function validateCreatePsbtBody(body: CreatePsbtBody | undefined):
 
   return {
     ok: true,
-    value: { recipientAddress: recipientAddress.trim(), amountSats, feeRateSatsPerVbyte, addressLimit }
+    value: {
+      ...recipientsValidation.value,
+      feeRateSatsPerVbyte,
+      selectedUtxos: selectedUtxosValidation.value,
+      addressLimit
+    }
   };
+}
+
+function validatePsbtRecipients(body: CreatePsbtBody | undefined):
+  | {
+      ok: true;
+      value: {
+        recipientAddress?: string;
+        amountSats?: number;
+        recipients?: Array<{ address: string; amountSats: number }>;
+      };
+    }
+  | { ok: false; error: string } {
+  if (Array.isArray(body?.recipients)) {
+    if (body.recipients.length === 0) {
+      return { ok: false, error: "At least one recipient output is required" };
+    }
+    if (body.recipients.length > 10) {
+      return { ok: false, error: "At most 10 recipient outputs are supported" };
+    }
+
+    const recipients = [];
+    for (const recipient of body.recipients) {
+      if (typeof recipient.address !== "string" || recipient.address.trim().length === 0) {
+        return { ok: false, error: "recipient address is required" };
+      }
+      if (typeof recipient.amountSats !== "number" || !Number.isInteger(recipient.amountSats) || recipient.amountSats < 1) {
+        return { ok: false, error: "recipient amountSats must be a positive integer" };
+      }
+      recipients.push({
+        address: recipient.address.trim(),
+        amountSats: recipient.amountSats
+      });
+    }
+    return { ok: true, value: { recipients } };
+  }
+
+  const recipientAddress = body?.recipientAddress;
+  if (typeof recipientAddress !== "string" || recipientAddress.trim().length === 0) {
+    return { ok: false, error: "recipientAddress is required" };
+  }
+
+  const amountSats = body?.amountSats;
+  if (typeof amountSats !== "number" || !Number.isInteger(amountSats) || amountSats < 1) {
+    return { ok: false, error: "amountSats must be a positive integer" };
+  }
+
+  return { ok: true, value: { recipientAddress: recipientAddress.trim(), amountSats } };
+}
+
+function validateSelectedUtxos(value: CreatePsbtBody["selectedUtxos"]):
+  | { ok: true; value: Array<{ txid: string; vout: number }> | undefined }
+  | { ok: false; error: string } {
+  if (value === undefined) {
+    return { ok: true, value: undefined };
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    return { ok: false, error: "selectedUtxos must include at least one UTXO" };
+  }
+  if (value.length > 100) {
+    return { ok: false, error: "At most 100 selected UTXOs are supported" };
+  }
+
+  const selectedUtxos = [];
+  for (const item of value) {
+    if (typeof item.txid !== "string" || !/^[0-9a-fA-F]{64}$/.test(item.txid)) {
+      return { ok: false, error: "selected UTXO txid must be 64 hex characters" };
+    }
+    if (typeof item.vout !== "number" || !Number.isInteger(item.vout) || item.vout < 0) {
+      return { ok: false, error: "selected UTXO vout must be a non-negative integer" };
+    }
+    selectedUtxos.push({ txid: item.txid.toLowerCase(), vout: item.vout });
+  }
+
+  return { ok: true, value: selectedUtxos };
 }

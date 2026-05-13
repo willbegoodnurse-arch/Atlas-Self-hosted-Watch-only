@@ -221,6 +221,37 @@ test("createWalletPsbt: valid native-segwit PSBT is returned with correct struct
   assert.ok(result.feeRateSatsPerVbyte === 5);
 });
 
+test("createWalletPsbt: builds from selected UTXOs and multiple recipients", async () => {
+  const fetchFn = makeFetchFn({
+    [receiveAddr0]: [confirmedUtxo50k],
+    [receiveAddr1]: [confirmedUtxo30k]
+  });
+
+  const result = await createWalletPsbt(
+    baseWallet,
+    {
+      recipients: [
+        { address: externalRecipient, amountSats: 10000 },
+        { address: receiveAddr1, amountSats: 15000 }
+      ],
+      selectedUtxos: [
+        { txid: confirmedUtxo50k.txid, vout: confirmedUtxo50k.vout },
+        { txid: confirmedUtxo30k.txid, vout: confirmedUtxo30k.vout }
+      ],
+      feeRateSatsPerVbyte: 2.5
+    },
+    { fetchUtxosFn: fetchFn, fetchAddressStatsFn: allUnusedStatsFn }
+  );
+
+  assert.equal(result.inputs.length, 2);
+  assert.equal(result.outputs.filter((output) => output.type === "recipient").length, 2);
+  assert.equal(result.feeRateSatsPerVbyte, 2.5);
+  assert.equal(
+    result.totalInputSats,
+    result.outputs.reduce((sum, output) => sum + output.valueSats, 0) + result.feeSats
+  );
+});
+
 test("createWalletPsbt: change output is included when change >= dust", async () => {
   const fetchFn = makeFetchFn({ [receiveAddr0]: [confirmedUtxo50k] });
 
@@ -349,6 +380,19 @@ test("createWalletPsbt: throws InvalidPsbtParamsError for fee rate 0", async () 
   );
 });
 
+test("createWalletPsbt: accepts decimal sat/vB fee rates", async () => {
+  const fetchFn = makeFetchFn({ [receiveAddr0]: [confirmedUtxo50k] });
+
+  const result = await createWalletPsbt(
+    baseWallet,
+    { recipientAddress: externalRecipient, amountSats: 10000, feeRateSatsPerVbyte: 1.5 },
+    { fetchUtxosFn: fetchFn, fetchAddressStatsFn: allUnusedStatsFn }
+  );
+
+  assert.equal(result.feeRateSatsPerVbyte, 1.5);
+  assert.equal(result.feeSats, Math.ceil(result.estimatedVbytes * 1.5));
+});
+
 test("createWalletPsbt: throws InvalidPsbtParamsError for fee rate > 1000", async () => {
   await assert.rejects(
     () =>
@@ -369,6 +413,90 @@ test("createWalletPsbt: throws InvalidPsbtParamsError for zero amount", async ()
       ),
     InvalidPsbtParamsError
   );
+});
+
+test("createWalletPsbt: rejects recipient output below dust", async () => {
+  await assert.rejects(
+    () =>
+      createWalletPsbt(
+        baseWallet,
+        { recipientAddress: externalRecipient, amountSats: DUST_THRESHOLD_SATS - 1, feeRateSatsPerVbyte: 5 }
+      ),
+    InvalidPsbtParamsError
+  );
+});
+
+test("createWalletPsbt: rejects selected UTXO that is not tracked", async () => {
+  const fetchFn = makeFetchFn({ [receiveAddr0]: [confirmedUtxo50k] });
+
+  await assert.rejects(
+    () =>
+      createWalletPsbt(
+        baseWallet,
+        {
+          recipientAddress: externalRecipient,
+          amountSats: 10000,
+          feeRateSatsPerVbyte: 5,
+          selectedUtxos: [{ txid: "d".repeat(64), vout: 0 }]
+        },
+        { fetchUtxosFn: fetchFn, fetchAddressStatsFn: allUnusedStatsFn }
+      ),
+    InvalidPsbtParamsError
+  );
+});
+
+test("createWalletPsbt: throws when change address is unavailable and change is expected", async () => {
+  const fetchFn = makeFetchFn({ [receiveAddr0]: [confirmedUtxo50k] });
+
+  await assert.rejects(
+    () =>
+      createWalletPsbt(
+        baseWallet,
+        { recipientAddress: externalRecipient, amountSats: 10000, feeRateSatsPerVbyte: 1, addressLimit: 0 },
+        { fetchUtxosFn: fetchFn, fetchAddressStatsFn: allUnusedStatsFn }
+      ),
+    InvalidPsbtParamsError
+  );
+});
+
+test("createWalletPsbt: labels and notes do not affect selected input ownership", async () => {
+  const fetchFn = makeFetchFn({ [receiveAddr0]: [confirmedUtxo50k] });
+  const labeledWallet: WalletRecord = {
+    ...baseWallet,
+    addressLabels: [
+      {
+        chain: "receive",
+        index: 0,
+        address: receiveAddr0,
+        label: "Exchange",
+        notes: "Plain metadata",
+        updatedAt: now
+      }
+    ],
+    utxoNotes: [
+      {
+        txid: confirmedUtxo50k.txid,
+        vout: confirmedUtxo50k.vout,
+        note: "Tracked UTXO",
+        updatedAt: now
+      }
+    ]
+  };
+
+  const result = await createWalletPsbt(
+    labeledWallet,
+    {
+      recipientAddress: externalRecipient,
+      amountSats: 10000,
+      feeRateSatsPerVbyte: 5,
+      selectedUtxos: [{ txid: confirmedUtxo50k.txid, vout: confirmedUtxo50k.vout }]
+    },
+    { fetchUtxosFn: fetchFn, fetchAddressStatsFn: allUnusedStatsFn }
+  );
+
+  assert.equal(result.inputs[0]?.address, receiveAddr0);
+  assert.equal(result.inputs[0]?.chain, "receive");
+  assert.equal(result.inputs[0]?.index, 0);
 });
 
 test("createWalletPsbt: PSBT does not include private keys or signing", async () => {
