@@ -12,6 +12,23 @@ Atlas is a self-hosted watch-only wallet. It does not sign transactions, broadca
 - A mempool-compatible HTTP backend, preferably local.
 - No public internet exposure by default.
 
+## Production Runtime Model
+
+Atlas runs as two processes or containers:
+
+- API server: authentication, encrypted vault, mempool lookups, labels/notes, PSBT creation, and PSBT verification.
+- Web frontend: Next.js UI served to the browser.
+
+Development commands such as `npm run dev --workspace=apps/api` and `npm run dev --workspace=apps/web` are for local development. For a Raspberry Pi that should stay running, prefer Docker Compose or built workspace `start` scripts managed by systemd.
+
+Operational notes:
+
+- `wallets.enc` must persist across restarts.
+- Vault unlock is manual after API restart.
+- The vault password must not be stored in `.env`.
+- `.env` configures runtime settings, not wallet secrets.
+- If production support does not fit your environment, treat this as an MVP deployment guide and keep access private.
+
 ## Prerequisites
 
 Install system updates:
@@ -67,6 +84,16 @@ Use `COOKIE_SECURE=false` for plain local HTTP. Use `COOKIE_SECURE=true` only wh
 
 Do not put seed phrases, private keys, xprv values, WIF keys, real xpubs, or RPC passwords in `.env`.
 
+Important environment notes:
+
+- `SESSION_SECRET` must be strong and random for real deployments.
+- `WEB_ORIGIN` must include every frontend origin the browser will use.
+- `NEXT_PUBLIC_API_URL` must be the API URL as seen from the browser, not only from inside Docker.
+- `VAULT_AUTO_LOCK_MINUTES` controls server-side vault inactivity locking.
+- `MEMPOOL_API_URL` is used for mempool-compatible balance, UTXO, transaction, and fee lookup.
+- `FULCRUM_*` settings are currently diagnostics-oriented unless the backend mode is expanded later.
+- `ADMIN_USER` in `.env.example` is an operator note, not an automatic bootstrap account.
+
 ## Option A: Docker Compose
 
 Build and start:
@@ -80,10 +107,33 @@ Default ports:
 - Web: `http://<pi-lan-ip>:3010`
 - API: `http://<pi-lan-ip>:3011`
 
+Docker details:
+
+- The API bind mount `./apps/api/data:/app/apps/api/data` persists `wallets.enc`.
+- Docker Compose sets `DATA_DIR=/app/apps/api/data` inside the API container.
+- `API_PORT` is used as both the host and container API port in Compose.
+- `WEB_PORT` is the host port for the web container; the web container listens on port `3000`.
+- `NEXT_PUBLIC_API_URL` is embedded into the web build. If you change it, rebuild the web image with `docker compose up --build -d`.
+- Do not put real secrets, real xpubs, seed phrases, private keys, or RPC passwords in the image or committed files.
+
+Check reachability:
+
+```bash
+curl http://<pi-lan-ip>:3011/health
+curl http://<pi-lan-ip>:3011/api/status
+```
+
 View logs:
 
 ```bash
 docker compose logs -f
+```
+
+View one service:
+
+```bash
+docker compose logs -f watch-wallet-api
+docker compose logs -f watch-wallet-web
 ```
 
 Stop:
@@ -125,6 +175,13 @@ Start the web app in another terminal:
 npm run start --workspace=apps/web
 ```
 
+Reachability after startup:
+
+```bash
+curl http://127.0.0.1:3011/health
+curl http://127.0.0.1:3011/api/status
+```
+
 For development mode:
 
 ```bash
@@ -136,12 +193,15 @@ npm run dev --workspace=apps/web
 
 If you deploy without Docker, create systemd services only after confirming the commands work manually.
 
+The examples below are guidance only. Adjust paths, Linux user, Node/npm location, and ports for your Raspberry Pi.
+
 Example API service:
 
 ```ini
 [Unit]
 Description=Atlas API
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 WorkingDirectory=/home/pi/watch-wallet
@@ -149,6 +209,10 @@ EnvironmentFile=/home/pi/watch-wallet/.env
 ExecStart=/usr/bin/npm run start --workspace=apps/api
 Restart=on-failure
 User=pi
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/pi/watch-wallet/apps/api/data
 
 [Install]
 WantedBy=multi-user.target
@@ -160,6 +224,7 @@ Example web service:
 [Unit]
 Description=Atlas web
 After=network-online.target watch-wallet-api.service
+Wants=network-online.target
 
 [Service]
 WorkingDirectory=/home/pi/watch-wallet
@@ -167,12 +232,24 @@ EnvironmentFile=/home/pi/watch-wallet/.env
 ExecStart=/usr/bin/npm run start --workspace=apps/web
 Restart=on-failure
 User=pi
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Adjust paths, user, and Node/npm locations for your system.
+Install and operate the services:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable atlas-api atlas-web
+sudo systemctl start atlas-api atlas-web
+sudo systemctl status atlas-api atlas-web
+journalctl -u atlas-api -f
+journalctl -u atlas-web -f
+```
 
 ## Firewall Recommendations
 
@@ -183,6 +260,16 @@ Expose only what you need:
 - SSH: usually `22`, preferably restricted to trusted devices.
 
 Do not expose the API publicly to the internet. If you use a reverse proxy, add HTTPS and your own access controls.
+
+Example UFW patterns, adjust IPs and ports before use:
+
+```bash
+sudo ufw allow from <trusted-lan-or-tailscale-ip> to any port 3010 proto tcp
+sudo ufw allow from <trusted-lan-or-tailscale-ip> to any port 22 proto tcp
+sudo ufw deny 3011/tcp
+```
+
+If the browser reaches the API directly at `NEXT_PUBLIC_API_URL=http://<pi-lan-ip>:3011`, the API port must be reachable from that trusted browser network. Keep that exposure limited to LAN/Tailscale rather than the public internet.
 
 ## Tailscale Access
 
@@ -196,6 +283,19 @@ Tailscale is a good fit for a private Raspberry Pi deployment.
 
 Tor can be used for private remote access, but this project does not include a complete Tor deployment. If you configure Tor yourself, only expose the web entry point and make sure API access is still restricted to trusted origins.
 
+## Runtime Health And Diagnostics
+
+Safe reachability endpoints:
+
+- `GET /health`: returns a minimal process health response.
+- `GET /api/status`: returns watch-only storage policy and app status without wallet secrets.
+- `GET /api/status/mempool`: returns mempool backend health and sanitized backend metadata.
+- `GET /api/status/fulcrum`: returns Fulcrum diagnostics when configured.
+
+Authenticated runtime settings are available in the app through `GET /api/settings/runtime`; that response is designed to avoid secrets.
+
+These endpoints must not be treated as a substitute for wallet verification. They only tell you whether the service and configured backends are reachable.
+
 ## Back Up wallets.enc
 
 The encrypted vault lives at:
@@ -204,10 +304,14 @@ The encrypted vault lives at:
 apps/api/data/wallets.enc
 ```
 
-Back it up securely:
+`wallets.enc` contains encrypted watch-only metadata. It may include xpub, ypub, zpub, address labels, UTXO notes, transaction notes, and wallet settings. It does not contain seed phrases, private keys, xprv values, WIF keys, or signed transaction authority.
+
+Deleting `wallets.enc` removes local watch-only metadata from Atlas. It does not move or delete Bitcoin funds.
+
+Lock the vault or stop the API before backup when practical, then copy it securely:
 
 ```bash
-cp apps/api/data/wallets.enc /path/to/encrypted-backup/wallets.enc
+cp apps/api/data/wallets.enc ~/atlas-wallets-$(date +%Y%m%d).enc
 ```
 
 Also consider backing up:
@@ -216,7 +320,15 @@ Also consider backing up:
 apps/api/data/auth.json
 ```
 
-The vault password is not recoverable from `wallets.enc`. If you forget the vault password, the encrypted vault data cannot be recovered by the app.
+Back up `.env` separately if you need to preserve server configuration, but remember `.env` does not unlock the vault. Do not store the vault password in plaintext next to backups.
+
+Verify the backup exists:
+
+```bash
+ls -lh ~/atlas-wallets-*.enc
+```
+
+The vault password is required to decrypt restored `wallets.enc`. If you forget the vault password, the encrypted vault data cannot be recovered by the app.
 
 ## Restore wallets.enc
 
@@ -229,7 +341,7 @@ docker compose down
 Copy the backup into place:
 
 ```bash
-cp /path/to/encrypted-backup/wallets.enc apps/api/data/wallets.enc
+cp ~/atlas-wallets-YYYYMMDD.enc apps/api/data/wallets.enc
 ```
 
 Restart:
@@ -240,6 +352,14 @@ docker compose up -d
 
 Unlock the vault with the original vault password.
 
+For a direct Node.js/systemd deployment, stop the services before restore and start them again after the file is in place:
+
+```bash
+sudo systemctl stop atlas-api atlas-web
+cp ~/atlas-wallets-YYYYMMDD.enc apps/api/data/wallets.enc
+sudo systemctl start atlas-api atlas-web
+```
+
 ## Update Process
 
 ```bash
@@ -248,10 +368,44 @@ npm install
 npm run typecheck --workspace=apps/web
 npm run typecheck --workspace=apps/api
 npm test --workspace=apps/api
+npm run build --workspace=apps/web
 docker compose up --build -d
 ```
 
 On Windows PowerShell, use `npm.cmd` if `npm.ps1` is blocked by Execution Policy.
+
+If you run direct Node.js/systemd instead of Docker, rebuild both workspaces and restart the services:
+
+```bash
+npm run build --workspace=apps/api
+npm run build --workspace=apps/web
+sudo systemctl restart atlas-api atlas-web
+```
+
+## Logging
+
+Development logs:
+
+```bash
+npm run dev --workspace=apps/api
+npm run dev --workspace=apps/web
+```
+
+Docker logs:
+
+```bash
+docker compose logs -f watch-wallet-api
+docker compose logs -f watch-wallet-web
+```
+
+systemd logs:
+
+```bash
+journalctl -u atlas-api -f
+journalctl -u atlas-web -f
+```
+
+Logs should not contain vault passwords, seed phrases, private keys, xprv/WIF values, cookies, auth headers, or full xpub values. The xpub reveal audit event should record that a reveal happened without logging the revealed value.
 
 ## Troubleshooting
 

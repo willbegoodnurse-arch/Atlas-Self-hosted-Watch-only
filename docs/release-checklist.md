@@ -22,6 +22,20 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Open the frontend.
 - Confirm runtime status loads.
 - Confirm mempool status is clear.
+- Confirm `/health` responds from the API host.
+- Confirm `/api/status` responds without leaking wallet secrets.
+
+## Raspberry Pi Pre-Flight
+
+- Confirm Node.js 20+ or Docker Compose is installed.
+- Confirm `npm install` has completed for direct Node.js deployments.
+- Confirm `.env` is configured and is not committed.
+- Confirm `WEB_ORIGIN` matches the frontend origin.
+- Confirm `NEXT_PUBLIC_API_URL` matches the API URL visible from the browser.
+- Confirm `COOKIE_SECURE=false` for local HTTP or `COOKIE_SECURE=true` behind HTTPS.
+- Confirm API and web ports are selected and firewall rules match them.
+- Confirm the `wallets.enc` backup location is known.
+- Confirm Docker users rebuild after changing `NEXT_PUBLIC_API_URL`.
 
 ## Auth And Vault
 
@@ -105,5 +119,7 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 ## Backup Check
 
 - Confirm `apps/api/data/wallets.enc` exists after wallet registration.
+- Lock the vault or stop the API before backup when practical.
 - Back up `wallets.enc` securely.
+- Verify the backup file exists.
 - Record that the vault password is required and cannot be recovered by the app.

@@ -22,9 +22,11 @@ services:
       dockerfile: apps/api/Dockerfile
     container_name: watch-wallet-api
     ports:
-      - "${API_PORT:-3011}:3011"
+      - "${API_PORT:-3011}:${API_PORT:-3011}"
     env_file:
       - .env
+    environment:
+      - DATA_DIR=/app/apps/api/data
     volumes:
       - ./apps/api/data:/app/apps/api/data
     restart: unless-stopped

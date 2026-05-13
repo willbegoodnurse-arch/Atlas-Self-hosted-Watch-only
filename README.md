@@ -166,10 +166,21 @@ Default Docker ports:
 - Web: `http://localhost:3010`
 - API: `http://localhost:3011`
 
+If you change `NEXT_PUBLIC_API_URL`, rebuild the web image because Next.js embeds public environment variables at build time.
+
 The API container persists encrypted local data through:
 
 ```text
 ./apps/api/data:/app/apps/api/data
+```
+
+Docker Compose pins `DATA_DIR` to `/app/apps/api/data` inside the API container so `wallets.enc` survives restarts through that bind mount.
+
+Basic reachability checks:
+
+```bash
+curl http://localhost:3011/health
+curl http://localhost:3011/api/status
 ```
 
 See [docs/raspberry-pi-deployment.md](docs/raspberry-pi-deployment.md) for Raspberry Pi deployment notes.
