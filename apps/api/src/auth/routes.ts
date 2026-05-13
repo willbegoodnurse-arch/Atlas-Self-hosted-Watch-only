@@ -5,6 +5,7 @@ import { authConfig } from "./config.js";
 import { createSession, deleteSession, getSession } from "./sessions.js";
 import { readAuthRecord, writeAuthRecord } from "./store.js";
 import { createTotpQr, createTotpSecret, verifyTotpCode } from "./totp.js";
+import { lockVault } from "../vault/store.js";
 
 type SetupBody = {
   username?: string;
@@ -141,6 +142,7 @@ export async function registerAuthRoutes(server: FastifyInstance): Promise<void>
     const token = getSessionToken(request);
     deleteSession(token);
     clearSessionCookie(reply);
+    lockVault();
     return reply.send({ authenticated: false });
   });
 

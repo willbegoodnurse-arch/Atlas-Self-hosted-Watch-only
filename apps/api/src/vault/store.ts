@@ -55,6 +55,9 @@ import type {
 
 const walletsFilePath = path.join(authConfig.dataDir, "wallets.enc");
 
+const VAULT_AUTO_LOCK_MS = Number(process.env.VAULT_AUTO_LOCK_MINUTES ?? 30) * 60 * 1000;
+let lastActivityMs = 0;
+
 type UnlockedVault = {
   key: Buffer;
   envelope: VaultEnvelope;
@@ -62,6 +65,16 @@ type UnlockedVault = {
 };
 
 let unlockedVault: UnlockedVault | null = null;
+
+// Auto-lock: every 60s, lock vault if inactive for VAULT_AUTO_LOCK_MS
+{
+  const timer = setInterval(() => {
+    if (unlockedVault && VAULT_AUTO_LOCK_MS > 0 && Date.now() - lastActivityMs > VAULT_AUTO_LOCK_MS) {
+      lockVault();
+    }
+  }, 60_000);
+  timer.unref();
+}
 
 export async function getVaultStatus() {
   return {
@@ -606,7 +619,7 @@ function requireUnlockedVault(): UnlockedVault {
   if (!unlockedVault) {
     throw new VaultLockedError();
   }
-
+  lastActivityMs = Date.now();
   return unlockedVault;
 }
 

@@ -44,6 +44,7 @@ import {
   UnsupportedScriptTypeError
 } from "../psbt/build.js";
 import { InvalidPsbtError } from "../psbt/verify.js";
+import { serializeWallet } from "./redact.js";
 
 type VaultPasswordBody = {
   vaultPassword?: string;
@@ -189,7 +190,7 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
 
     try {
       return reply.send({
-        wallets: listWallets()
+        wallets: listWallets().map(serializeWallet)
       });
     } catch (error) {
       return handleVaultError(error, reply);
@@ -208,7 +209,7 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
 
     try {
       const wallet = await addWallet(validation.value);
-      return reply.code(201).send({ wallet });
+      return reply.code(201).send({ wallet: serializeWallet(wallet) });
     } catch (error) {
       return handleVaultError(error, reply);
     }
@@ -515,7 +516,7 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
 
       try {
         const wallet = await updateWallet(request.params.id, validation.value);
-        return reply.send({ wallet });
+        return reply.send({ wallet: serializeWallet(wallet) });
       } catch (error) {
         return handleVaultError(error, reply);
       }
@@ -536,7 +537,7 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
 
       try {
         const wallet = await updateWalletNotes(request.params.id, validation.value.notes);
-        return reply.send({ wallet });
+        return reply.send({ wallet: serializeWallet(wallet) });
       } catch (error) {
         return handleVaultError(error, reply);
       }
@@ -557,7 +558,7 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
 
       try {
         const wallet = await upsertAddressLabel(request.params.id, validation.value);
-        return reply.send({ wallet });
+        return reply.send({ wallet: serializeWallet(wallet) });
       } catch (error) {
         return handleVaultError(error, reply);
       }
@@ -578,7 +579,7 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
 
       try {
         const wallet = await deleteAddressLabel(request.params.id, validation.value);
-        return reply.send({ wallet });
+        return reply.send({ wallet: serializeWallet(wallet) });
       } catch (error) {
         return handleVaultError(error, reply);
       }
@@ -599,7 +600,7 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
 
       try {
         const wallet = await upsertTransactionLabel(request.params.id, validation.value);
-        return reply.send({ wallet });
+        return reply.send({ wallet: serializeWallet(wallet) });
       } catch (error) {
         return handleVaultError(error, reply);
       }
@@ -620,7 +621,7 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
 
       try {
         const wallet = await deleteTransactionLabel(request.params.id, validation.value);
-        return reply.send({ wallet });
+        return reply.send({ wallet: serializeWallet(wallet) });
       } catch (error) {
         return handleVaultError(error, reply);
       }
@@ -635,6 +636,28 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
     try {
       await deleteWallet(request.params.id);
       return reply.code(204).send();
+    } catch (error) {
+      return handleVaultError(error, reply);
+    }
+  });
+
+  server.get<{ Params: { id: string } }>("/api/wallets/:id/xpub", async (request, reply) => {
+    if (!ensureAuthenticated(request, reply)) {
+      return;
+    }
+
+    try {
+      const wallets = listWallets();
+      const wallet = wallets.find((w) => w.id === request.params.id);
+      if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
+      return reply.send({
+        walletId: wallet.id,
+        extendedPublicKey: wallet.extendedPublicKey,
+        type: wallet.type,
+        network: wallet.network,
+        warning:
+          "This is your extended public key. Keep it private. Anyone with this key can see your full wallet history and addresses."
+      });
     } catch (error) {
       return handleVaultError(error, reply);
     }

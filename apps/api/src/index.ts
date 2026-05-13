@@ -10,13 +10,28 @@ import { checkMempoolHealth, getMempoolApiConfig } from "./mempool/usage.js";
 import { registerRuntimeSettingsRoute } from "./settings/runtime.js";
 import { registerVaultRoutes } from "./vault/routes.js";
 import { registerFulcrumStatusRoute } from "./fulcrum/diagnostics.js";
+import { redactSensitive } from "./vault/redact.js";
 
 const port = Number(process.env.API_PORT ?? 3011);
 const host = process.env.API_HOST ?? "0.0.0.0";
 const appName = process.env.APP_NAME ?? "watch wallet";
 
 const server = Fastify({
-  logger: true
+  logger: {
+    redact: {
+      paths: ["req.headers.authorization", "req.headers.cookie", 'req.headers["x-api-key"]'],
+      censor: "[REDACTED]"
+    },
+    serializers: {
+      err(error: Error) {
+        return {
+          type: error?.constructor?.name ?? "Error",
+          message: redactSensitive(error?.message ?? String(error)),
+          stack: error?.stack ?? ""
+        };
+      }
+    }
+  }
 });
 
 await server.register(cors, {
@@ -37,7 +52,7 @@ await server.register(rateLimit, {
 server.get("/api/status", async () => ({
   app: appName,
   status: "ok",
-  mode: "phase-11",
+  mode: "phase-21",
   watchOnly: true,
   walletFeaturesEnabled: true,
   storagePolicy: {

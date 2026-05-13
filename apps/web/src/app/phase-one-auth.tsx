@@ -1737,7 +1737,7 @@ function WalletCard({
   const [miniBalanceStatus, setMiniBalanceStatus] = useState<"loading" | "ready" | "degraded" | "offline">("loading");
   const [name, setName] = useState(wallet.name);
   const [gapLimit, setGapLimit] = useState(wallet.gapLimit);
-  const [revealed, setRevealed] = useState(false);
+  const [revealXpubOpen, setRevealXpubOpen] = useState(false);
 
   useEffect(() => {
     setName(wallet.name);
@@ -1931,21 +1931,141 @@ function WalletCard({
         <div>
           <dt>Extended public key</dt>
           <dd className="key-row">
-            <code>{revealed ? wallet.extendedPublicKey : maskExtendedPublicKey(wallet.extendedPublicKey)}</code>
-            <button className="secondary-button compact-button" type="button" onClick={() => setRevealed(!revealed)}>
-              {revealed ? "Hide" : "Show"}
-            </button>
+            <code>{wallet.extendedPublicKey}</code>
             <button
               className="secondary-button compact-button"
               type="button"
-              onClick={() => void navigator.clipboard.writeText(wallet.extendedPublicKey)}
+              onClick={() => setRevealXpubOpen(true)}
             >
-              Copy
+              Reveal
             </button>
           </dd>
         </div>
       </dl>
+      {revealXpubOpen ? (
+        <XpubRevealModal
+          apiUrl={apiUrl}
+          walletId={wallet.id}
+          walletName={wallet.name}
+          onClose={() => setRevealXpubOpen(false)}
+        />
+      ) : null}
     </article>
+  );
+}
+
+const XPUB_REVEAL_AUTO_CLOSE_SECONDS = 60;
+
+function XpubRevealModal({
+  apiUrl,
+  walletId,
+  walletName,
+  onClose
+}: {
+  apiUrl: string;
+  walletId: string;
+  walletName: string;
+  onClose: () => void;
+}) {
+  const [step, setStep] = useState<"warning" | "revealed">("warning");
+  const [xpub, setXpub] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(XPUB_REVEAL_AUTO_CLOSE_SECONDS);
+
+  useEffect(() => {
+    if (step !== "revealed") return;
+    setSecondsLeft(XPUB_REVEAL_AUTO_CLOSE_SECONDS);
+    const interval = setInterval(() => {
+      setSecondsLeft((s) => {
+        if (s <= 1) {
+          onClose();
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [step, onClose]);
+
+  async function handleReveal() {
+    setLoading(true);
+    setFetchError(null);
+    try {
+      const data = await apiRequest<{ walletId: string; extendedPublicKey: string }>(
+        apiUrl,
+        `/api/wallets/${walletId}/xpub`
+      );
+      setXpub(data.extendedPublicKey);
+      setStep("revealed");
+    } catch (e) {
+      setFetchError(e instanceof Error ? e.message : "Failed to load extended public key");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleCopy() {
+    if (!xpub) return;
+    void navigator.clipboard.writeText(xpub).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div className="qr-modal" role="dialog" aria-modal="true" aria-label="Reveal extended public key">
+      <div className="qr-dialog">
+        {step === "warning" ? (
+          <>
+            <div className="wallet-card-header">
+              <h3>Reveal extended public key</h3>
+            </div>
+            <p className="muted">
+              <strong>{walletName}</strong> — your extended public key reveals your complete wallet
+              address history and all future addresses. Anyone who obtains it can monitor your
+              entire Bitcoin activity.
+            </p>
+            <p className="muted">
+              It is not a private key and cannot spend funds, but it is privacy-sensitive. Only
+              reveal it if you need to copy it for a specific purpose.
+            </p>
+            {fetchError ? <p className="status-message error">{fetchError}</p> : null}
+            <div className="tab-row">
+              <button className="secondary-button" type="button" onClick={onClose} disabled={loading}>
+                Cancel
+              </button>
+              <button
+                className="compact-button"
+                type="button"
+                onClick={() => void handleReveal()}
+                disabled={loading}
+              >
+                {loading ? "Loading…" : "I understand, show xpub"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="wallet-card-header">
+              <h3>Extended public key</h3>
+              <span className="muted">Auto-closing in {secondsLeft}s</span>
+            </div>
+            <p className="muted">Keep this private. Do not share it unless you trust the recipient.</p>
+            <code className="xpub-reveal-code">{xpub}</code>
+            <div className="tab-row">
+              <button className="secondary-button compact-button" type="button" onClick={handleCopy}>
+                {copied ? "Copied!" : "Copy"}
+              </button>
+              <button className="compact-button" type="button" onClick={onClose}>
+                Close
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -4832,14 +4952,6 @@ function jsonImportCandidate(
 
 function stringField(value: Record<string, unknown>, field: string): string | null {
   return typeof value[field] === "string" ? value[field] as string : null;
-}
-
-function maskExtendedPublicKey(value: string): string {
-  if (value.length <= 16) {
-    return "********";
-  }
-
-  return `${value.slice(0, 8)}...${value.slice(-8)}`;
 }
 
 function deviceLabel(sourceDevice: SourceDevice): string {
