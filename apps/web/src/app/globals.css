@@ -426,6 +426,13 @@ button:disabled {
   font-size: 12px;
 }
 
+.utxo-note-line {
+  margin: 6px 0 0;
+  color: var(--text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .wallet-note-editor,
 .label-editor {
   display: grid;

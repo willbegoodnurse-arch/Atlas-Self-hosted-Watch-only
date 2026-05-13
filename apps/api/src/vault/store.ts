@@ -27,15 +27,19 @@ import {
 import {
   deleteAddressLabels,
   deleteTransactionLabels,
+  deleteUtxoNotes,
   normalizeAddressLabelInput,
   normalizeAddressLabelDeleteInput,
   normalizeStoredAddressLabels,
   normalizeStoredTransactionLabels,
+  normalizeStoredUtxoNotes,
   normalizeTransactionLabelInput,
   normalizeTransactionLabelDeleteInput,
+  normalizeUtxoNoteInput,
   normalizeWalletNotes,
   upsertAddressLabels,
-  upsertTransactionLabels
+  upsertTransactionLabels,
+  upsertUtxoNotes
 } from "./labels.js";
 import {
   createVaultEnvelope,
@@ -161,6 +165,7 @@ export async function addWallet(input: {
     notes: parsed.notes,
     walletNotes: null,
     addressLabels: [],
+    utxoNotes: [],
     transactionLabels: [],
     derivationPath: parsed.accountPath ?? derivationPathFor(parsed.type, parsed.network, parsed.scriptType),
     gapLimit: input.gapLimit,
@@ -239,6 +244,41 @@ export async function deleteAddressLabel(
   const wallet = findWalletById(id);
   const label = normalizeAddressLabelDeleteInput(input);
   wallet.addressLabels = deleteAddressLabels(wallet.addressLabels, label.chain, label.index);
+  wallet.updatedAt = new Date().toISOString();
+  await saveUnlockedVault();
+  return wallet;
+}
+
+export async function upsertUtxoNote(
+  id: string,
+  input: {
+    txid: unknown;
+    vout: unknown;
+    note?: unknown;
+  }
+): Promise<WalletRecord> {
+  const wallet = findWalletById(id);
+  const note = normalizeUtxoNoteInput(input);
+  wallet.utxoNotes = upsertUtxoNotes(
+    wallet.utxoNotes,
+    note,
+    new Date().toISOString()
+  );
+  wallet.updatedAt = new Date().toISOString();
+  await saveUnlockedVault();
+  return wallet;
+}
+
+export async function deleteUtxoNote(
+  id: string,
+  input: {
+    txid: unknown;
+    vout: unknown;
+  }
+): Promise<WalletRecord> {
+  const wallet = findWalletById(id);
+  const note = normalizeUtxoNoteInput({ ...input, note: null });
+  wallet.utxoNotes = deleteUtxoNotes(wallet.utxoNotes, note.txid, note.vout);
   wallet.updatedAt = new Date().toISOString();
   await saveUnlockedVault();
   return wallet;
@@ -504,6 +544,7 @@ export function normalizeWalletRecord(value: WalletRecord): WalletRecord {
     notes: typeof value.notes === "string" ? value.notes : null,
     walletNotes: normalizeWalletNotes(value.walletNotes),
     addressLabels: normalizeStoredAddressLabels(value.addressLabels),
+    utxoNotes: normalizeStoredUtxoNotes(value.utxoNotes),
     transactionLabels: normalizeStoredTransactionLabels(value.transactionLabels),
     derivationPath: value.derivationPath ?? accountPath ?? derivationPathFor(type, network, scriptType),
     gapLimit: value.gapLimit

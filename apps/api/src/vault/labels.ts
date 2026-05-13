@@ -1,7 +1,7 @@
-import type { AddressLabel, TransactionLabel } from "./types.js";
+import type { AddressLabel, TransactionLabel, UtxoNote } from "./types.js";
 
 export const labelMaxLength = 80;
-export const labelNotesMaxLength = 1000;
+export const labelNotesMaxLength = 500;
 
 export type AddressLabelInput = {
   chain: "receive" | "change";
@@ -17,11 +17,18 @@ export type TransactionLabelInput = {
   notes: string | null;
 };
 
+export type UtxoNoteInput = {
+  txid: string;
+  vout: number;
+  note: string | null;
+};
+
 export function normalizeWalletNotes(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
   }
   const notes = value.trim();
+  rejectSensitiveMetadata(notes);
   return notes ? notes.slice(0, labelNotesMaxLength) : null;
 }
 
@@ -33,6 +40,7 @@ export function normalizeLabelText(value: unknown): string {
   if (label.length > labelMaxLength) {
     throw new LabelValidationError(`Label must be ${labelMaxLength} characters or less`);
   }
+  rejectSensitiveMetadata(label);
   return label;
 }
 
@@ -47,7 +55,23 @@ export function normalizeOptionalNotes(value: unknown): string | null {
   if (notes.length > labelNotesMaxLength) {
     throw new LabelValidationError(`Notes must be ${labelNotesMaxLength} characters or less`);
   }
+  rejectSensitiveMetadata(notes);
   return notes || null;
+}
+
+export function normalizeUtxoNoteText(value: unknown): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new LabelValidationError("UTXO note must be a string or null");
+  }
+  const note = value.trim();
+  if (note.length > labelNotesMaxLength) {
+    throw new LabelValidationError(`UTXO note must be ${labelNotesMaxLength} characters or less`);
+  }
+  rejectSensitiveMetadata(note);
+  return note || null;
 }
 
 export function normalizeAddressLabelInput(value: {
@@ -82,8 +106,20 @@ export function normalizeTransactionLabelInput(value: {
 }): TransactionLabelInput {
   return {
     txid: normalizeTxid(value.txid),
-    label: normalizeLabelText(value.label),
+    label: value.label === undefined ? "" : normalizeLabelText(value.label),
     notes: normalizeOptionalNotes(value.notes)
+  };
+}
+
+export function normalizeUtxoNoteInput(value: {
+  txid?: unknown;
+  vout?: unknown;
+  note?: unknown;
+}): UtxoNoteInput {
+  return {
+    txid: normalizeTxid(value.txid),
+    vout: normalizeVout(value.vout),
+    note: normalizeUtxoNoteText(value.note)
   };
 }
 
@@ -145,6 +181,33 @@ export function normalizeStoredTransactionLabels(value: unknown): TransactionLab
   return labels;
 }
 
+export function normalizeStoredUtxoNotes(value: unknown): UtxoNote[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const notes: UtxoNote[] = [];
+  for (const candidate of value) {
+    if (!isRecord(candidate)) {
+      continue;
+    }
+    try {
+      const note = normalizeUtxoNoteText(candidate.note);
+      if (note) {
+        notes.push({
+          txid: normalizeTxid(candidate.txid),
+          vout: normalizeVout(candidate.vout),
+          note,
+          updatedAt: normalizeUpdatedAt(candidate.updatedAt)
+        });
+      }
+    } catch {
+      // Ignore invalid legacy metadata instead of breaking vault unlock.
+    }
+  }
+  return notes;
+}
+
 export function upsertAddressLabels(
   labels: AddressLabel[],
   input: AddressLabelInput,
@@ -179,7 +242,7 @@ export function upsertTransactionLabels(
   updatedAt: string
 ): TransactionLabel[] {
   const withoutCurrent = deleteTransactionLabels(labels, input.txid);
-  if (input.label.trim() === "") {
+  if (input.label.trim() === "" && input.notes === null) {
     return withoutCurrent;
   }
 
@@ -197,6 +260,31 @@ export function deleteTransactionLabels(labels: TransactionLabel[], txid: string
   return labels.filter((label) => label.txid !== txid);
 }
 
+export function upsertUtxoNotes(
+  notes: UtxoNote[],
+  input: UtxoNoteInput,
+  updatedAt: string
+): UtxoNote[] {
+  const withoutCurrent = deleteUtxoNotes(notes, input.txid, input.vout);
+  if (!input.note) {
+    return withoutCurrent;
+  }
+
+  return [
+    ...withoutCurrent,
+    {
+      txid: input.txid,
+      vout: input.vout,
+      note: input.note,
+      updatedAt
+    }
+  ];
+}
+
+export function deleteUtxoNotes(notes: UtxoNote[], txid: string, vout: number): UtxoNote[] {
+  return notes.filter((note) => note.txid !== txid || note.vout !== vout);
+}
+
 function normalizeAddressChain(value: unknown): "receive" | "change" {
   if (value === "receive" || value === "change") {
     return value;
@@ -207,6 +295,13 @@ function normalizeAddressChain(value: unknown): "receive" | "change" {
 function normalizeAddressIndex(value: unknown): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
     throw new LabelValidationError("Address index must be a non-negative integer");
+  }
+  return value;
+}
+
+function normalizeVout(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new LabelValidationError("UTXO vout must be a non-negative integer");
   }
   return value;
 }
@@ -237,6 +332,32 @@ function normalizeUpdatedAt(value: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function rejectSensitiveMetadata(value: string): void {
+  if (!value) {
+    return;
+  }
+
+  if (hasExtendedKey(value) || hasWifPrivateKey(value) || looksLikeSeedPhrase(value)) {
+    throw new LabelValidationError("Metadata cannot contain wallet keys or seed phrases");
+  }
+}
+
+function hasExtendedKey(value: string): boolean {
+  return /\b(xpub|ypub|zpub|tpub|upub|vpub|xprv|yprv|zprv|tprv|uprv|vprv)[1-9A-HJ-NP-Za-km-z]{40,}\b/.test(value);
+}
+
+function hasWifPrivateKey(value: string): boolean {
+  return /\b[5KL][1-9A-HJ-NP-Za-km-z]{50,51}\b/.test(value);
+}
+
+function looksLikeSeedPhrase(value: string): boolean {
+  const words = value.trim().toLowerCase().split(/\s+/);
+  if (![12, 15, 18, 21, 24].includes(words.length)) {
+    return false;
+  }
+  return words.every((word) => /^[a-z]{3,8}$/.test(word));
 }
 
 export class LabelValidationError extends Error {}

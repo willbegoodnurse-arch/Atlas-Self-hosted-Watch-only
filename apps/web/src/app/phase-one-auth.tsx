@@ -41,6 +41,7 @@ type WalletRecord = {
   notes: string | null;
   walletNotes: string | null;
   addressLabels: AddressLabel[];
+  utxoNotes: UtxoNote[];
   transactionLabels: TransactionLabel[];
   derivationPath: string;
   gapLimit: number;
@@ -61,6 +62,13 @@ type TransactionLabel = {
   txid: string;
   label: string;
   notes: string | null;
+  updatedAt: string;
+};
+
+type UtxoNote = {
+  txid: string;
+  vout: number;
+  note: string;
   updatedAt: string;
 };
 
@@ -2203,6 +2211,7 @@ function WalletDetailView({
         onUtxoStatusChange={setUtxoBadgeStatus}
         refreshToken={refreshToken}
         wallet={wallet}
+        onWalletChange={onWalletChange}
       />
       <CreatePsbtPanel
         apiUrl={apiUrl}
@@ -2223,13 +2232,15 @@ function UtxoPanel({
   balanceUnit,
   onUtxoStatusChange,
   refreshToken,
-  wallet
+  wallet,
+  onWalletChange
 }: {
   apiUrl: string;
   balanceUnit: "sats" | "btc";
   onUtxoStatusChange: (status: StatusKind) => void;
   refreshToken: number;
   wallet: WalletRecord;
+  onWalletChange: (wallet: WalletRecord) => void;
 }) {
   const [utxoResponse, setUtxoResponse] = useState<WalletUtxosResponse | null>(null);
   const [utxoStatus, setUtxoStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
@@ -2237,6 +2248,10 @@ function UtxoPanel({
   const [chain, setChain] = useState<"both" | "receive" | "change">("both");
   const [addressLimit, setAddressLimit] = useState(20);
   const [includeUnconfirmed, setIncludeUnconfirmed] = useState(true);
+  const [editingUtxoOutpoint, setEditingUtxoOutpoint] = useState("");
+  const [utxoNoteDraft, setUtxoNoteDraft] = useState("");
+  const [utxoNoteSaving, setUtxoNoteSaving] = useState(false);
+  const [utxoNoteError, setUtxoNoteError] = useState("");
 
   useEffect(() => {
     void fetchUtxos();
@@ -2266,6 +2281,61 @@ function UtxoPanel({
       setUtxoResponse(null);
       setUtxoStatus("error");
       onUtxoStatusChange("offline");
+    }
+  }
+
+  function beginEditUtxoNote(utxo: WalletUtxo) {
+    const note = getUtxoNote(wallet, utxo.txid, utxo.vout);
+    setEditingUtxoOutpoint(utxo.outpoint);
+    setUtxoNoteDraft(note?.note ?? "");
+    setUtxoNoteError("");
+  }
+
+  function cancelEditUtxoNote() {
+    setEditingUtxoOutpoint("");
+    setUtxoNoteDraft("");
+    setUtxoNoteError("");
+  }
+
+  async function saveUtxoNote(utxo: WalletUtxo) {
+    setUtxoNoteSaving(true);
+    setUtxoNoteError("");
+    try {
+      const response = await apiRequest<{ wallet: WalletRecord }>(apiUrl, `/api/wallets/${wallet.id}/labels/utxo`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          txid: utxo.txid,
+          vout: utxo.vout,
+          note: utxoNoteDraft
+        })
+      });
+      onWalletChange(response.wallet);
+      cancelEditUtxoNote();
+    } catch (error) {
+      setUtxoNoteError(error instanceof Error ? error.message : "Unable to save UTXO note");
+    } finally {
+      setUtxoNoteSaving(false);
+    }
+  }
+
+  async function clearUtxoNote(utxo: WalletUtxo) {
+    setUtxoNoteSaving(true);
+    setUtxoNoteError("");
+    try {
+      const response = await apiRequest<{ wallet: WalletRecord }>(apiUrl, `/api/wallets/${wallet.id}/labels/utxo`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          txid: utxo.txid,
+          vout: utxo.vout,
+          note: ""
+        })
+      });
+      onWalletChange(response.wallet);
+      cancelEditUtxoNote();
+    } catch (error) {
+      setUtxoNoteError(error instanceof Error ? error.message : "Unable to clear UTXO note");
+    } finally {
+      setUtxoNoteSaving(false);
     }
   }
 
@@ -2416,13 +2486,15 @@ function UtxoPanel({
           {utxos.map((utxo) => {
             const addrLabel = getAddressLabel(wallet, utxo.chain, utxo.index);
             const txLabel = getTransactionLabel(wallet, utxo.txid);
+            const utxoNote = getUtxoNote(wallet, utxo.txid, utxo.vout);
+            const isEditingNote = editingUtxoOutpoint === utxo.outpoint;
             return (
               <div key={utxo.outpoint} className="utxo-row terminal-panel">
                 <div className="utxo-amount-line">
                   <span className="utxo-value">{formatBalance(utxo.valueSats, "sats")}</span>
                   <span className="muted">({formatBalance(utxo.valueSats, "btc")})</span>
                   <span className={utxo.status === "confirmed" ? "status-badge status-online" : "status-badge status-degraded"}>
-                    {utxo.status === "confirmed" ? "confirmed — available for PSBT" : "unconfirmed"}
+                    {utxo.status === "confirmed" ? "confirmed - available for PSBT" : "unconfirmed"}
                   </span>
                   <span className="muted utxo-chain-index">
                     {utxo.chain} #{utxo.index}
@@ -2445,9 +2517,38 @@ function UtxoPanel({
                 {utxo.path ? (
                   <div className="utxo-path muted">{utxo.path}</div>
                 ) : null}
-                {txLabel ? (
-                  <div className="utxo-tx-label muted">{txLabel.label}</div>
+                {utxoNote ? (
+                  <div className="utxo-note-line">
+                    <span className="terminal-meta">Tracked UTXO note:</span> {utxoNote.note}
+                  </div>
                 ) : null}
+                {txLabel ? (
+                  <div className="utxo-tx-label muted">
+                    {txLabel.label ? txLabel.label : "transaction note"}
+                    {txLabel.notes ? `: ${txLabel.notes}` : ""}
+                  </div>
+                ) : null}
+                {isEditingNote ? (
+                  <InlineNoteEditor
+                    error={utxoNoteError}
+                    note={utxoNoteDraft}
+                    saving={utxoNoteSaving}
+                    onCancel={cancelEditUtxoNote}
+                    onClear={() => void clearUtxoNote(utxo)}
+                    onNoteChange={setUtxoNoteDraft}
+                    onSave={() => void saveUtxoNote(utxo)}
+                  />
+                ) : (
+                  <div className="button-row">
+                    <button
+                      className="secondary-button compact-button"
+                      type="button"
+                      onClick={() => beginEditUtxoNote(utxo)}
+                    >
+                      Note
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -3086,6 +3187,7 @@ function VerifyPsbtPanel({
           <div className="psbt-verify-section">
             <p className="terminal-heading">&gt; OUTPUTS</p>
             {verifyResult.outputs.map((out, i) => {
+              const outputLabel = out.address ? getAddressLabelByAddress(wallet, out.address) : null;
               const typeLabel =
                 out.type === "recipient"
                   ? "RECIPIENT OUTPUT — expected destination"
@@ -3116,6 +3218,11 @@ function VerifyPsbtPanel({
                     {" · "}
                     {formatBalance(out.valueSats, "sats")} / {(out.valueSats / 1e8).toFixed(8)} BTC
                   </div>
+                  {outputLabel ? (
+                    <div className="muted psbt-input-row" style={{ marginLeft: "1rem" }}>
+                      <span className="label-pill">{outputLabel.label}</span>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
@@ -4187,6 +4294,11 @@ function TransactionRow({
         <span className="terminal-meta">txid: </span>
         <code>{tx.txid.slice(0, 16)}...{tx.txid.slice(-8)}</code>
       </div>
+      {label?.notes ? (
+        <div className="utxo-note-line">
+          <span className="terminal-meta">Transaction note:</span> {label.notes}
+        </div>
+      ) : null}
       {editing ? (
         <InlineLabelEditor
           error={labelError}
@@ -4285,7 +4397,7 @@ function InlineLabelEditor({
       <label>
         <span>notes</span>
         <textarea
-          maxLength={1000}
+          maxLength={500}
           placeholder="optional local note"
           rows={3}
           value={notes}
@@ -4311,6 +4423,54 @@ function InlineLabelEditor({
   );
 }
 
+function InlineNoteEditor({
+  error,
+  note,
+  saving,
+  onCancel,
+  onClear,
+  onNoteChange,
+  onSave
+}: {
+  error: string;
+  note: string;
+  saving: boolean;
+  onCancel: () => void;
+  onClear: () => void;
+  onNoteChange: (value: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="label-editor">
+      <label>
+        <span>note</span>
+        <textarea
+          maxLength={500}
+          placeholder="Tracked UTXO note"
+          rows={3}
+          value={note}
+          onChange={(event) => onNoteChange(event.target.value)}
+        />
+      </label>
+      <div className="button-row">
+        <button className="compact-button" disabled={saving} type="button" onClick={onSave}>
+          Save
+        </button>
+        <button className="secondary-button compact-button" disabled={saving} type="button" onClick={onClear}>
+          Clear
+        </button>
+        <button className="secondary-button compact-button" disabled={saving} type="button" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+      {error ? <p className="status-message">{error}</p> : null}
+      <p className="label-privacy-hint muted">
+        Stored locally in the encrypted vault. Available for PSBT planning only.
+      </p>
+    </div>
+  );
+}
+
 function AddressLabelPill({ label }: { label: AddressLabel | null }) {
   if (!label) {
     return <span className="label-pill label-pill-empty">unlabeled</span>;
@@ -4320,7 +4480,7 @@ function AddressLabelPill({ label }: { label: AddressLabel | null }) {
 }
 
 function TransactionLabelPill({ label }: { label: TransactionLabel | null }) {
-  if (!label) {
+  if (!label || !label.label) {
     return null;
   }
 
@@ -4557,8 +4717,16 @@ function getAddressLabel(
   return (wallet.addressLabels ?? []).find((label) => label.chain === chain && label.index === index) ?? null;
 }
 
+function getAddressLabelByAddress(wallet: WalletRecord, address: string): AddressLabel | null {
+  return (wallet.addressLabels ?? []).find((label) => label.address === address) ?? null;
+}
+
 function getTransactionLabel(wallet: WalletRecord, txid: string): TransactionLabel | null {
   return (wallet.transactionLabels ?? []).find((label) => label.txid === txid) ?? null;
+}
+
+function getUtxoNote(wallet: WalletRecord, txid: string, vout: number): UtxoNote | null {
+  return (wallet.utxoNotes ?? []).find((note) => note.txid === txid && note.vout === vout) ?? null;
 }
 
 function addressLabelKey(address: Pick<DerivedAddress, "chain" | "index">): string {

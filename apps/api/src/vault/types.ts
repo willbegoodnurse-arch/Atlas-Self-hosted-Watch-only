@@ -39,6 +39,13 @@ export type TransactionLabel = {
   updatedAt: string;
 };
 
+export type UtxoNote = {
+  txid: string;
+  vout: number;
+  note: string;
+  updatedAt: string;
+};
+
 export type WalletRecord = {
   id: string;
   name: string;
@@ -54,6 +61,7 @@ export type WalletRecord = {
   notes: string | null;
   walletNotes: string | null;
   addressLabels: AddressLabel[];
+  utxoNotes: UtxoNote[];
   transactionLabels: TransactionLabel[];
   derivationPath: string;
   gapLimit: number;

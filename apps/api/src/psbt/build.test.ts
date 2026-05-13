@@ -36,6 +36,7 @@ const baseWallet: WalletRecord = {
   notes: null,
   walletNotes: null,
   addressLabels: [],
+  utxoNotes: [],
   transactionLabels: [],
   derivationPath: "m/84'/0'/0'",
   gapLimit: 20,
