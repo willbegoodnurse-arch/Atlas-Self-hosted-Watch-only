@@ -244,6 +244,8 @@ This app does not sign or broadcast. See [docs/psbt-workflow.md](docs/psbt-workf
 
 ## More Docs
 
+- [Release notes](RELEASE_NOTES.md)
+- [Changelog](CHANGELOG.md)
 - [Raspberry Pi deployment guide](docs/raspberry-pi-deployment.md)
 - [PSBT workflow guide](docs/psbt-workflow.md)
 - [Release and smoke test checklist](docs/release-checklist.md)

@@ -36,6 +36,8 @@ The vault password:
 
 Normal wallet API responses must use safe serialization and masked extended public keys.
 
+Explicit xpub reveal is a privacy-sensitive action. It should be used only when needed, and operators should treat a revealed xpub, ypub, or zpub as wallet-history metadata that must not be posted publicly.
+
 ## Vault Behavior
 
 - Vault unlock is manual.
@@ -81,6 +83,27 @@ Signed PSBT verification:
 
 Users must verify recipient, amount, change, and fee before broadcasting elsewhere.
 
+## Threat Model
+
+Protected against by design:
+
+- Atlas cannot spend funds because it does not store seed phrases or private keys.
+- Normal API responses do not expose full xpub, ypub, or zpub values.
+- `wallets.enc` is encrypted server-side.
+- The vault password is not stored in `.env`.
+- The derived vault key is memory-only and is discarded when the vault locks or the process restarts.
+- Labels and notes cannot mark an output safe or alter wallet classification.
+
+Not fully protected against:
+
+- A compromised browser session.
+- A compromised Raspberry Pi or server while the vault is unlocked.
+- Offline attacks against `wallets.enc` if the vault password is weak.
+- Malware on the operator's computer or signing workflow.
+- Public internet exposure or reverse proxy misconfiguration.
+- A user signing or broadcasting a bad transaction elsewhere.
+- Bugs in pre-release, unaudited software.
+
 ## Recommended Access Model
 
 - Local network.
@@ -91,7 +114,7 @@ Public internet exposure is discouraged. If the app is exposed beyond a trusted 
 
 ## Reporting Vulnerabilities
 
-If a private security advisory channel is available, use it. Otherwise, contact the maintainer privately before opening a public issue with exploit details.
+If a private security advisory channel is available through the repository, use it. Otherwise, open a GitHub issue that describes the affected area without including secrets, private keys, seed phrases, full xpub/ypub/zpub values, cookies, or exploit details that would put users at immediate risk.
 
 Please include:
 

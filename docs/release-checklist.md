@@ -9,6 +9,8 @@ npm.cmd run typecheck --workspace=apps/web
 npm.cmd run typecheck --workspace=apps/api
 npm.cmd test --workspace=apps/api
 npm.cmd run build --workspace=apps/web
+npm.cmd run build --workspace=apps/api
+git diff --check
 ```
 
 On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
@@ -20,6 +22,7 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Start the API.
 - Start the web app.
 - Open the frontend.
+- Confirm frontend can fetch `/api/auth/session`.
 - Confirm runtime status loads.
 - Confirm mempool status is clear.
 - Confirm `/health` responds from the API host.
@@ -36,6 +39,18 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Confirm API and web ports are selected and firewall rules match them.
 - Confirm the `wallets.enc` backup location is known.
 - Confirm Docker users rebuild after changing `NEXT_PUBLIC_API_URL`.
+
+## Deployment Smoke Test
+
+- Start Atlas on the Raspberry Pi or Linux host.
+- Confirm the API is reachable from the trusted network.
+- Confirm the web frontend is reachable from the trusted network.
+- Confirm the frontend can reach the configured API URL.
+- Confirm local network, Tailscale, or intended private access works.
+- Confirm public internet exposure is not enabled by default.
+- Restart the API and confirm `wallets.enc` persists.
+- Confirm the vault requires manual unlock after restart.
+- Confirm backup and restore steps are documented for the deployment.
 
 ## Auth And Vault
 
@@ -113,8 +128,10 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - No labels or notes in localStorage/sessionStorage.
 - No wallet metadata stored outside encrypted vault except expected auth/session files.
 - Existing xpub reveal rate limiting remains.
+- Full xpub reveal remains explicit and temporary.
 - Existing vault auto-lock remains.
 - Logout vault lock remains.
+- `.env` contains no vault password.
 
 ## Backup Check
 
