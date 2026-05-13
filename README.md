@@ -142,6 +142,7 @@ Run these before releases or handoff:
 npm.cmd run typecheck --workspace=apps/web
 npm.cmd run typecheck --workspace=apps/api
 npm.cmd test --workspace=apps/api
+npm.cmd run build --workspace=apps/web
 ```
 
 `apps/web` currently has no frontend test script. Use the web typecheck plus the smoke checklist in [docs/release-checklist.md](docs/release-checklist.md).

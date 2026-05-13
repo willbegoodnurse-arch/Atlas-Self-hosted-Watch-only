@@ -8,6 +8,7 @@ Use this checklist before tagging, deploying, or handing off a build.
 npm.cmd run typecheck --workspace=apps/web
 npm.cmd run typecheck --workspace=apps/api
 npm.cmd test --workspace=apps/api
+npm.cmd run build --workspace=apps/web
 ```
 
 On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.

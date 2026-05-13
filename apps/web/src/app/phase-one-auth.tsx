@@ -549,7 +549,7 @@ export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
             <p className="eyebrow">Atlas</p>
             <h1>{view === "dashboard" ? (initialWalletId ? "Wallet detail" : "Wallets") : "Secure access"}</h1>
           </div>
-          <span className="phase-pill">{view === "dashboard" ? "PHASE 8" : "AUTH NODE"}</span>
+          <span className="phase-pill">{view === "dashboard" ? "ATLAS NODE" : "AUTH NODE"}</span>
         </div>
 
         {message ? <p className="status-message">{message}</p> : null}
@@ -1712,7 +1712,7 @@ function WalletList({
       <div className="terminal-panel empty-state">
         <p className="terminal-heading">&gt; WALLET SET EMPTY</p>
         <p className="muted">Register an xpub, ypub, or zpub to begin watch-only monitoring.</p>
-        <p className="terminal-mantra">Self-hosted watch-only Bitcoin terminal. We are all Satoshi.</p>
+        <p className="terminal-mantra">Self-hosted Bitcoin watch-only wallet for your own node.</p>
       </div>
     );
   }

@@ -84,6 +84,7 @@ npm run dev --workspace=apps/web
 npm.cmd run typecheck --workspace=apps/web
 npm.cmd run typecheck --workspace=apps/api
 npm.cmd test --workspace=apps/api
+npm.cmd run build --workspace=apps/web
 ```
 
 `apps/web` currently has no frontend test script.
