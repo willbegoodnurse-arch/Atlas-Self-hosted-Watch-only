@@ -140,6 +140,25 @@ test("redactSensitive: passes safe strings unchanged", () => {
   assert.equal(redactSensitive(safe), safe);
 });
 
+test("redactSensitive: redacts xpub embedded in JSON string", () => {
+  const json = JSON.stringify({ key: ZPUB, other: "hello" });
+  const result = redactSensitive(json);
+  assert.ok(!result.includes(ZPUB));
+  assert.ok(result.includes("zpub6rFR..."));
+});
+
+test("redactSensitive: does not redact short xpub-like prefix without enough characters", () => {
+  const short = "zpub6rFR7y4";
+  assert.equal(redactSensitive(short), short);
+});
+
+test("redactSensitive: redacts multiple keys in same string", () => {
+  const s = `first=${XPUB} second=${ZPUB}`;
+  const result = redactSensitive(s);
+  assert.ok(!result.includes(XPUB));
+  assert.ok(!result.includes(ZPUB));
+});
+
 // ---------------------------------------------------------------------------
 // serializeWallet
 // ---------------------------------------------------------------------------

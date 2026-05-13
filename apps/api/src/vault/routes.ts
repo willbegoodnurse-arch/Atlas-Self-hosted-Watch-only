@@ -641,27 +641,39 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
     }
   });
 
-  server.get<{ Params: { id: string } }>("/api/wallets/:id/xpub", async (request, reply) => {
-    if (!ensureAuthenticated(request, reply)) {
-      return;
-    }
+  server.get<{ Params: { id: string } }>(
+    "/api/wallets/:id/xpub",
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: "1 minute"
+        }
+      }
+    },
+    async (request, reply) => {
+      if (!ensureAuthenticated(request, reply)) {
+        return;
+      }
 
-    try {
-      const wallets = listWallets();
-      const wallet = wallets.find((w) => w.id === request.params.id);
-      if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
-      return reply.send({
-        walletId: wallet.id,
-        extendedPublicKey: wallet.extendedPublicKey,
-        type: wallet.type,
-        network: wallet.network,
-        warning:
-          "This is your extended public key. Keep it private. Anyone with this key can see your full wallet history and addresses."
-      });
-    } catch (error) {
-      return handleVaultError(error, reply);
+      try {
+        const wallets = listWallets();
+        const wallet = wallets.find((w) => w.id === request.params.id);
+        if (!wallet) return reply.code(404).send({ error: "Wallet not found" });
+        request.log.info({ walletId: wallet.id, event: "xpub_reveal" }, "xpub reveal requested");
+        return reply.send({
+          walletId: wallet.id,
+          extendedPublicKey: wallet.extendedPublicKey,
+          type: wallet.type,
+          network: wallet.network,
+          warning:
+            "This is your extended public key. Keep it private. Anyone with this key can see your full wallet history and addresses."
+        });
+      } catch (error) {
+        return handleVaultError(error, reply);
+      }
     }
-  });
+  );
 }
 
 function ensureAuthenticated(request: FastifyRequest, reply: FastifyReply): boolean {

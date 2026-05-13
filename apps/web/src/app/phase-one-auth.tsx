@@ -23,6 +23,7 @@ type VaultStatus = {
   initialized: boolean;
   unlocked: boolean;
   walletCount: number | null;
+  autoLockMinutes: number | null;
 };
 
 type WalletRecord = {
@@ -1080,6 +1081,12 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
           <dt>Stored wallets</dt>
           <dd>{status.walletCount ?? "Hidden"}</dd>
         </div>
+        {status.autoLockMinutes != null ? (
+          <div>
+            <dt>Auto-lock</dt>
+            <dd>After {status.autoLockMinutes} min inactivity</dd>
+          </div>
+        ) : null}
         {status.unlocked ? (
           <button className="secondary-button compact-button" disabled={busy} type="button" onClick={handleLock}>
             Lock vault

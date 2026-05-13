@@ -80,7 +80,8 @@ export async function getVaultStatus() {
   return {
     initialized: await vaultFileExists(),
     unlocked: Boolean(unlockedVault),
-    walletCount: unlockedVault?.plaintext.wallets.length ?? null
+    walletCount: unlockedVault?.plaintext.wallets.length ?? null,
+    autoLockMinutes: VAULT_AUTO_LOCK_MS > 0 ? VAULT_AUTO_LOCK_MS / 60_000 : null
   };
 }
 

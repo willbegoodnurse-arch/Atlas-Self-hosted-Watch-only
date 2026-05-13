@@ -25,25 +25,43 @@ Screenshots will be added after the UI phase. Phase 0 intentionally contains onl
 
 ## Security Model
 
-watch wallet is a watch-only Bitcoin wallet dashboard.
-It never asks for, stores, or transmits private keys or seed phrases.
-Do not enter your seed phrase or private key anywhere in this application.
+watch wallet is a self-hosted, watch-only Bitcoin wallet dashboard.
 
-Extended public keys such as xpub, ypub, and zpub can reveal your full wallet history.
-watch wallet stores them only in an encrypted server-side wallet store.
-Protect access to the Raspberry Pi, browser profile, and device.
+**What it does and does not do:**
+- Watch-only only. It monitors balances, addresses, UTXOs, and transactions.
+- It never asks for, stores, or transmits seed phrases or private keys.
+- It never signs transactions.
+- It never broadcasts transactions (PSBT broadcast is not implemented).
+- Do not enter a seed phrase or private key anywhere in this application. The import form rejects them.
+
+**Extended public keys (xpub / ypub / zpub):**
+- xpub, ypub, and zpub are privacy-sensitive. Anyone with them can derive your full wallet history and all future addresses.
+- watch wallet stores them in an AES-256-GCM encrypted vault (`wallets.enc`) on the server, protected by a vault password.
+- The vault password is not stored anywhere. The derived vault key is memory-only and discarded on restart or lock.
+- Normal API responses return only a masked key (e.g. `zpub6rFR...8aM`). The full key is never returned by default.
+- Revealing the full key requires explicit confirmation through a two-step UI flow.
+- The vault auto-locks after 30 minutes of inactivity (configurable with `VAULT_AUTO_LOCK_MINUTES`).
+- Logging out locks the vault immediately.
+
+**Access model:**
+- Recommended: local network, Tailscale, or Tor.
+- Do not expose the API port to the public internet without a reverse proxy with HTTPS and additional access controls.
+- Cookies are HttpOnly and signed. Set `COOKIE_SECURE=true` in production behind HTTPS.
+
+**Address derivation:**
+- Addresses are derived in memory on request. They are not written to disk.
+- Balance, UTXO, and transaction data comes from the configured Mempool API and is not stored server-side.
 
 watch wallet은 보기전용 비트코인 지갑 대시보드입니다.
-이 앱은 시드 문구나 개인키를 절대 요구하지 않습니다.
+이 앱은 시드 문구나 개인키를 절대 요구하지 않으며, 잔액과 주소를 보는 기능만 제공합니다.
 절대 이 앱에 시드 문구나 개인키를 입력하지 마십시오.
 
 xpub, ypub, zpub은 지갑 전체 거래내역을 노출할 수 있는 민감한 정보입니다.
-watch wallet은 이를 Raspberry Pi 서버의 암호화된 지갑 저장소에만 저장합니다.
+watch wallet은 이를 AES-256-GCM으로 암호화된 서버 측 지갑 저장소에만 보관하며,
+일반 API 응답에서는 마스킹된 키(예: `zpub6rFR...8aM`)만 반환합니다.
 Raspberry Pi, 기기, 브라우저 프로필 접근 권한을 안전하게 보호하십시오.
 
-The server must not persist seed phrases, private keys, raw xpubs, raw ypubs, raw zpubs, full address lists, transaction memos, or wallet labels. The default operating model is local network, Tailscale, or Tor access. General internet port forwarding is not recommended.
-
-Future sending features must use a PSBT-only workflow. watch wallet may later help select UTXOs, set recipients, choose fees, choose change addresses, create PSBTs, import signed PSBTs, extract raw transactions, and broadcast through the user's node. It must not sign transactions itself. Signing must happen in an external signer such as Nunchuk, Sparrow, or a hardware wallet.
+Future sending features must use a PSBT-only workflow. watch wallet may later help select UTXOs, set recipients, choose fees, and create unsigned PSBTs. Signing must happen in an external signer such as Nunchuk, Sparrow, or a hardware wallet. watch wallet must not sign transactions itself.
 
 ## Installation
 
