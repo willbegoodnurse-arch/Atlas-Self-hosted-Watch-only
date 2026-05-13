@@ -14,6 +14,8 @@ import { lookupWalletTransactions } from "../mempool/transactions.js";
 import type { WalletTransactionsResult } from "../mempool/transactions.js";
 import { lookupWalletUtxos } from "../mempool/utxos.js";
 import type { WalletUtxosResult } from "../mempool/utxos.js";
+import { createWalletPsbt } from "../psbt/build.js";
+import type { CreatePsbtInput, CreatePsbtResult } from "../psbt/build.js";
 import {
   accountPathFor,
   defaultScriptTypeForExistingKey,
@@ -436,6 +438,14 @@ export async function getWalletUtxos(
     includeUnconfirmed: input.includeUnconfirmed
   });
   return { wallet, result };
+}
+
+export async function createPsbt(
+  id: string,
+  input: CreatePsbtInput
+): Promise<CreatePsbtResult> {
+  const wallet = findWalletById(id);
+  return createWalletPsbt(wallet, input);
 }
 
 export function derivationPathFor(

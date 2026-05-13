@@ -261,6 +261,31 @@ type WalletUtxosResponse = {
   }>;
 };
 
+type CreatePsbtResponse = {
+  psbtBase64: string;
+  inputs: Array<{
+    txid: string;
+    vout: number;
+    outpoint: string;
+    valueSats: number;
+    address: string;
+    chain: "receive" | "change";
+    index: number;
+    path: string | null;
+  }>;
+  outputs: Array<{
+    address: string;
+    valueSats: number;
+    type: "recipient" | "change";
+  }>;
+  feeSats: number;
+  feeRateSatsPerVbyte: number;
+  estimatedVbytes: number;
+  totalInputSats: number;
+  changeAddress: string | null;
+  changeSats: number;
+};
+
 type WalletTransactionsResponse = {
   walletId: string;
   chain: string;
@@ -1939,6 +1964,11 @@ function WalletDetailView({
         refreshToken={refreshToken}
         wallet={wallet}
       />
+      <CreatePsbtPanel
+        apiUrl={apiUrl}
+        balanceUnit={balanceUnit}
+        wallet={wallet}
+      />
     </div>
   );
 }
@@ -2174,6 +2204,245 @@ function UtxoPanel({
         </div>
       ) : null}
     </section>
+  );
+}
+
+function CreatePsbtPanel({
+  apiUrl,
+  balanceUnit,
+  wallet
+}: {
+  apiUrl: string;
+  balanceUnit: "sats" | "btc";
+  wallet: WalletRecord;
+}) {
+  const [recipientAddress, setRecipientAddress] = useState("");
+  const [amountInput, setAmountInput] = useState("");
+  const [feeRateInput, setFeeRateInput] = useState("5");
+  const [addressLimit, setAddressLimit] = useState(20);
+  const [psbtResult, setPsbtResult] = useState<CreatePsbtResponse | null>(null);
+  const [psbtStatus, setPsbtStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [psbtMessage, setPsbtMessage] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  async function handleCreate() {
+    const amountSats = parseInt(amountInput, 10);
+    const feeRate = parseInt(feeRateInput, 10);
+
+    if (!recipientAddress.trim()) {
+      setPsbtMessage("Recipient address is required.");
+      setPsbtStatus("error");
+      return;
+    }
+    if (!Number.isInteger(amountSats) || amountSats < 1) {
+      setPsbtMessage("Amount must be a positive integer in sats.");
+      setPsbtStatus("error");
+      return;
+    }
+    if (!Number.isInteger(feeRate) || feeRate < 1 || feeRate > 1000) {
+      setPsbtMessage("Fee rate must be 1–1000 sats/vB.");
+      setPsbtStatus("error");
+      return;
+    }
+
+    setPsbtStatus("loading");
+    setPsbtMessage("");
+    setPsbtResult(null);
+
+    try {
+      const result = await apiRequest<CreatePsbtResponse>(
+        apiUrl,
+        `/api/wallets/${wallet.id}/psbt`,
+        {
+          method: "POST",
+          body: JSON.stringify({ recipientAddress: recipientAddress.trim(), amountSats, feeRateSatsPerVbyte: feeRate, addressLimit }),
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+      setPsbtResult(result);
+      setPsbtStatus("done");
+    } catch (error) {
+      setPsbtMessage(error instanceof Error ? error.message : "Failed to create PSBT");
+      setPsbtStatus("error");
+    }
+  }
+
+  async function copyPsbt() {
+    if (!psbtResult) return;
+    try {
+      await navigator.clipboard.writeText(psbtResult.psbtBase64);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setPsbtMessage("Clipboard copy failed. Select and copy manually.");
+    }
+  }
+
+  function downloadPsbt() {
+    if (!psbtResult) return;
+    const blob = new Blob([psbtResult.psbtBase64], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${wallet.name.replace(/\s+/g, "-")}-unsigned.psbt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const recipientOutput = psbtResult?.outputs.find((o) => o.type === "recipient");
+  const changeOutput = psbtResult?.outputs.find((o) => o.type === "change");
+
+  return (
+    <details className="tx-history-panel wallet-address-panel create-psbt-details">
+      <summary className="wallet-card-header">
+        <p className="terminal-heading">&gt; DRAFT SEND / CREATE UNSIGNED PSBT</p>
+      </summary>
+
+      <div className="psbt-safety-notice muted">
+        Creates an unsigned PSBT only. Review and sign on your cold wallet (Coldcard / Passport / SeedSigner / Keystone / Krux / Jade).
+        Nothing is broadcast from this step. Never enter seed phrases or private keys here.
+      </div>
+
+      <div className="psbt-form">
+        <label className="psbt-field">
+          <span>Recipient address</span>
+          <input
+            className="psbt-input"
+            type="text"
+            value={recipientAddress}
+            placeholder="bc1q… or tb1q…"
+            onChange={(e) => setRecipientAddress(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+
+        <label className="psbt-field">
+          <span>Amount (sats)</span>
+          <input
+            className="psbt-input"
+            type="number"
+            value={amountInput}
+            placeholder="10000"
+            min={1}
+            step={1}
+            onChange={(e) => setAmountInput(e.target.value)}
+          />
+        </label>
+
+        <label className="psbt-field">
+          <span>Fee rate (sats/vB)</span>
+          <input
+            className="psbt-input"
+            type="number"
+            value={feeRateInput}
+            min={1}
+            max={1000}
+            step={1}
+            onChange={(e) => setFeeRateInput(e.target.value)}
+          />
+          {parseInt(feeRateInput, 10) < 5 ? (
+            <span className="muted psbt-field-hint">Low fee rate — may not confirm quickly.</span>
+          ) : null}
+        </label>
+
+        <label className="psbt-field">
+          <span>Address depth</span>
+          <select value={addressLimit} onChange={(e) => setAddressLimit(Number(e.target.value))}>
+            <option value={10}>10</option>
+            <option value={20}>20</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </label>
+
+        <button
+          className="compact-button"
+          type="button"
+          disabled={psbtStatus === "loading"}
+          onClick={() => void handleCreate()}
+        >
+          {psbtStatus === "loading" ? "Building PSBT…" : "Create Unsigned PSBT"}
+        </button>
+      </div>
+
+      {psbtMessage ? (
+        <p className="status-message">{psbtMessage}</p>
+      ) : null}
+
+      {psbtResult && psbtStatus === "done" ? (
+        <div className="psbt-result terminal-panel">
+          <p className="terminal-heading">&gt; UNSIGNED PSBT READY</p>
+
+          <dl className="utxo-summary-grid">
+            <div>
+              <dt>inputs</dt>
+              <dd>{psbtResult.inputs.length} UTXOs / {formatBalance(psbtResult.totalInputSats, balanceUnit)}</dd>
+            </div>
+            <div>
+              <dt>send amount</dt>
+              <dd>{recipientOutput ? formatBalance(recipientOutput.valueSats, balanceUnit) : "—"}</dd>
+            </div>
+            <div>
+              <dt>fee</dt>
+              <dd>{formatBalance(psbtResult.feeSats, balanceUnit)} ({psbtResult.feeRateSatsPerVbyte} sats/vB, ~{psbtResult.estimatedVbytes} vB)</dd>
+            </div>
+            {changeOutput ? (
+              <div>
+                <dt>change</dt>
+                <dd>{formatBalance(changeOutput.valueSats, balanceUnit)}</dd>
+              </div>
+            ) : null}
+          </dl>
+
+          {psbtResult.changeAddress ? (
+            <p className="muted psbt-change-addr">
+              Change → {psbtResult.changeAddress}
+            </p>
+          ) : (
+            <p className="muted psbt-change-addr">No change output (dust absorbed into fee)</p>
+          )}
+
+          <div className="psbt-inputs-list">
+            {psbtResult.inputs.map((inp) => (
+              <div key={inp.outpoint} className="muted psbt-input-row">
+                {inp.chain} #{inp.index} · {formatBalance(inp.valueSats, balanceUnit)} · {truncateMiddle(inp.outpoint, 24)}
+              </div>
+            ))}
+          </div>
+
+          <div className="psbt-base64-block">
+            <p className="terminal-heading">&gt; PSBT (base64)</p>
+            <textarea
+              className="psbt-textarea"
+              readOnly
+              value={psbtResult.psbtBase64}
+              rows={4}
+            />
+            <div className="psbt-actions">
+              <button
+                className="compact-button"
+                type="button"
+                onClick={() => void copyPsbt()}
+              >
+                {copied ? "Copied!" : "Copy PSBT"}
+              </button>
+              <button
+                className="secondary-button compact-button"
+                type="button"
+                onClick={downloadPsbt}
+              >
+                Download .psbt
+              </button>
+            </div>
+          </div>
+
+          <p className="muted psbt-safety-footer">
+            Unsigned only. Review all addresses, amounts, and change output on your cold wallet before signing.
+          </p>
+        </div>
+      ) : null}
+    </details>
   );
 }
 

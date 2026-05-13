@@ -237,3 +237,128 @@ function requireAddress(value: string | undefined): string {
 
   return value;
 }
+
+// ---------------------------------------------------------------------------
+// PSBT types and builder
+// ---------------------------------------------------------------------------
+
+export type PsbtInputDescriptor = {
+  txid: string;
+  vout: number;
+  valueSats: number;
+  address: string;
+  chain: "receive" | "change";
+  index: number;
+  path: string | null;
+};
+
+export type PsbtOutputDescriptor = {
+  address: string;
+  valueSats: number;
+  type: "recipient" | "change";
+};
+
+export type BuildUnsignedPsbtParams = {
+  extendedPublicKey: string;
+  xpubType: ExtendedPublicKeyKind;
+  scriptType: "native-segwit" | "nested-segwit" | "taproot";
+  accountPath: string | null;
+  masterFingerprint: string | null;
+  network: BitcoinNetwork;
+  inputs: PsbtInputDescriptor[];
+  outputs: PsbtOutputDescriptor[];
+};
+
+export function validateAddressForNetwork(
+  address: string,
+  walletNetwork: BitcoinNetwork
+): void {
+  const net = bitcoinNetwork(walletNetwork);
+  const oppName = walletNetwork === "mainnet" ? "testnet" : "mainnet";
+  const oppNet = bitcoinNetwork(oppName as BitcoinNetwork);
+
+  let validForWallet = false;
+  let validForOpposite = false;
+
+  try {
+    bitcoin.address.toOutputScript(address, net);
+    validForWallet = true;
+  } catch {}
+
+  try {
+    bitcoin.address.toOutputScript(address, oppNet);
+    validForOpposite = true;
+  } catch {}
+
+  if (validForWallet) return;
+  if (validForOpposite) {
+    throw new Error(
+      `Recipient address is a ${oppName} address, but wallet is ${walletNetwork}`
+    );
+  }
+  throw new Error("Invalid Bitcoin address");
+}
+
+export function buildUnsignedPsbt(params: BuildUnsignedPsbtParams): string {
+  const network = bitcoinNetwork(params.network);
+  const accountNode = parseAccountExtendedPublicKey(
+    params.extendedPublicKey,
+    params.xpubType,
+    params.network
+  );
+  const psbt = new bitcoin.Psbt({ network });
+
+  for (const input of params.inputs) {
+    const chainIndex = input.chain === "receive" ? 0 : 1;
+    const child = accountNode.derive(chainIndex).derive(input.index);
+    const pubkey = Buffer.from(child.publicKey);
+    const outputScript = Buffer.from(
+      bitcoin.address.toOutputScript(input.address, network)
+    );
+
+    const psbtInput: Parameters<typeof psbt.addInput>[0] = {
+      hash: input.txid,
+      index: input.vout,
+      witnessUtxo: {
+        script: outputScript,
+        value: BigInt(input.valueSats)
+      }
+    };
+
+    if (params.scriptType === "nested-segwit") {
+      const inner = bitcoin.payments.p2wpkh({ pubkey, network });
+      if (inner.output) {
+        psbtInput.redeemScript = inner.output;
+      }
+    }
+
+    if (params.scriptType === "taproot") {
+      psbtInput.tapInternalKey = pubkey.slice(1, 33);
+    }
+
+    if (
+      params.masterFingerprint &&
+      input.path &&
+      params.scriptType !== "taproot"
+    ) {
+      psbtInput.bip32Derivation = [
+        {
+          masterFingerprint: Buffer.from(params.masterFingerprint, "hex"),
+          path: input.path,
+          pubkey
+        }
+      ];
+    }
+
+    psbt.addInput(psbtInput);
+  }
+
+  for (const output of params.outputs) {
+    psbt.addOutput({
+      address: output.address,
+      value: BigInt(output.valueSats)
+    });
+  }
+
+  return psbt.toBase64();
+}

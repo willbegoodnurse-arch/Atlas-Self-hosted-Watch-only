@@ -8,6 +8,7 @@ import {
   VaultNotInitializedError,
   WalletNotFoundError,
   addWallet,
+  createPsbt,
   deleteWallet,
   deriveWalletAddresses,
   deriveWalletAddressUsage,
@@ -36,6 +37,11 @@ import {
   normalizeTransactionLabelInput
 } from "./labels.js";
 import type { BitcoinNetwork, ScriptType, SourceDevice } from "./types.js";
+import {
+  InsufficientFundsError,
+  InvalidPsbtParamsError,
+  UnsupportedScriptTypeError
+} from "../psbt/build.js";
 
 type VaultPasswordBody = {
   vaultPassword?: string;
@@ -100,6 +106,13 @@ type WalletUtxosQuery = {
   chain?: string;
   addressLimit?: string;
   includeUnconfirmed?: string;
+};
+
+type CreatePsbtBody = {
+  recipientAddress?: string;
+  amountSats?: number;
+  feeRateSatsPerVbyte?: number;
+  addressLimit?: number;
 };
 
 export async function registerVaultRoutes(server: FastifyInstance): Promise<void> {
@@ -427,6 +440,27 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
           failedAddresses: result.failedAddresses,
           mempool: getMempoolApiConfig()
         });
+      } catch (error) {
+        return handleVaultError(error, reply);
+      }
+    }
+  );
+
+  server.post<{ Body: CreatePsbtBody; Params: { id: string } }>(
+    "/api/wallets/:id/psbt",
+    async (request, reply) => {
+      if (!ensureAuthenticated(request, reply)) {
+        return;
+      }
+
+      const validation = validateCreatePsbtBody(request.body);
+      if (!validation.ok) {
+        return reply.code(400).send({ error: validation.error });
+      }
+
+      try {
+        const result = await createPsbt(request.params.id, validation.value);
+        return reply.send(result);
       } catch (error) {
         return handleVaultError(error, reply);
       }
@@ -931,9 +965,60 @@ function handleVaultError(error: unknown, reply: FastifyReply) {
     return reply.code(400).send({ error: error.message });
   }
 
+  if (error instanceof InvalidPsbtParamsError || error instanceof UnsupportedScriptTypeError) {
+    return reply.code(400).send({ error: error.message });
+  }
+
+  if (error instanceof InsufficientFundsError) {
+    return reply.code(422).send({ error: error.message });
+  }
+
   if (error instanceof Error && /Unsupported state|authenticate|bad decrypt|Invalid vault/.test(error.message)) {
     return reply.code(401).send({ error: "Invalid vault password" });
   }
 
   throw error;
+}
+
+function validateCreatePsbtBody(body: CreatePsbtBody | undefined):
+  | {
+      ok: true;
+      value: {
+        recipientAddress: string;
+        amountSats: number;
+        feeRateSatsPerVbyte: number;
+        addressLimit: number;
+      };
+    }
+  | { ok: false; error: string } {
+  const recipientAddress = body?.recipientAddress;
+  if (typeof recipientAddress !== "string" || recipientAddress.trim().length === 0) {
+    return { ok: false, error: "recipientAddress is required" };
+  }
+
+  const amountSats = body?.amountSats;
+  if (typeof amountSats !== "number" || !Number.isInteger(amountSats) || amountSats < 1) {
+    return { ok: false, error: "amountSats must be a positive integer" };
+  }
+
+  const feeRateSatsPerVbyte = body?.feeRateSatsPerVbyte;
+  if (
+    typeof feeRateSatsPerVbyte !== "number" ||
+    !Number.isInteger(feeRateSatsPerVbyte) ||
+    feeRateSatsPerVbyte < 1 ||
+    feeRateSatsPerVbyte > 1000
+  ) {
+    return { ok: false, error: "feeRateSatsPerVbyte must be an integer from 1 to 1000" };
+  }
+
+  const rawLimit = body?.addressLimit;
+  const addressLimit = rawLimit === undefined ? 20 : rawLimit;
+  if (!Number.isInteger(addressLimit) || addressLimit < 1 || addressLimit > 100) {
+    return { ok: false, error: "addressLimit must be an integer from 1 to 100" };
+  }
+
+  return {
+    ok: true,
+    value: { recipientAddress: recipientAddress.trim(), amountSats, feeRateSatsPerVbyte, addressLimit }
+  };
 }
