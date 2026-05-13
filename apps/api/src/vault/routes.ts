@@ -9,6 +9,7 @@ import {
   WalletNotFoundError,
   addWallet,
   createPsbt,
+  verifyPsbt,
   deleteWallet,
   deriveWalletAddresses,
   deriveWalletAddressUsage,
@@ -42,6 +43,7 @@ import {
   InvalidPsbtParamsError,
   UnsupportedScriptTypeError
 } from "../psbt/build.js";
+import { InvalidPsbtError } from "../psbt/verify.js";
 
 type VaultPasswordBody = {
   vaultPassword?: string;
@@ -112,6 +114,17 @@ type CreatePsbtBody = {
   recipientAddress?: string;
   amountSats?: number;
   feeRateSatsPerVbyte?: number;
+  addressLimit?: number;
+};
+
+type VerifyPsbtBody = {
+  psbtBase64?: string;
+  expected?: {
+    recipientAddress?: string;
+    amountSats?: number;
+    changeAddress?: string | null;
+    feeSats?: number;
+  };
   addressLimit?: number;
 };
 
@@ -460,6 +473,27 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
 
       try {
         const result = await createPsbt(request.params.id, validation.value);
+        return reply.send(result);
+      } catch (error) {
+        return handleVaultError(error, reply);
+      }
+    }
+  );
+
+  server.post<{ Body: VerifyPsbtBody; Params: { id: string } }>(
+    "/api/wallets/:id/psbt/verify",
+    async (request, reply) => {
+      if (!ensureAuthenticated(request, reply)) {
+        return;
+      }
+
+      const validation = validateVerifyPsbtBody(request.body);
+      if (!validation.ok) {
+        return reply.code(400).send({ error: validation.error });
+      }
+
+      try {
+        const result = await verifyPsbt(request.params.id, validation.value);
         return reply.send(result);
       } catch (error) {
         return handleVaultError(error, reply);
@@ -973,11 +1007,84 @@ function handleVaultError(error: unknown, reply: FastifyReply) {
     return reply.code(422).send({ error: error.message });
   }
 
+  if (error instanceof InvalidPsbtError) {
+    return reply.code(400).send({ error: error.message });
+  }
+
   if (error instanceof Error && /Unsupported state|authenticate|bad decrypt|Invalid vault/.test(error.message)) {
     return reply.code(401).send({ error: "Invalid vault password" });
   }
 
   throw error;
+}
+
+function validateVerifyPsbtBody(body: VerifyPsbtBody | undefined):
+  | {
+      ok: true;
+      value: {
+        psbtBase64: string;
+        expected?: {
+          recipientAddress?: string;
+          amountSats?: number;
+          changeAddress?: string | null;
+          feeSats?: number;
+        };
+        addressLimit: number;
+      };
+    }
+  | { ok: false; error: string } {
+  const psbtBase64 = body?.psbtBase64;
+  if (typeof psbtBase64 !== "string" || psbtBase64.trim().length === 0) {
+    return { ok: false, error: "psbtBase64 is required" };
+  }
+
+  const rawLimit = body?.addressLimit;
+  const addressLimit = rawLimit === undefined ? 100 : rawLimit;
+  if (!Number.isInteger(addressLimit) || addressLimit < 1 || addressLimit > 200) {
+    return { ok: false, error: "addressLimit must be an integer from 1 to 200" };
+  }
+
+  const expected = body?.expected;
+  if (expected !== undefined && expected !== null) {
+    if (expected.recipientAddress !== undefined && typeof expected.recipientAddress !== "string") {
+      return { ok: false, error: "expected.recipientAddress must be a string" };
+    }
+    if (
+      expected.amountSats !== undefined &&
+      (!Number.isInteger(expected.amountSats) || expected.amountSats < 1)
+    ) {
+      return { ok: false, error: "expected.amountSats must be a positive integer" };
+    }
+    if (
+      expected.changeAddress !== undefined &&
+      expected.changeAddress !== null &&
+      typeof expected.changeAddress !== "string"
+    ) {
+      return { ok: false, error: "expected.changeAddress must be a string or null" };
+    }
+    if (
+      expected.feeSats !== undefined &&
+      (!Number.isInteger(expected.feeSats) || expected.feeSats < 0)
+    ) {
+      return { ok: false, error: "expected.feeSats must be a non-negative integer" };
+    }
+  }
+
+  return {
+    ok: true,
+    value: {
+      psbtBase64: psbtBase64.trim(),
+      expected: expected
+        ? {
+            recipientAddress: expected.recipientAddress,
+            amountSats: expected.amountSats,
+            changeAddress: expected.changeAddress,
+            feeSats: expected.feeSats
+          }
+        : undefined,
+      addressLimit
+    }
+  };
 }
 
 function validateCreatePsbtBody(body: CreatePsbtBody | undefined):

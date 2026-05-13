@@ -239,6 +239,109 @@ function requireAddress(value: string | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
+// PSBT analysis
+// ---------------------------------------------------------------------------
+
+export class InvalidPsbtError extends Error {}
+
+export type PsbtRawInput = {
+  txid: string;
+  vout: number;
+  valueSats: number | null;
+  address: string | null;
+};
+
+export type PsbtRawOutput = {
+  address: string | null;
+  valueSats: number;
+};
+
+export type PsbtAnalysisResult = {
+  signed: boolean;
+  finalizable: boolean;
+  extractable: boolean;
+  txHex: string | null;
+  txid: string | null;
+  inputs: PsbtRawInput[];
+  outputs: PsbtRawOutput[];
+};
+
+export function analyzePsbt(psbtBase64: string, network: BitcoinNetwork): PsbtAnalysisResult {
+  let psbt: bitcoin.Psbt;
+  try {
+    psbt = bitcoin.Psbt.fromBase64(psbtBase64);
+  } catch {
+    throw new InvalidPsbtError("Could not parse PSBT");
+  }
+
+  const net = bitcoinNetwork(network);
+  const signed = isPsbtSigned(psbt);
+
+  let txHex: string | null = null;
+  let txid: string | null = null;
+  let finalizable = false;
+  let extractable = false;
+
+  try {
+    const p1 = bitcoin.Psbt.fromBase64(psbtBase64);
+    const tx = p1.extractTransaction();
+    finalizable = true;
+    extractable = true;
+    txHex = tx.toHex();
+    txid = tx.getId();
+  } catch {
+    try {
+      const p2 = bitcoin.Psbt.fromBase64(psbtBase64);
+      p2.finalizeAllInputs();
+      finalizable = true;
+      try {
+        const tx = p2.extractTransaction();
+        extractable = true;
+        txHex = tx.toHex();
+        txid = tx.getId();
+      } catch {}
+    } catch {}
+  }
+
+  const inputs: PsbtRawInput[] = psbt.data.inputs.map((inp, i) => {
+    const txIn = psbt.txInputs[i];
+    const inputTxid = txIn ? Buffer.from(txIn.hash).reverse().toString("hex") : "";
+    const vout = txIn?.index ?? 0;
+    let valueSats: number | null = null;
+    let address: string | null = null;
+
+    if (inp.witnessUtxo) {
+      valueSats = Number(inp.witnessUtxo.value);
+      try {
+        address = bitcoin.address.fromOutputScript(inp.witnessUtxo.script, net);
+      } catch {}
+    }
+
+    return { txid: inputTxid, vout, valueSats, address };
+  });
+
+  const outputs: PsbtRawOutput[] = psbt.txOutputs.map((out) => {
+    let address: string | null = null;
+    try {
+      address = bitcoin.address.fromOutputScript(out.script, net);
+    } catch {}
+    return { address, valueSats: Number(out.value) };
+  });
+
+  return { signed, finalizable, extractable, txHex, txid, inputs, outputs };
+}
+
+function isPsbtSigned(psbt: bitcoin.Psbt): boolean {
+  if (psbt.data.inputs.length === 0) return false;
+  return psbt.data.inputs.every((inp) => {
+    if (inp.finalScriptSig || inp.finalScriptWitness) return true;
+    if (inp.tapKeySig) return true;
+    if (inp.partialSig && inp.partialSig.length > 0) return true;
+    return false;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // PSBT types and builder
 // ---------------------------------------------------------------------------
 

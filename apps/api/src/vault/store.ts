@@ -16,6 +16,8 @@ import { lookupWalletUtxos } from "../mempool/utxos.js";
 import type { WalletUtxosResult } from "../mempool/utxos.js";
 import { createWalletPsbt } from "../psbt/build.js";
 import type { CreatePsbtInput, CreatePsbtResult } from "../psbt/build.js";
+import { verifySignedPsbt } from "../psbt/verify.js";
+import type { VerifyPsbtInput, VerifyPsbtResult } from "../psbt/verify.js";
 import {
   accountPathFor,
   defaultScriptTypeForExistingKey,
@@ -446,6 +448,14 @@ export async function createPsbt(
 ): Promise<CreatePsbtResult> {
   const wallet = findWalletById(id);
   return createWalletPsbt(wallet, input);
+}
+
+export async function verifyPsbt(
+  id: string,
+  input: VerifyPsbtInput
+): Promise<VerifyPsbtResult> {
+  const wallet = findWalletById(id);
+  return verifySignedPsbt(wallet, input);
 }
 
 export function derivationPathFor(

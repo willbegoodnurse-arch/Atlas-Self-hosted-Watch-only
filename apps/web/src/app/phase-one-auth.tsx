@@ -286,6 +286,39 @@ type CreatePsbtResponse = {
   changeSats: number;
 };
 
+type VerifyPsbtResponse = {
+  status: "valid" | "warning" | "invalid";
+  signed: boolean;
+  finalizable: boolean;
+  extractable: boolean;
+  txHex: string | null;
+  txid: string | null;
+  feeSats: number | null;
+  inputs: Array<{
+    txid: string;
+    vout: number;
+    valueSats: number | null;
+    address: string | null;
+    belongsToWallet: boolean;
+  }>;
+  outputs: Array<{
+    address: string | null;
+    valueSats: number;
+    type: "recipient" | "change" | "external" | "unknown";
+    belongsToWallet: boolean;
+  }>;
+  checks: {
+    recipientMatches: boolean | null;
+    amountMatches: boolean | null;
+    changeAddressMatches: boolean | null;
+    feeMatches: boolean | null;
+    hasWalletChange: boolean;
+    hasUnexpectedExternalOutputs: boolean;
+  };
+  warnings: string[];
+  errors: string[];
+};
+
 type WalletTransactionsResponse = {
   walletId: string;
   chain: string;
@@ -1969,6 +2002,11 @@ function WalletDetailView({
         balanceUnit={balanceUnit}
         wallet={wallet}
       />
+      <VerifyPsbtPanel
+        apiUrl={apiUrl}
+        balanceUnit={balanceUnit}
+        wallet={wallet}
+      />
     </div>
   );
 }
@@ -2440,6 +2478,308 @@ function CreatePsbtPanel({
           <p className="muted psbt-safety-footer">
             Unsigned only. Review all addresses, amounts, and change output on your cold wallet before signing.
           </p>
+        </div>
+      ) : null}
+    </details>
+  );
+}
+
+function VerifyPsbtPanel({
+  apiUrl,
+  balanceUnit,
+  wallet
+}: {
+  apiUrl: string;
+  balanceUnit: "sats" | "btc";
+  wallet: WalletRecord;
+}) {
+  const [psbtInput, setPsbtInput] = useState("");
+  const [expectedRecipient, setExpectedRecipient] = useState("");
+  const [expectedAmount, setExpectedAmount] = useState("");
+  const [expectedChange, setExpectedChange] = useState("");
+  const [expectedFee, setExpectedFee] = useState("");
+  const [addressLimit, setAddressLimit] = useState(100);
+  const [verifyResult, setVerifyResult] = useState<VerifyPsbtResponse | null>(null);
+  const [verifyStatus, setVerifyStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [verifyMessage, setVerifyMessage] = useState("");
+  const [copiedTxHex, setCopiedTxHex] = useState(false);
+
+  async function handleVerify() {
+    const trimmed = psbtInput.trim();
+    if (!trimmed) {
+      setVerifyMessage("Paste a signed PSBT (base64) to verify.");
+      setVerifyStatus("error");
+      return;
+    }
+
+    setVerifyStatus("loading");
+    setVerifyMessage("");
+    setVerifyResult(null);
+
+    const expected: {
+      recipientAddress?: string;
+      amountSats?: number;
+      changeAddress?: string | null;
+      feeSats?: number;
+    } = {};
+
+    if (expectedRecipient.trim()) expected.recipientAddress = expectedRecipient.trim();
+    if (expectedAmount.trim()) {
+      const n = parseInt(expectedAmount, 10);
+      if (Number.isInteger(n) && n > 0) expected.amountSats = n;
+    }
+    if (expectedChange.trim()) {
+      expected.changeAddress = expectedChange.trim() === "none" ? null : expectedChange.trim();
+    }
+    if (expectedFee.trim()) {
+      const n = parseInt(expectedFee, 10);
+      if (Number.isInteger(n) && n >= 0) expected.feeSats = n;
+    }
+
+    try {
+      const result = await apiRequest<VerifyPsbtResponse>(
+        apiUrl,
+        `/api/wallets/${wallet.id}/psbt/verify`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            psbtBase64: trimmed,
+            expected: Object.keys(expected).length > 0 ? expected : undefined,
+            addressLimit
+          }),
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+      setVerifyResult(result);
+      setVerifyStatus("done");
+    } catch (error) {
+      setVerifyMessage(error instanceof Error ? error.message : "Failed to verify PSBT");
+      setVerifyStatus("error");
+    }
+  }
+
+  async function copyTxHex() {
+    if (!verifyResult?.txHex) return;
+    try {
+      await navigator.clipboard.writeText(verifyResult.txHex);
+      setCopiedTxHex(true);
+      setTimeout(() => setCopiedTxHex(false), 2000);
+    } catch {
+      setVerifyMessage("Clipboard copy failed. Select and copy manually.");
+    }
+  }
+
+  const statusLabel =
+    verifyResult?.status === "valid"
+      ? "VALID"
+      : verifyResult?.status === "warning"
+        ? "WARNING"
+        : "INVALID";
+
+  const statusClass =
+    verifyResult?.status === "valid"
+      ? "psbt-status-valid"
+      : verifyResult?.status === "warning"
+        ? "psbt-status-warning"
+        : "psbt-status-invalid";
+
+  return (
+    <details className="tx-history-panel wallet-address-panel create-psbt-details">
+      <summary className="wallet-card-header">
+        <p className="terminal-heading">&gt; VERIFY SIGNED PSBT</p>
+      </summary>
+
+      <div className="psbt-safety-notice muted">
+        Paste the signed PSBT returned by your cold wallet. This verifies the transaction details
+        without broadcasting. Never enter seed phrases or private keys here.
+      </div>
+
+      <div className="psbt-form">
+        <label className="psbt-field">
+          <span>Signed PSBT (base64)</span>
+          <textarea
+            className="psbt-textarea"
+            value={psbtInput}
+            placeholder="cHNidP8B…"
+            rows={4}
+            onChange={(e) => setPsbtInput(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+
+        <details className="psbt-expected-section">
+          <summary className="muted">Expected values (optional — for cross-checking)</summary>
+          <div className="psbt-form" style={{ marginTop: "0.5rem" }}>
+            <label className="psbt-field">
+              <span>Expected recipient address</span>
+              <input
+                className="psbt-input"
+                type="text"
+                value={expectedRecipient}
+                placeholder="bc1q…"
+                onChange={(e) => setExpectedRecipient(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <label className="psbt-field">
+              <span>Expected amount (sats)</span>
+              <input
+                className="psbt-input"
+                type="number"
+                value={expectedAmount}
+                placeholder="90000"
+                min={1}
+                step={1}
+                onChange={(e) => setExpectedAmount(e.target.value)}
+              />
+            </label>
+            <label className="psbt-field">
+              <span>Expected change address (or "none")</span>
+              <input
+                className="psbt-input"
+                type="text"
+                value={expectedChange}
+                placeholder="bc1q… or none"
+                onChange={(e) => setExpectedChange(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <label className="psbt-field">
+              <span>Expected fee (sats)</span>
+              <input
+                className="psbt-input"
+                type="number"
+                value={expectedFee}
+                placeholder="1500"
+                min={0}
+                step={1}
+                onChange={(e) => setExpectedFee(e.target.value)}
+              />
+            </label>
+          </div>
+        </details>
+
+        <label className="psbt-field">
+          <span>Address depth</span>
+          <select value={addressLimit} onChange={(e) => setAddressLimit(Number(e.target.value))}>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={200}>200</option>
+          </select>
+        </label>
+
+        <button
+          className="compact-button"
+          type="button"
+          disabled={verifyStatus === "loading"}
+          onClick={() => void handleVerify()}
+        >
+          {verifyStatus === "loading" ? "Verifying…" : "Verify Signed PSBT"}
+        </button>
+      </div>
+
+      {verifyMessage ? (
+        <p className="status-message">{verifyMessage}</p>
+      ) : null}
+
+      {verifyResult && verifyStatus === "done" ? (
+        <div className="psbt-result terminal-panel">
+          <p className="terminal-heading">
+            &gt; VERIFICATION RESULT:{" "}
+            <span className={statusClass}>{statusLabel}</span>
+          </p>
+
+          <dl className="utxo-summary-grid">
+            <div>
+              <dt>signed</dt>
+              <dd>{verifyResult.signed ? "yes" : "no"}</dd>
+            </div>
+            <div>
+              <dt>finalizable</dt>
+              <dd>{verifyResult.finalizable ? "yes" : "no"}</dd>
+            </div>
+            <div>
+              <dt>extractable</dt>
+              <dd>{verifyResult.extractable ? "yes" : "no"}</dd>
+            </div>
+            {verifyResult.feeSats !== null ? (
+              <div>
+                <dt>fee</dt>
+                <dd>{formatBalance(verifyResult.feeSats, balanceUnit)}</dd>
+              </div>
+            ) : null}
+          </dl>
+
+          {verifyResult.errors.length > 0 ? (
+            <div className="psbt-verify-section">
+              <p className="terminal-heading psbt-status-invalid">&gt; ERRORS</p>
+              {verifyResult.errors.map((e, i) => (
+                <p key={i} className="psbt-status-invalid muted">{e}</p>
+              ))}
+            </div>
+          ) : null}
+
+          {verifyResult.warnings.length > 0 ? (
+            <div className="psbt-verify-section">
+              <p className="terminal-heading psbt-status-warning">&gt; WARNINGS</p>
+              {verifyResult.warnings.map((w, i) => (
+                <p key={i} className="psbt-status-warning muted">{w}</p>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="psbt-verify-section">
+            <p className="terminal-heading">&gt; OUTPUTS</p>
+            {verifyResult.outputs.map((out, i) => (
+              <div key={i} className="muted psbt-input-row">
+                <span className="psbt-output-type">[{out.type}]</span>{" "}
+                {out.address ? truncateMiddle(out.address, 32) : "unknown"}{" "}
+                · {out.valueSats !== null ? formatBalance(out.valueSats, balanceUnit) : "?"}
+                {out.belongsToWallet ? " · wallet" : ""}
+              </div>
+            ))}
+          </div>
+
+          <div className="psbt-verify-section">
+            <p className="terminal-heading">&gt; INPUTS</p>
+            {verifyResult.inputs.map((inp, i) => (
+              <div key={i} className="muted psbt-input-row">
+                {truncateMiddle(`${inp.txid}:${inp.vout}`, 28)}{" "}
+                · {inp.valueSats !== null ? formatBalance(inp.valueSats, balanceUnit) : "?"}
+                {inp.belongsToWallet ? " · wallet" : " · external"}
+              </div>
+            ))}
+          </div>
+
+          {verifyResult.extractable && verifyResult.txHex ? (
+            <div className="psbt-base64-block">
+              <p className="terminal-heading">&gt; TRANSACTION HEX (ready to broadcast)</p>
+              {verifyResult.txid ? (
+                <p className="muted psbt-change-addr">txid: {verifyResult.txid}</p>
+              ) : null}
+              <textarea
+                className="psbt-textarea"
+                readOnly
+                value={verifyResult.txHex}
+                rows={4}
+              />
+              <div className="psbt-actions">
+                <button
+                  className="compact-button"
+                  type="button"
+                  onClick={() => void copyTxHex()}
+                >
+                  {copiedTxHex ? "Copied!" : "Copy Tx Hex"}
+                </button>
+              </div>
+              <p className="muted psbt-safety-footer">
+                This transaction has not been broadcast. Broadcasting is not available in this version.
+              </p>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </details>
