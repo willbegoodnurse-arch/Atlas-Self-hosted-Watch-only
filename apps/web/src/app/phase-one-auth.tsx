@@ -2588,6 +2588,7 @@ function CreatePsbtBuilderPanel({
   const [feeRateInput, setFeeRateInput] = useState("5");
   const [feeEstimates, setFeeEstimates] = useState<FeeEstimatesResponse["estimates"] | null>(null);
   const [feeEstimateMessage, setFeeEstimateMessage] = useState("");
+  const [feePresetSource, setFeePresetSource] = useState<"Custom" | "Fastest" | "Medium" | "Slow">("Custom");
   const [addressLimit, setAddressLimit] = useState(20);
   const [psbtResult, setPsbtResult] = useState<CreatePsbtResponse | null>(null);
   const [psbtStatus, setPsbtStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
@@ -2595,6 +2596,7 @@ function CreatePsbtBuilderPanel({
   const [copied, setCopied] = useState(false);
   const [exportFormat, setExportFormat] = useState<"text" | "qr" | "animated" | "bbqr">("text");
   const [qrDataUrl, setQrDataUrl] = useState("");
+  const [qrExportMessage, setQrExportMessage] = useState("");
 
   useEffect(() => {
     void refreshBuilderUtxos();
@@ -2613,18 +2615,23 @@ function CreatePsbtBuilderPanel({
   useEffect(() => {
     if (!psbtResult || exportFormat !== "qr") {
       setQrDataUrl("");
+      setQrExportMessage("");
       return;
     }
 
+    setQrExportMessage("Preparing single QR...");
     void QRCode.toDataURL(psbtResult.psbtBase64, {
       errorCorrectionLevel: "M",
       margin: 2,
       width: 320
     })
-      .then(setQrDataUrl)
+      .then((dataUrl) => {
+        setQrDataUrl(dataUrl);
+        setQrExportMessage("");
+      })
       .catch(() => {
         setQrDataUrl("");
-        setPsbtMessage("PSBT is too large for a single QR. Use text export, or animated QR when available.");
+        setQrExportMessage("This PSBT is too large for a single QR. Use text export or wait for animated QR / BBQr support.");
       });
   }, [psbtResult, exportFormat]);
 
@@ -2653,7 +2660,6 @@ function CreatePsbtBuilderPanel({
       const response = await apiRequest<FeeEstimatesResponse>(apiUrl, "/api/fees/recommended");
       setFeeEstimates(response.estimates);
     } catch {
-      setFeeEstimates(null);
       setFeeEstimateMessage("Fee estimates unavailable. Enter a custom fee rate.");
     }
   }
@@ -2699,6 +2705,7 @@ function CreatePsbtBuilderPanel({
           : feeEstimates?.economyFee ?? feeEstimates?.minimumFee ?? feeEstimates?.hourFee;
     if (value) {
       setFeeRateInput(String(value));
+      setFeePresetSource(kind === "fastest" ? "Fastest" : kind === "medium" ? "Medium" : "Slow");
       setPsbtResult(null);
     }
   }
@@ -2820,6 +2827,12 @@ function CreatePsbtBuilderPanel({
     }
     if (selectedHasUnconfirmed) {
       warnings.push("One or more selected tracked UTXOs is unconfirmed.");
+    }
+    if (feeRate !== null && feeRate >= 100) {
+      warnings.push("Unusually high fee rate. Review the sat/vB value before creating the unsigned PSBT.");
+    }
+    if (estimatedFeeSats !== null && recipientTotalSats > 0 && estimatedFeeSats > recipientTotalSats * 0.1) {
+      warnings.push("Unusually high fee compared with recipient outputs. Review the fee before signing externally.");
     }
 
     return {
@@ -2970,12 +2983,16 @@ function CreatePsbtBuilderPanel({
             value={feeRateInput}
             onChange={(event) => {
               setFeeRateInput(event.target.value);
+              setFeePresetSource("Custom");
               setPsbtResult(null);
             }}
           />
           {parseFeeRate(feeRateInput) !== null && parseFeeRate(feeRateInput)! < 5 ? (
             <span className="muted psbt-field-hint">Low fee rate may not confirm quickly.</span>
           ) : null}
+          <span className="muted psbt-field-hint">
+            Source: {feePresetSource === "Custom" ? "manual entry" : `${feePresetSource} live mempool estimate`}
+          </span>
         </label>
 
         <div className="button-row">
@@ -2993,6 +3010,11 @@ function CreatePsbtBuilderPanel({
           </button>
         </div>
         {feeEstimateMessage ? <p className="status-message">{feeEstimateMessage}</p> : null}
+        {draftPlan.estimatedFeeSats !== null ? (
+          <p className="muted technical-line">
+            Estimated fee: {formatBalance(draftPlan.estimatedFeeSats, "sats")} ({formatBalance(draftPlan.estimatedFeeSats, "btc")}) at {draftPlan.feeRate} sat/vB.
+          </p>
+        ) : null}
       </div>
 
       <div className="spending-plan terminal-panel">
@@ -3000,13 +3022,20 @@ function CreatePsbtBuilderPanel({
         <div className="spending-plan-flow">
           <div>
             <p className="terminal-meta">Input UTXOs</p>
-            {selectedUtxos.length ? selectedUtxos.map((utxo) => (
-              <div className="spending-plan-line" key={utxo.outpoint}>
-                <strong>{formatBalance(utxo.valueSats, "btc")}</strong>
-                <span className="muted">{formatBalance(utxo.valueSats, "sats")} / {truncateMiddle(utxo.outpoint, 18)}</span>
-              </div>
-            )) : <p className="muted">No UTXO selected.</p>}
+            {selectedUtxos.length ? selectedUtxos.map((utxo) => {
+              const addressLabel = getAddressLabel(wallet, utxo.chain, utxo.index);
+              const utxoNote = getUtxoNote(wallet, utxo.txid, utxo.vout);
+              return (
+                <div className="spending-plan-line" key={utxo.outpoint}>
+                  <strong>{formatBalance(utxo.valueSats, "btc")}</strong>
+                  <span className="muted">{formatBalance(utxo.valueSats, "sats")} / {truncateMiddle(utxo.outpoint, 18)}</span>
+                  {addressLabel ? <span className="label-pill">{addressLabel.label}</span> : null}
+                  {utxoNote ? <span className="muted">{utxoNote.note}</span> : null}
+                </div>
+              );
+            }) : <p className="muted">No UTXO selected.</p>}
           </div>
+          <div className="spending-plan-arrow" aria-hidden="true">-&gt;</div>
           <div>
             <p className="terminal-meta">Outputs</p>
             {draftPlan.recipients.map((recipient, index) => (
@@ -3081,22 +3110,33 @@ function CreatePsbtBuilderPanel({
               <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "text" | "qr" | "animated" | "bbqr")}>
                 <option value="text">Text</option>
                 <option value="qr">QR</option>
-                <option value="animated">Animated QR - coming later</option>
-                <option value="bbqr">BBQr - coming later</option>
+                <option value="animated" disabled>Animated QR - coming later</option>
+                <option value="bbqr" disabled>BBQr - coming later</option>
               </select>
+              <span className="muted psbt-field-hint">
+                Animated QR and BBQr require tested fragmentation/encoding support and are intentionally deferred.
+              </span>
             </label>
             {exportFormat === "text" ? (
-              <textarea className="psbt-textarea" readOnly value={psbtResult.psbtBase64} rows={4} />
+              <>
+                <p className="muted">This is an unsigned PSBT. Copy it into an external wallet that holds the private keys.</p>
+                <textarea className="psbt-textarea" readOnly value={psbtResult.psbtBase64} rows={4} />
+              </>
             ) : null}
             {exportFormat === "qr" ? (
-              qrDataUrl ? (
-                <img alt="Unsigned PSBT QR" className="qr-preview" src={qrDataUrl} />
-              ) : (
-                <p className="status-message">Single QR unavailable for this PSBT size. Use text export.</p>
-              )
+              <>
+                <p className="muted">This QR contains an unsigned PSBT. Scan it with a compatible signing wallet.</p>
+                {qrDataUrl ? (
+                  <img alt="Unsigned PSBT QR" className="qr-preview" src={qrDataUrl} />
+                ) : (
+                  <p className="status-message">
+                    {qrExportMessage || "This PSBT is too large for a single QR. Use text export or wait for animated QR / BBQr support."}
+                  </p>
+                )}
+              </>
             ) : null}
             {exportFormat === "animated" || exportFormat === "bbqr" ? (
-              <p className="muted">This export format is intentionally deferred until safe encoding and tests are added.</p>
+              <p className="muted">Animated QR and BBQr require tested fragmentation/encoding support and are intentionally deferred.</p>
             ) : null}
             <div className="psbt-actions">
               <button className="compact-button" type="button" onClick={() => void copyPsbt()}>
@@ -3111,248 +3151,16 @@ function CreatePsbtBuilderPanel({
             </div>
           </div>
 
-          <p className="muted psbt-safety-footer">
-            1. Export this unsigned PSBT. 2. Sign it externally. 3. Paste the signed PSBT into Verify Signed PSBT. 4. Verify every output before broadcasting elsewhere.
-          </p>
-        </div>
-      ) : null}
-    </details>
-  );
-}
-
-function CreatePsbtPanel({
-  apiUrl,
-  balanceUnit,
-  wallet
-}: {
-  apiUrl: string;
-  balanceUnit: "sats" | "btc";
-  wallet: WalletRecord;
-}) {
-  const [recipientAddress, setRecipientAddress] = useState("");
-  const [amountInput, setAmountInput] = useState("");
-  const [feeRateInput, setFeeRateInput] = useState("5");
-  const [addressLimit, setAddressLimit] = useState(20);
-  const [psbtResult, setPsbtResult] = useState<CreatePsbtResponse | null>(null);
-  const [psbtStatus, setPsbtStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
-  const [psbtMessage, setPsbtMessage] = useState("");
-  const [copied, setCopied] = useState(false);
-
-  async function handleCreate() {
-    const amountSats = parseInt(amountInput, 10);
-    const feeRate = parseInt(feeRateInput, 10);
-
-    if (!recipientAddress.trim()) {
-      setPsbtMessage("Recipient address is required.");
-      setPsbtStatus("error");
-      return;
-    }
-    if (!Number.isInteger(amountSats) || amountSats < 1) {
-      setPsbtMessage("Amount must be a positive integer in sats.");
-      setPsbtStatus("error");
-      return;
-    }
-    if (!Number.isInteger(feeRate) || feeRate < 1 || feeRate > 1000) {
-      setPsbtMessage("Fee rate must be 1–1000 sats/vB.");
-      setPsbtStatus("error");
-      return;
-    }
-
-    setPsbtStatus("loading");
-    setPsbtMessage("");
-    setPsbtResult(null);
-
-    try {
-      const result = await apiRequest<CreatePsbtResponse>(
-        apiUrl,
-        `/api/wallets/${wallet.id}/psbt`,
-        {
-          method: "POST",
-          body: JSON.stringify({ recipientAddress: recipientAddress.trim(), amountSats, feeRateSatsPerVbyte: feeRate, addressLimit }),
-          headers: { "Content-Type": "application/json" }
-        }
-      );
-      setPsbtResult(result);
-      setPsbtStatus("done");
-    } catch (error) {
-      setPsbtMessage(error instanceof Error ? error.message : "Failed to create PSBT");
-      setPsbtStatus("error");
-    }
-  }
-
-  async function copyPsbt() {
-    if (!psbtResult) return;
-    try {
-      await navigator.clipboard.writeText(psbtResult.psbtBase64);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setPsbtMessage("Clipboard copy failed. Select and copy manually.");
-    }
-  }
-
-  function downloadPsbt() {
-    if (!psbtResult) return;
-    const blob = new Blob([psbtResult.psbtBase64], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${wallet.name.replace(/\s+/g, "-")}-unsigned.psbt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  const recipientOutput = psbtResult?.outputs.find((o) => o.type === "recipient");
-  const changeOutput = psbtResult?.outputs.find((o) => o.type === "change");
-
-  return (
-    <details className="tx-history-panel wallet-address-panel create-psbt-details">
-      <summary className="wallet-card-header">
-        <p className="terminal-heading">&gt; DRAFT SEND / CREATE UNSIGNED PSBT</p>
-      </summary>
-
-      <div className="psbt-safety-notice muted">
-        Creates an unsigned PSBT only. Review and sign on your cold wallet (Coldcard / Passport / SeedSigner / Keystone / Krux / Jade).
-        Nothing is broadcast from this step. Never enter seed phrases or private keys here.
-      </div>
-
-      <div className="psbt-form">
-        <label className="psbt-field">
-          <span>Recipient address</span>
-          <input
-            className="psbt-input"
-            type="text"
-            value={recipientAddress}
-            placeholder="bc1q… or tb1q…"
-            onChange={(e) => setRecipientAddress(e.target.value)}
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </label>
-
-        <label className="psbt-field">
-          <span>Amount (sats)</span>
-          <input
-            className="psbt-input"
-            type="number"
-            value={amountInput}
-            placeholder="10000"
-            min={1}
-            step={1}
-            onChange={(e) => setAmountInput(e.target.value)}
-          />
-        </label>
-
-        <label className="psbt-field">
-          <span>Fee rate (sats/vB)</span>
-          <input
-            className="psbt-input"
-            type="number"
-            value={feeRateInput}
-            min={1}
-            max={1000}
-            step={1}
-            onChange={(e) => setFeeRateInput(e.target.value)}
-          />
-          {parseInt(feeRateInput, 10) < 5 ? (
-            <span className="muted psbt-field-hint">Low fee rate — may not confirm quickly.</span>
-          ) : null}
-        </label>
-
-        <label className="psbt-field">
-          <span>Address depth</span>
-          <select value={addressLimit} onChange={(e) => setAddressLimit(Number(e.target.value))}>
-            <option value={10}>10</option>
-            <option value={20}>20</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-          </select>
-        </label>
-
-        <button
-          className="compact-button"
-          type="button"
-          disabled={psbtStatus === "loading"}
-          onClick={() => void handleCreate()}
-        >
-          {psbtStatus === "loading" ? "Building PSBT…" : "Create Unsigned PSBT"}
-        </button>
-      </div>
-
-      {psbtMessage ? (
-        <p className="status-message">{psbtMessage}</p>
-      ) : null}
-
-      {psbtResult && psbtStatus === "done" ? (
-        <div className="psbt-result terminal-panel">
-          <p className="terminal-heading">&gt; UNSIGNED PSBT READY</p>
-
-          <dl className="utxo-summary-grid">
-            <div>
-              <dt>inputs</dt>
-              <dd>{psbtResult.inputs.length} UTXOs / {formatBalance(psbtResult.totalInputSats, balanceUnit)}</dd>
-            </div>
-            <div>
-              <dt>send amount</dt>
-              <dd>{recipientOutput ? formatBalance(recipientOutput.valueSats, balanceUnit) : "—"}</dd>
-            </div>
-            <div>
-              <dt>fee</dt>
-              <dd>{formatBalance(psbtResult.feeSats, balanceUnit)} ({psbtResult.feeRateSatsPerVbyte} sats/vB, ~{psbtResult.estimatedVbytes} vB)</dd>
-            </div>
-            {changeOutput ? (
-              <div>
-                <dt>change</dt>
-                <dd>{formatBalance(changeOutput.valueSats, balanceUnit)}</dd>
-              </div>
-            ) : null}
-          </dl>
-
-          {psbtResult.changeAddress ? (
-            <p className="muted psbt-change-addr">
-              Change → {psbtResult.changeAddress}
-            </p>
-          ) : (
-            <p className="muted psbt-change-addr">No change output (dust absorbed into fee)</p>
-          )}
-
-          <div className="psbt-inputs-list">
-            {psbtResult.inputs.map((inp) => (
-              <div key={inp.outpoint} className="muted psbt-input-row">
-                {inp.chain} #{inp.index} · {formatBalance(inp.valueSats, balanceUnit)} · {truncateMiddle(inp.outpoint, 24)}
-              </div>
-            ))}
+          <div className="muted psbt-safety-footer">
+            <p>This app does not sign or broadcast transactions.</p>
+            <ol>
+              <li>Export the unsigned PSBT.</li>
+              <li>Sign it with an external cold wallet.</li>
+              <li>Bring the signed PSBT back to this app.</li>
+              <li>Paste it into Signed PSBT Verification.</li>
+              <li>Verify every output before broadcasting elsewhere.</li>
+            </ol>
           </div>
-
-          <div className="psbt-base64-block">
-            <p className="terminal-heading">&gt; PSBT (base64)</p>
-            <textarea
-              className="psbt-textarea"
-              readOnly
-              value={psbtResult.psbtBase64}
-              rows={4}
-            />
-            <div className="psbt-actions">
-              <button
-                className="compact-button"
-                type="button"
-                onClick={() => void copyPsbt()}
-              >
-                {copied ? "Copied!" : "Copy PSBT"}
-              </button>
-              <button
-                className="secondary-button compact-button"
-                type="button"
-                onClick={downloadPsbt}
-              >
-                Download .psbt
-              </button>
-            </div>
-          </div>
-
-          <p className="muted psbt-safety-footer">
-            Unsigned only. Review all addresses, amounts, and change output on your cold wallet before signing.
-          </p>
         </div>
       ) : null}
     </details>

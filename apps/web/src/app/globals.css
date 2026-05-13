@@ -686,8 +686,9 @@ code {
 
 .spending-plan-flow {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: 16px;
+  align-items: start;
 }
 
 .spending-plan-line {
@@ -699,6 +700,21 @@ code {
 
 .fee-line {
   color: var(--amber);
+}
+
+.spending-plan-arrow {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  padding-top: 30px;
+}
+
+.psbt-safety-footer ol {
+  margin: 6px 0 0 18px;
+  padding: 0;
+}
+
+.psbt-safety-footer li {
+  margin: 3px 0;
 }
 
 .qr-preview {
@@ -934,6 +950,10 @@ label.tx-limit-select select {
 
   .psbt-utxo-select-row {
     grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .spending-plan-arrow {
+    padding-top: 0;
   }
 
   .address-row-header {
