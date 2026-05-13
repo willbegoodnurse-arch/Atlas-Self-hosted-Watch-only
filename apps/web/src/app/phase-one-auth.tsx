@@ -1062,7 +1062,13 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
         <StatusBadge label="MEMPOOL" status={mempoolBadgeStatus} />
         <span className="terminal-meta">mode: {mempoolStatus?.mode ?? "mempool"}</span>
         <span className="terminal-meta">
-          tip: {mempoolStatus?.tipHeight ? new Intl.NumberFormat("en-US").format(mempoolStatus.tipHeight) : "unknown"}
+          tip: {mempoolStatus?.tipHeight
+            ? new Intl.NumberFormat("en-US").format(mempoolStatus.tipHeight)
+            : mempoolStatus?.status === "offline"
+              ? "offline"
+              : mempoolStatus
+                ? "syncing"
+                : "not connected"}
         </span>
       </div>
       <div className="vault-status terminal-panel">
@@ -1901,6 +1907,7 @@ function WalletDetailView({
   const [utxoBadgeStatus, setUtxoBadgeStatus] = useState<StatusKind>("degraded");
   const [refreshToken, setRefreshToken] = useState(0);
   const [refreshingAll, setRefreshingAll] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const warnings = walletSafetyWarnings(wallet);
   const accountPath = wallet.accountPath ?? wallet.derivationPath ?? "not provided";
 
@@ -1909,6 +1916,7 @@ function WalletDetailView({
     try {
       await onRefreshConnection();
       setRefreshToken((current) => current + 1);
+      setLastRefreshed(new Date());
     } finally {
       setRefreshingAll(false);
     }
@@ -1931,6 +1939,9 @@ function WalletDetailView({
             <StatusBadge label="BALANCE" status={balanceBadgeStatus} />
             <StatusBadge label="TXS" status={txBadgeStatus} />
             <StatusBadge label="UTXOS" status={utxoBadgeStatus} />
+            {lastRefreshed ? (
+              <span className="terminal-meta muted">refreshed {lastRefreshed.toLocaleTimeString()}</span>
+            ) : null}
           </div>
           <ConnectionPanel
             error={mempoolStatusError}
@@ -2055,7 +2066,7 @@ function UtxoPanel({
         response.status === "offline" ? "offline" : "degraded"
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to load UTXOs");
+      setMessage(error instanceof Error ? error.message : "UTXO lookup failed — API server may be unreachable");
       setUtxoResponse(null);
       setUtxoStatus("error");
       onUtxoStatusChange("offline");
@@ -2068,7 +2079,7 @@ function UtxoPanel({
   return (
     <section className="tx-history-panel wallet-address-panel">
       <div className="wallet-card-header">
-        <p className="terminal-heading">&gt; UTXOS</p>
+        <p className="terminal-heading">&gt; TRACKED UTXOs</p>
         <button
           className="secondary-button compact-button"
           disabled={utxoStatus === "loading"}
@@ -2143,8 +2154,8 @@ function UtxoPanel({
           {utxoResponse.status !== "online" ? (
             <span className="muted">
               {utxoResponse.status === "offline"
-                ? "UTXO lookup unavailable. Check backend connection."
-                : "Some address UTXOs could not be fetched. Results may be incomplete."}
+                ? "UTXO lookup failed — Mempool/Fulcrum connection unavailable. Check API settings."
+                : "Some address UTXOs could not be fetched — results may be incomplete."}
             </span>
           ) : null}
         </div>
@@ -2157,7 +2168,7 @@ function UtxoPanel({
           <p className="terminal-heading">&gt; SUMMARY</p>
           <dl className="utxo-summary-grid">
             <div>
-              <dt>total utxos</dt>
+              <dt>tracked UTXOs</dt>
               <dd>{summary.totalUtxos}</dd>
             </div>
             <div>
@@ -2169,15 +2180,19 @@ function UtxoPanel({
               <dd>{summary.unconfirmedUtxos}</dd>
             </div>
             <div>
-              <dt>total</dt>
-              <dd>{formatBalance(summary.totalSats, balanceUnit)}</dd>
+              <dt>total value</dt>
+              <dd>
+                {formatBalance(summary.totalSats, "sats")}
+                {" "}
+                <span className="muted">({formatBalance(summary.totalSats, "btc")})</span>
+              </dd>
             </div>
             <div>
-              <dt>confirmed sats</dt>
+              <dt>confirmed</dt>
               <dd>{formatBalance(summary.confirmedSats, balanceUnit)}</dd>
             </div>
             <div>
-              <dt>unconfirmed sats</dt>
+              <dt>unconfirmed</dt>
               <dd>{formatBalance(summary.unconfirmedSats, balanceUnit)}</dd>
             </div>
             {summary.largestUtxoSats !== null ? (
@@ -2208,9 +2223,10 @@ function UtxoPanel({
             return (
               <div key={utxo.outpoint} className="utxo-row terminal-panel">
                 <div className="utxo-amount-line">
-                  <span className="utxo-value">{formatBalance(utxo.valueSats, balanceUnit)}</span>
+                  <span className="utxo-value">{formatBalance(utxo.valueSats, "sats")}</span>
+                  <span className="muted">({formatBalance(utxo.valueSats, "btc")})</span>
                   <span className={utxo.status === "confirmed" ? "status-badge status-online" : "status-badge status-degraded"}>
-                    {utxo.status}
+                    {utxo.status === "confirmed" ? "confirmed — available for PSBT" : "unconfirmed"}
                   </span>
                   <span className="muted utxo-chain-index">
                     {utxo.chain} #{utxo.index}
@@ -2981,21 +2997,25 @@ function ConnectionPanel({
   const status = mempoolStatus?.status ?? (error ? "offline" : "degraded");
   const badgeStatus: StatusKind =
     status === "online" ? "online" : status === "offline" ? "offline" : "degraded";
-  const backendKind = runtimeSettings?.backendKind ?? "unknown";
+  const backendKind = runtimeSettings?.backendKind ?? "not configured";
   const endpoint =
     mempoolStatus?.baseUrl ??
     mempoolStatus?.url ??
     runtimeSettings?.mempoolApiUrl ??
-    "unknown";
+    "not available";
   const tip = mempoolStatus?.tipHeight
     ? new Intl.NumberFormat("en-US").format(mempoolStatus.tipHeight)
-    : "unknown";
+    : status === "offline"
+      ? "offline"
+      : mempoolStatus
+        ? "syncing"
+        : "not connected";
   const latency =
     typeof mempoolStatus?.latencyMs === "number"
       ? `${mempoolStatus.latencyMs}ms`
       : status === "offline"
         ? "timeout"
-        : "unknown";
+        : "—";
   const checkedAt = formatCheckedAt(mempoolStatus?.checkedAt);
   const errors = mempoolStatus?.errors ?? (error ? [error] : []);
   const helper = getMempoolHelperText(badgeStatus);
@@ -3182,6 +3202,7 @@ function WalletAddressPanel({
   const [balanceFailedCount, setBalanceFailedCount] = useState(0);
   const [message, setMessage] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
+  const [discovery, setDiscovery] = useState<WalletBalanceResponse["discovery"]>(null);
   const [loading, setLoading] = useState(false);
   const [qrAddress, setQrAddress] = useState<DerivedAddress | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState("");
@@ -3239,6 +3260,7 @@ function WalletAddressPanel({
       setUsageLookupNote(response.lookupError ?? "");
       setNextReceiveLookupNote(response.nextReceiveLookupError ?? "");
       setBalanceFailedCount(response.failedAddresses?.length ?? 0);
+      setDiscovery(response.discovery ?? null);
       onBalanceStatusChange(
         response.status === "offline"
           ? "offline"
@@ -3247,7 +3269,7 @@ function WalletAddressPanel({
             : "online"
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to look up wallet balance");
+      setMessage(error instanceof Error ? error.message : "Balance lookup failed — API server may be unreachable");
       setAddresses([]);
       setNextReceiveAddress(null);
       setBalance(null);
@@ -3256,6 +3278,7 @@ function WalletAddressPanel({
       setUsageLookupNote("");
       setNextReceiveLookupNote("");
       setBalanceFailedCount(0);
+      setDiscovery(null);
       onBalanceStatusChange("offline");
     } finally {
       setLoading(false);
@@ -3355,8 +3378,9 @@ function WalletAddressPanel({
       {copyMessage ? <p className="status-message">{copyMessage}</p> : null}
       {usageLookupNote ? (
         <p className="status-message">
-          Some address balances could not be fetched. Total may be incomplete.
-          {balanceFailedCount > 0 ? ` Failed lookups: ${balanceFailedCount}.` : ""}
+          {balanceFailedCount > 0
+            ? `${balanceFailedCount} address lookup(s) failed — balance total may be incomplete. API may be rate-limiting or unreachable.`
+            : "Some address balances could not be fetched — total may be incomplete."}
         </p>
       ) : null}
 
@@ -3364,7 +3388,12 @@ function WalletAddressPanel({
         <div className="wallet-card-header">
           <div>
             <p className="terminal-heading">&gt; BALANCE</p>
-            <h2 className="balance-total">{formatBalance(balance?.totalBalance ?? 0, balanceUnit)}</h2>
+            <h2 className="balance-total">
+              {loading ? "syncing…" : balance != null ? formatBalance(balance.totalBalance, "sats") : "—"}
+            </h2>
+            {!loading && balance != null ? (
+              <p className="muted">{formatBalance(balance.totalBalance, "btc")}</p>
+            ) : null}
           </div>
           <div className="tab-row">
             <button
@@ -3386,22 +3415,35 @@ function WalletAddressPanel({
         <dl className="balance-grid">
           <div>
             <dt>Confirmed</dt>
-            <dd>{formatBalance(balance?.confirmedBalance ?? 0, balanceUnit)}</dd>
+            <dd>{loadedBalance(balance?.confirmedBalance, loading, balanceUnit)}</dd>
           </div>
           <div>
             <dt>Unconfirmed</dt>
-            <dd>{formatBalance(balance?.unconfirmedBalance ?? 0, balanceUnit)}</dd>
+            <dd>{loadedBalance(balance?.unconfirmedBalance, loading, balanceUnit)}</dd>
           </div>
           <div>
             <dt>Receive</dt>
-            <dd>{formatBalance(receiveBalance?.totalBalance ?? 0, balanceUnit)}</dd>
+            <dd>{loadedBalance(receiveBalance?.totalBalance, loading, balanceUnit)}</dd>
           </div>
           <div>
             <dt>Change</dt>
-            <dd>{formatBalance(changeBalance?.totalBalance ?? 0, balanceUnit)}</dd>
+            <dd>{loadedBalance(changeBalance?.totalBalance, loading, balanceUnit)}</dd>
           </div>
         </dl>
       </div>
+
+      {!loading && addresses.length > 0 ? (
+        <p className="terminal-meta muted">
+          recv {addresses.filter((a) => a.chain === "receive").length} addr
+          {" · "}chg {addresses.filter((a) => a.chain === "change").length} addr
+          {" · "}gap limit {discovery?.gapLimit ?? wallet.gapLimit}
+          {discovery?.complete === true ? " · scan complete" : ""}
+          {!discovery?.complete && discovery != null && discovery.checkedCount >= discovery.maxDiscoveryLimit
+            ? " · max scan depth reached — increase gap limit for deeper discovery"
+            : ""}
+          {addresses.filter((a) => a.usage === "used").length === 0 && !loading ? " · no used addresses found" : ""}
+        </p>
+      ) : null}
 
       <div className="next-address-placeholder">
         <dt>&gt; NEXT RECEIVE</dt>
@@ -3826,8 +3868,10 @@ function TransactionHistoryPanel({
       ) : transactions.length === 0 ? (
         <p className="muted">
           {txStatus === "offline"
-            ? "Transaction lookup failed. Check mempool connection."
-            : "No transactions found for scanned addresses."}
+            ? "Transaction lookup failed — Mempool/Fulcrum connection unavailable. Check API settings."
+            : txStatus === "partial"
+              ? "Some transactions may be missing — API returned partial results. Try a deeper scan or local backend."
+              : "No transactions found in scanned address range."}
         </p>
       ) : (
         <div className="tx-list">
@@ -3915,6 +3959,9 @@ function TransactionRow({
         <span className={`usage-pill usage-${tx.status === "confirmed" ? "used" : tx.status === "unconfirmed" ? "unused" : "unknown"}`}>
           {tx.status}
         </span>
+        {tx.feeSats !== null ? (
+          <span className="terminal-meta muted">fee: {formatBalance(tx.feeSats, balanceUnit)}</span>
+        ) : null}
         {formattedTime ? (
           <span className="terminal-meta">{formattedTime}</span>
         ) : (
@@ -4164,7 +4211,7 @@ function AddressTable({
                 <dt>Status</dt>
                 <span className={`usage-pill usage-${address.usage}`}>{address.usage}</span>
                 <span className="muted">
-                  txCount: {address.txCount === null || address.txCount === undefined ? "unknown" : address.txCount}
+                  txCount: {address.txCount ?? "—"}
                 </span>
               </div>
               <div className="button-row address-actions">
@@ -4291,12 +4338,12 @@ function truncateEndpoint(endpoint: string): string {
 
 function formatCheckedAt(value: string | undefined): string {
   if (!value) {
-    return "unknown";
+    return "never";
   }
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "unknown";
+    return "never";
   }
 
   return date.toLocaleTimeString([], {
@@ -4323,7 +4370,13 @@ function addressLabelKey(address: Pick<DerivedAddress, "chain" | "index">): stri
 }
 
 function formatNullableBalance(value: number | null | undefined, unit: "sats" | "btc"): string {
-  return value === null || value === undefined ? "unknown" : formatBalance(value, unit);
+  return value === null || value === undefined ? "—" : formatBalance(value, unit);
+}
+
+function loadedBalance(value: number | undefined, loading: boolean, unit: "sats" | "btc"): string {
+  if (loading) return "…";
+  if (value == null) return "—";
+  return formatBalance(value, unit);
 }
 
 function formatBalance(sats: number, unit: "sats" | "btc"): string {
