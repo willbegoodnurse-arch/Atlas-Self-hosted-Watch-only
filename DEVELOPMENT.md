@@ -1,6 +1,6 @@
 # Development Setup
 
-Use this guide for local watch wallet development.
+Use this guide for local Atlas development.
 
 ## Requirements
 

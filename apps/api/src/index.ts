@@ -15,7 +15,7 @@ import { redactSensitive } from "./vault/redact.js";
 
 const port = Number(process.env.API_PORT ?? 3011);
 const host = process.env.API_HOST ?? "0.0.0.0";
-const appName = process.env.APP_NAME ?? "watch wallet";
+const appName = process.env.APP_NAME ?? "Atlas";
 
 const server = Fastify({
   logger: {

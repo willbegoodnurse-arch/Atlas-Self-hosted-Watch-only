@@ -407,7 +407,7 @@ export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
         setView("setup");
       }
     } catch (error) {
-      console.error("watch wallet session request failed", {
+      console.error("Atlas session request failed", {
         url: buildApiUrl(apiUrl, "/api/auth/session"),
         error
       });
@@ -546,7 +546,7 @@ export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
       <section className={view === "dashboard" ? "auth-panel app-panel" : "auth-panel"}>
         <div className="brand-row">
           <div>
-            <p className="eyebrow">watch wallet</p>
+            <p className="eyebrow">Atlas</p>
             <h1>{view === "dashboard" ? (initialWalletId ? "Wallet detail" : "Wallets") : "Secure access"}</h1>
           </div>
           <span className="phase-pill">{view === "dashboard" ? "PHASE 8" : "AUTH NODE"}</span>
@@ -555,7 +555,7 @@ export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
         {message ? <p className="status-message">{message}</p> : null}
         <p className="api-diagnostic">API: {apiUrl}</p>
         {view !== "loading" ? (
-          <p className="terminal-mantra">Self-hosted watch-only Bitcoin terminal. We are all Satoshi.</p>
+          <p className="terminal-mantra">Self-hosted Bitcoin watch-only wallet for your own node.</p>
         ) : null}
 
         {view === "loading" ? <p className="muted">Checking session...</p> : null}
@@ -5635,7 +5635,7 @@ async function apiRequest<T = unknown>(
   }
 
   const url = buildApiUrl(apiUrl, path);
-  console.info("watch wallet API request", url);
+  console.info("Atlas API request", url);
 
   let response: Response;
   try {
@@ -5645,7 +5645,7 @@ async function apiRequest<T = unknown>(
       headers
     });
   } catch (error) {
-    console.error("watch wallet API fetch failed", { url, error });
+    console.error("Atlas API fetch failed", { url, error });
     throw new Error(
       `Failed to fetch ${url}. Check NEXT_PUBLIC_API_URL and API CORS settings.`
     );

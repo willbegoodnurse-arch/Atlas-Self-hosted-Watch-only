@@ -1,6 +1,6 @@
 # PSBT Workflow Guide
 
-watch wallet creates unsigned PSBTs and verifies signed PSBTs. It does not sign, finalize unsigned PSBTs, or broadcast transactions.
+Atlas creates unsigned PSBTs and verifies signed PSBTs. It does not sign, finalize unsigned PSBTs, or broadcast transactions.
 
 Treat the unsigned PSBT builder as a spending plan for an external cold wallet.
 
@@ -40,7 +40,7 @@ Animated QR and BBQr require tested fragmentation and encoding support. They are
 
 After external signing:
 
-1. Bring the signed PSBT back to watch wallet.
+1. Bring the signed PSBT back to Atlas.
 2. Paste it into Signed PSBT Verification.
 3. Optionally enter expected recipient, expected amount, expected change address, and expected fee.
 4. Review status, warnings, and errors.
@@ -49,7 +49,7 @@ After external signing:
 7. Copy txHex only if the PSBT is signed, finalized/extractable, and the details are safe.
 8. Broadcast elsewhere only if you intentionally choose to do so.
 
-watch wallet does not broadcast.
+Atlas does not broadcast.
 
 ## What To Verify Before Broadcasting Elsewhere
 
@@ -92,4 +92,4 @@ Do not ignore warnings just because labels or notes look familiar.
 - No full xpub exposure in normal API responses.
 - No labels or notes are used for ownership or safety classification.
 
-If a cold wallet shows a different recipient, amount, change output, or fee than watch wallet showed, stop and investigate before signing or broadcasting elsewhere.
+If a cold wallet shows a different recipient, amount, change output, or fee than Atlas showed, stop and investigate before signing or broadcasting elsewhere.

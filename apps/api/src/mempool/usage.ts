@@ -571,7 +571,7 @@ function debugMempoolLookup(event: string, details: Record<string, unknown>): vo
     return;
   }
 
-  console.debug("watch wallet mempool lookup", {
+  console.debug("Atlas mempool lookup", {
     event,
     ...details
   });

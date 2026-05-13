@@ -1,6 +1,10 @@
-# watch wallet
+# Atlas
 
-watch wallet is a self-hosted Bitcoin watch-only web wallet. It is intended for a Raspberry Pi, Docker, or local server setup where the operator wants to view wallet activity, organize watch-only metadata, build unsigned PSBTs, and verify signed PSBTs without putting signing material on the server.
+Self-hosted Bitcoin watch-only wallet for your own node.
+
+내 노드에서 실행하는 비트코인 보기전용 지갑 대시보드.
+
+Atlas is a self-hosted Bitcoin watch-only web wallet. It is intended for a Raspberry Pi, Docker, or local server setup where the operator wants to view wallet activity, organize watch-only metadata, build unsigned PSBTs, and verify signed PSBTs without putting signing material on the server.
 
 The project is an MVP. It is useful for watch-only coordination, but it is not audited and should not be treated as a production-hardened custody product.
 
@@ -49,7 +53,7 @@ The project is an MVP. It is useful for watch-only coordination, but it is not a
 
 ## Security Model
 
-watch wallet is watch-only by design.
+Atlas is watch-only by design.
 
 - The app never asks for seed phrases or private keys.
 - The app rejects xprv, yprv, zprv, WIF private keys, and seed phrase-looking input.

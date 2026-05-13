@@ -5,7 +5,7 @@ import "../env.js";
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
 export const authConfig = {
-  appName: process.env.APP_NAME ?? "watch wallet",
+  appName: process.env.APP_NAME ?? "Atlas",
   dataDir: process.env.DATA_DIR ?? path.resolve(moduleDir, "..", "..", "data"),
   sessionCookieName: "watch_wallet_session",
   sessionSecret: process.env.SESSION_SECRET ?? "change_this_secret",

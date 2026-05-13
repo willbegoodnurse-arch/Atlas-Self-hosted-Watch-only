@@ -1,8 +1,8 @@
 # Raspberry Pi Deployment Guide
 
-This guide describes a practical MVP deployment for watch wallet on a Raspberry Pi or small Linux server.
+This guide describes a practical MVP deployment for Atlas on a Raspberry Pi or small Linux server.
 
-watch wallet is a self-hosted watch-only wallet. It does not sign transactions, broadcast transactions, store seed phrases, or store private keys.
+Atlas is a self-hosted watch-only wallet. It does not sign transactions, broadcast transactions, store seed phrases, or store private keys.
 
 ## Target Setup
 
@@ -140,7 +140,7 @@ Example API service:
 
 ```ini
 [Unit]
-Description=watch wallet API
+Description=Atlas API
 After=network-online.target
 
 [Service]
@@ -158,7 +158,7 @@ Example web service:
 
 ```ini
 [Unit]
-Description=watch wallet web
+Description=Atlas web
 After=network-online.target watch-wallet-api.service
 
 [Service]

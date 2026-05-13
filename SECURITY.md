@@ -1,6 +1,6 @@
 # Security Policy
 
-watch wallet is a self-hosted Bitcoin watch-only wallet. It is designed to help view wallet activity, create unsigned PSBTs, and verify signed PSBTs without putting signing material on the server.
+Atlas is a self-hosted Bitcoin watch-only wallet. It is designed to help view wallet activity, create unsigned PSBTs, and verify signed PSBTs without putting signing material on the server.
 
 This project is not audited.
 
@@ -21,7 +21,7 @@ If a change weakens any of these boundaries, it should be treated as a security 
 
 Extended public keys such as xpub, ypub, and zpub are not signing keys, but they are privacy-sensitive. Anyone with a full extended public key can monitor wallet history and future addresses.
 
-watch wallet stores watch-only wallet records in the encrypted vault:
+Atlas stores watch-only wallet records in the encrypted vault:
 
 ```text
 apps/api/data/wallets.enc
