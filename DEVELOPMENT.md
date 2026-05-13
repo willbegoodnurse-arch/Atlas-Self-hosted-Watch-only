@@ -1,17 +1,25 @@
 # Development Setup
 
-Use this guide to continue watch wallet development on another computer.
+Use this guide for local watch wallet development.
 
-## Clone
+## Requirements
+
+- Node.js 20 or newer.
+- npm.
+- A mempool-compatible HTTP backend for balance, UTXO, fee, and transaction lookups.
+
+## Clone And Install
 
 ```bash
 git clone https://github.com/willbegoodnurse-arch/watch-wallet.git
 cd watch-wallet
+npm install
 ```
 
-## Install
+On the current Windows development machine:
 
-```bash
+```powershell
+cd C:\Users\USER\watch-wallet
 npm install
 ```
 
@@ -19,32 +27,36 @@ npm install
 
 Create a local environment file:
 
-```bash
-cp .env.example .env
+```powershell
+Copy-Item .env.example .env
 ```
 
-For local development, keep these values unless your ports are different:
+For local development, these values are usually enough:
 
 ```env
 WEB_ORIGIN=http://localhost:3000,http://localhost:3010
 NEXT_PUBLIC_API_URL=http://localhost:3011
 COOKIE_SECURE=false
+MEMPOOL_API_URL=http://localhost:8080/api
+VAULT_AUTO_LOCK_MINUTES=30
 ```
 
-Set a unique `SESSION_SECRET` on each real device. Do not commit `.env`.
+Set a unique `SESSION_SECRET` on real devices. Do not commit `.env`.
 
-## Run
+## Run On Windows PowerShell
+
+Use `npm.cmd` if `npm.ps1` is blocked by Execution Policy.
 
 Start the API:
 
-```bash
-npm run dev:api
+```powershell
+npm.cmd run dev --workspace=apps/api
 ```
 
-Start the web app in another terminal:
+Start the web app in a second terminal:
 
-```bash
-npm run dev:web
+```powershell
+npm.cmd run dev --workspace=apps/web
 ```
 
 Open:
@@ -53,49 +65,52 @@ Open:
 http://localhost:3000
 ```
 
-The API should answer:
+The API normally listens on:
 
 ```text
-http://localhost:3011/api/auth/session
+http://localhost:3011
 ```
 
-## Build Check
-
-On Windows PowerShell:
-
-```powershell
-npm.cmd run build
-```
-
-On other shells:
+## Run On Other Shells
 
 ```bash
-npm run build
+npm run dev --workspace=apps/api
+npm run dev --workspace=apps/web
 ```
+
+## Validation
+
+```powershell
+npm.cmd run typecheck --workspace=apps/web
+npm.cmd run typecheck --workspace=apps/api
+npm.cmd test --workspace=apps/api
+```
+
+`apps/web` currently has no frontend test script.
 
 ## Local Data
 
-Phase 1 stores local authentication data in:
+Authentication data:
 
 ```text
 apps/api/data/auth.json
 ```
 
-This file is ignored by Git. It is device-local and should not be copied into the repository.
-
-Phase 2 stores encrypted wallet vault data in:
+Encrypted watch-only wallet vault:
 
 ```text
 apps/api/data/wallets.enc
 ```
 
-This file is also ignored by Git. It must contain only encrypted vault data.
+These files are ignored by Git. `wallets.enc` contains encrypted watch-only wallet data, labels, and notes. The vault password is required to unlock it and is not recoverable by the app.
 
-## Security Boundaries
+## Development Boundaries
 
-- Do not add seed phrase input.
-- Do not add private key input.
-- Do not store raw xpub, ypub, or zpub values on the server.
-- Store watch-only wallet records only inside the encrypted vault.
-- Future sending features must use unsigned PSBTs and external signers.
-
+- Do not add signing.
+- Do not add broadcast.
+- Do not add seed phrase handling.
+- Do not add private key handling.
+- Do not add xprv, yprv, zprv, or WIF handling except rejection.
+- Do not expose full xpub, ypub, or zpub in normal API responses.
+- Do not store labels or notes in localStorage/sessionStorage.
+- Keep labels and notes as metadata only.

@@ -1,63 +1,101 @@
 # Security Policy
 
-watch wallet is a watch-only Bitcoin wallet dashboard.
-It never asks for, stores, or transmits private keys or seed phrases.
-Do not enter your seed phrase or private key anywhere in this application.
+watch wallet is a self-hosted Bitcoin watch-only wallet. It is designed to help view wallet activity, create unsigned PSBTs, and verify signed PSBTs without putting signing material on the server.
 
-Extended public keys such as xpub, ypub, and zpub can reveal your full wallet history.
-watch wallet stores them only in an encrypted server-side wallet store.
-Protect access to the Raspberry Pi, browser profile, and device.
+This project is not audited.
 
-watch wallet은 보기전용 비트코인 지갑 대시보드입니다.
-이 앱은 시드 문구나 개인키를 절대 요구하지 않습니다.
-절대 이 앱에 시드 문구나 개인키를 입력하지 마십시오.
+## Hard Security Boundaries
 
-xpub, ypub, zpub은 지갑 전체 거래내역을 노출할 수 있는 민감한 정보입니다.
-watch wallet은 이를 Raspberry Pi 서버의 암호화된 지갑 저장소에만 저장합니다.
-Raspberry Pi, 기기, 브라우저 프로필 접근 권한을 안전하게 보호하십시오.
+- No seed phrase input.
+- No private key input.
+- No xprv, yprv, zprv, or WIF support except rejection.
+- No signing.
+- No transaction broadcast.
+- No custody.
+- No normal full xpub, ypub, or zpub exposure in API responses.
+- No labels or notes used for security classification.
 
-## Watch-Only Rules
+If a change weakens any of these boundaries, it should be treated as a security regression.
 
-- Seed phrase input is prohibited.
-- Private key input is prohibited.
-- Server-side plaintext storage of xpub, ypub, or zpub values is prohibited.
-- Server-side storage of full derived address lists is prohibited by default.
-- Wallet labels, address labels, and transaction memos must not be stored in plaintext on the server.
-- The recommended access model is local network, Tailscale, or Tor.
-- Public internet port forwarding is discouraged.
+## Watch-Only Data
 
-## Sensitive Data
+Extended public keys such as xpub, ypub, and zpub are not signing keys, but they are privacy-sensitive. Anyone with a full extended public key can monitor wallet history and future addresses.
 
-xpub, ypub, and zpub values are not signing keys, but they can reveal wallet history and future receive addresses. Treat them as sensitive metadata.
+watch wallet stores watch-only wallet records in the encrypted vault:
 
-## Future PSBT Sending Model
+```text
+apps/api/data/wallets.enc
+```
 
-watch wallet may later support PSBT-based sending and broadcasting, but it must remain a non-signing application.
+The vault password:
 
-The planned future flow is:
+- Is required for manual unlock.
+- Is not stored in `.env`.
+- Is not recoverable by the app.
+- Derives a memory-only vault key.
 
-- Select UTXOs in watch wallet.
-- Enter recipient address, amount, and fee settings.
-- Choose a change address.
-- Create an unsigned PSBT.
-- Sign the PSBT in an external signer such as Nunchuk, Sparrow, or a hardware wallet.
-- Import the signed PSBT back into watch wallet.
-- Extract the raw transaction.
-- Broadcast through the user's own node.
+Normal wallet API responses must use safe serialization and masked extended public keys.
 
-watch wallet must never ask for, store, or transmit seed phrases or private keys. The server must not store raw xpub, ypub, or zpub values.
+## Vault Behavior
+
+- Vault unlock is manual.
+- The derived vault key is memory-only.
+- The vault auto-locks after inactivity based on `VAULT_AUTO_LOCK_MINUTES`.
+- Logout locks the vault.
+- Process restart discards the in-memory vault key.
+
+## Labels And Notes
+
+Address labels, UTXO notes, and transaction notes are metadata only.
+
+They must never affect:
+
+- Ownership classification.
+- Receive/change/unknown classification.
+- Recipient detection.
+- PSBT verification.
+- External or unknown output warnings.
+- Transaction direction.
+- UTXO validity.
+- Wallet security decisions.
+
+Secret-looking metadata must be rejected or safely handled without echoing the sensitive value in errors.
+
+## PSBT Model
+
+Unsigned PSBT builder:
+
+- Uses tracked UTXOs.
+- Creates unsigned PSBT base64.
+- Does not sign.
+- Does not finalize.
+- Does not extract txHex as broadcast-ready output.
+- Does not broadcast.
+
+Signed PSBT verification:
+
+- Accepts a signed PSBT for analysis.
+- Can report whether it is signed, finalizable, finalized, or extractable.
+- Can expose txHex only after signed PSBT verification when extractable.
+- Still does not broadcast.
+
+Users must verify recipient, amount, change, and fee before broadcasting elsewhere.
+
+## Recommended Access Model
+
+- Local network.
+- Tailscale.
+- Tor, if the operator configures it carefully.
+
+Public internet exposure is discouraged. If the app is exposed beyond a trusted private network, use HTTPS, a hardened reverse proxy, firewall restrictions, and additional access controls.
 
 ## Reporting Vulnerabilities
 
-If this project has a private security advisory channel available, please use it. Otherwise, contact the maintainers privately before opening a public issue with exploit details.
+If a private security advisory channel is available, use it. Otherwise, contact the maintainer privately before opening a public issue with exploit details.
 
 Please include:
 
-- Affected version or commit
-- Impact
-- Reproduction steps
-- Whether private key, seed phrase, xpub, ypub, zpub, address, or transaction data could be exposed
-
-## Phase 2 Status
-
-Phase 2 implements administrator authentication and encrypted watch-only wallet registration. It does not implement address derivation, balance lookup, transaction lookup, PSBT generation, signing, or broadcast.
+- Affected commit or version.
+- Impact.
+- Reproduction steps.
+- Whether seed phrases, private keys, xpub/ypub/zpub values, addresses, labels, notes, or transaction data could be exposed.
