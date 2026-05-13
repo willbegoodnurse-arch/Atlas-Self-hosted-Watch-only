@@ -2569,19 +2569,108 @@ function VerifyPsbtPanel({
     }
   }
 
+  // ---- derived summary values ----
   const statusLabel =
-    verifyResult?.status === "valid"
-      ? "VALID"
-      : verifyResult?.status === "warning"
-        ? "WARNING"
-        : "INVALID";
-
+    verifyResult?.status === "valid" ? "VALID"
+    : verifyResult?.status === "warning" ? "WARNING"
+    : "INVALID";
   const statusClass =
-    verifyResult?.status === "valid"
-      ? "psbt-status-valid"
-      : verifyResult?.status === "warning"
-        ? "psbt-status-warning"
-        : "psbt-status-invalid";
+    verifyResult?.status === "valid" ? "psbt-status-valid"
+    : verifyResult?.status === "warning" ? "psbt-status-warning"
+    : "psbt-status-invalid";
+
+  const totalInputSats =
+    verifyResult?.inputs.reduce((s, i) => s + (i.valueSats ?? 0), 0) ?? 0;
+  const totalOutputSats =
+    verifyResult?.outputs.reduce((s, o) => s + o.valueSats, 0) ?? 0;
+  const walletInputCount =
+    verifyResult?.inputs.filter((i) => i.belongsToWallet).length ?? 0;
+  const recipientCount =
+    verifyResult?.outputs.filter((o) => o.type === "recipient").length ?? 0;
+  const changeCount =
+    verifyResult?.outputs.filter((o) => o.type === "change").length ?? 0;
+  const externalCount =
+    verifyResult?.outputs.filter((o) => o.type === "external").length ?? 0;
+  const unknownCount =
+    verifyResult?.outputs.filter((o) => o.type === "unknown").length ?? 0;
+
+  const signingState = verifyResult?.extractable
+    ? "Finalized / extractable"
+    : verifyResult?.finalizable
+      ? "Signed, ready to finalize"
+      : verifyResult?.signed
+        ? "Signed (not finalizable)"
+        : "Unsigned";
+
+  const hasUnknownOutputs = unknownCount > 0;
+  const hasExternalWithoutCheck =
+    externalCount > 0 && (verifyResult?.checks.recipientMatches ?? null) === null;
+  const hasFailedChecks =
+    verifyResult?.checks.recipientMatches === false ||
+    verifyResult?.checks.amountMatches === false ||
+    verifyResult?.checks.changeAddressMatches === false;
+  const hasOwnershipWarning =
+    verifyResult?.warnings.some((w) => w.toLowerCase().includes("ownership")) ?? false;
+
+  const riskLevel: "LOW" | "MEDIUM" | "HIGH" = !verifyResult
+    ? "LOW"
+    : verifyResult.errors.length > 0 ||
+        hasUnknownOutputs ||
+        hasExternalWithoutCheck ||
+        hasFailedChecks ||
+        hasOwnershipWarning
+      ? "HIGH"
+      : verifyResult.warnings.length > 0 || !verifyResult.extractable
+        ? "MEDIUM"
+        : "LOW";
+
+  const riskClass =
+    riskLevel === "LOW" ? "psbt-status-valid"
+    : riskLevel === "MEDIUM" ? "psbt-status-warning"
+    : "psbt-status-invalid";
+
+  const safetyMessages: string[] = [];
+  if (verifyResult) {
+    if (hasUnknownOutputs)
+      safetyMessages.push(
+        "This PSBT contains unknown outputs. Do not broadcast unless you understand them."
+      );
+    if (hasExternalWithoutCheck)
+      safetyMessages.push(
+        "This PSBT sends funds to an external address not recognized as wallet change. Provide the expected recipient address to verify."
+      );
+    if (verifyResult.checks.recipientMatches === false)
+      safetyMessages.push(
+        "The expected recipient address was not found in this PSBT's outputs."
+      );
+    if (verifyResult.checks.amountMatches === false)
+      safetyMessages.push("The output amount does not match the expected amount.");
+    if (verifyResult.checks.changeAddressMatches === false)
+      safetyMessages.push(
+        "The expected change address was not found in this PSBT's outputs."
+      );
+    if (verifyResult.checks.feeMatches === false)
+      safetyMessages.push("The fee does not match the expected fee.");
+    if (!verifyResult.signed) {
+      safetyMessages.push(
+        "This PSBT is not signed. Return it to your cold wallet for signing."
+      );
+    } else if (!verifyResult.extractable) {
+      safetyMessages.push(
+        "This PSBT is signed but not yet finalized or extractable. Return it to your cold wallet."
+      );
+    }
+    if (
+      verifyResult.extractable &&
+      !hasUnknownOutputs &&
+      externalCount === 0 &&
+      verifyResult.errors.length === 0
+    ) {
+      safetyMessages.push(
+        "This transaction appears ready. Verify all outputs carefully before broadcasting with another tool."
+      );
+    }
+  }
 
   return (
     <details className="tx-history-panel wallet-address-panel create-psbt-details">
@@ -2609,8 +2698,12 @@ function VerifyPsbtPanel({
         </label>
 
         <details className="psbt-expected-section">
-          <summary className="muted">Expected values (optional — for cross-checking)</summary>
-          <div className="psbt-form" style={{ marginTop: "0.5rem" }}>
+          <summary className="muted">Optional safety checks</summary>
+          <p className="muted" style={{ margin: "0.4rem 0 0.6rem" }}>
+            Provide the intended recipient, amount, change address, or fee to compare against the
+            signed PSBT. Amounts are always in sats (satoshis). Leave blank to skip a check.
+          </p>
+          <div className="psbt-form">
             <label className="psbt-field">
               <span>Expected recipient address</span>
               <input
@@ -2624,7 +2717,7 @@ function VerifyPsbtPanel({
               />
             </label>
             <label className="psbt-field">
-              <span>Expected amount (sats)</span>
+              <span>Expected amount (sats — satoshis, not BTC)</span>
               <input
                 className="psbt-input"
                 type="number"
@@ -2636,7 +2729,7 @@ function VerifyPsbtPanel({
               />
             </label>
             <label className="psbt-field">
-              <span>Expected change address (or "none")</span>
+              <span>Expected change address (enter "none" if no change expected)</span>
               <input
                 className="psbt-input"
                 type="text"
@@ -2648,7 +2741,7 @@ function VerifyPsbtPanel({
               />
             </label>
             <label className="psbt-field">
-              <span>Expected fee (sats)</span>
+              <span>Expected fee (sats — satoshis)</span>
               <input
                 className="psbt-input"
                 type="number"
@@ -2687,23 +2780,28 @@ function VerifyPsbtPanel({
 
       {verifyResult && verifyStatus === "done" ? (
         <div className="psbt-result terminal-panel">
+
+          {/* Status + Risk level */}
           <p className="terminal-heading">
             &gt; VERIFICATION RESULT:{" "}
             <span className={statusClass}>{statusLabel}</span>
+            {"   "}
+            <span className={riskClass}>[{riskLevel} RISK]</span>
           </p>
 
+          {/* Summary card */}
           <dl className="utxo-summary-grid">
             <div>
-              <dt>signed</dt>
-              <dd>{verifyResult.signed ? "yes" : "no"}</dd>
+              <dt>signing state</dt>
+              <dd>{signingState}</dd>
             </div>
             <div>
-              <dt>finalizable</dt>
-              <dd>{verifyResult.finalizable ? "yes" : "no"}</dd>
+              <dt>total input</dt>
+              <dd>{formatBalance(totalInputSats, balanceUnit)}</dd>
             </div>
             <div>
-              <dt>extractable</dt>
-              <dd>{verifyResult.extractable ? "yes" : "no"}</dd>
+              <dt>total output</dt>
+              <dd>{formatBalance(totalOutputSats, balanceUnit)}</dd>
             </div>
             {verifyResult.feeSats !== null ? (
               <div>
@@ -2711,8 +2809,48 @@ function VerifyPsbtPanel({
                 <dd>{formatBalance(verifyResult.feeSats, balanceUnit)}</dd>
               </div>
             ) : null}
+            <div>
+              <dt>fee rate</dt>
+              <dd className="muted">unavailable (vsize not calculated)</dd>
+            </div>
+            <div>
+              <dt>wallet inputs</dt>
+              <dd>
+                {walletInputCount} / {verifyResult.inputs.length}
+              </dd>
+            </div>
+            <div>
+              <dt>recipient outputs</dt>
+              <dd>{recipientCount}</dd>
+            </div>
+            <div>
+              <dt>change outputs</dt>
+              <dd>{changeCount}</dd>
+            </div>
+            {externalCount > 0 ? (
+              <div>
+                <dt>external outputs</dt>
+                <dd className="psbt-status-warning">{externalCount}</dd>
+              </div>
+            ) : null}
+            {unknownCount > 0 ? (
+              <div>
+                <dt>unknown outputs</dt>
+                <dd className="psbt-status-invalid">{unknownCount}</dd>
+              </div>
+            ) : null}
           </dl>
 
+          {/* Human-readable safety messages */}
+          {safetyMessages.length > 0 ? (
+            <div className="psbt-verify-section">
+              {safetyMessages.map((msg, i) => (
+                <p key={i} className="muted">{msg}</p>
+              ))}
+            </div>
+          ) : null}
+
+          {/* Errors */}
           {verifyResult.errors.length > 0 ? (
             <div className="psbt-verify-section">
               <p className="terminal-heading psbt-status-invalid">&gt; ERRORS</p>
@@ -2722,6 +2860,7 @@ function VerifyPsbtPanel({
             </div>
           ) : null}
 
+          {/* Warnings */}
           {verifyResult.warnings.length > 0 ? (
             <div className="psbt-verify-section">
               <p className="terminal-heading psbt-status-warning">&gt; WARNINGS</p>
@@ -2731,32 +2870,73 @@ function VerifyPsbtPanel({
             </div>
           ) : null}
 
+          {/* Outputs table */}
           <div className="psbt-verify-section">
             <p className="terminal-heading">&gt; OUTPUTS</p>
-            {verifyResult.outputs.map((out, i) => (
-              <div key={i} className="muted psbt-input-row">
-                <span className="psbt-output-type">[{out.type}]</span>{" "}
-                {out.address ? truncateMiddle(out.address, 32) : "unknown"}{" "}
-                · {out.valueSats !== null ? formatBalance(out.valueSats, balanceUnit) : "?"}
-                {out.belongsToWallet ? " · wallet" : ""}
-              </div>
-            ))}
+            {verifyResult.outputs.map((out, i) => {
+              const typeLabel =
+                out.type === "recipient"
+                  ? "RECIPIENT OUTPUT — expected destination"
+                  : out.type === "change"
+                    ? "CHANGE OUTPUT — wallet-owned"
+                    : out.type === "external"
+                      ? "EXTERNAL OUTPUT — not recognized as wallet change"
+                      : "UNKNOWN OUTPUT — review carefully";
+              const typeLabelClass =
+                out.type === "external"
+                  ? "psbt-status-warning"
+                  : out.type === "unknown"
+                    ? "psbt-status-invalid"
+                    : "";
+              const matchNote =
+                out.type === "recipient" && verifyResult.checks.recipientMatches === true
+                  ? " [matched expected]"
+                  : out.type === "change" && verifyResult.checks.changeAddressMatches === true
+                    ? " [matched expected]"
+                    : "";
+              return (
+                <div key={i} className="psbt-verify-output-row">
+                  <div className={typeLabelClass} style={{ fontWeight: "bold", fontSize: "0.85em" }}>
+                    #{i} {typeLabel}{matchNote}
+                  </div>
+                  <div className="muted psbt-input-row" style={{ marginLeft: "1rem" }}>
+                    {out.address ?? "no address"}
+                    {" · "}
+                    {formatBalance(out.valueSats, "sats")} / {(out.valueSats / 1e8).toFixed(8)} BTC
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
+          {/* Inputs table */}
           <div className="psbt-verify-section">
             <p className="terminal-heading">&gt; INPUTS</p>
             {verifyResult.inputs.map((inp, i) => (
               <div key={i} className="muted psbt-input-row">
-                {truncateMiddle(`${inp.txid}:${inp.vout}`, 28)}{" "}
-                · {inp.valueSats !== null ? formatBalance(inp.valueSats, balanceUnit) : "?"}
-                {inp.belongsToWallet ? " · wallet" : " · external"}
+                #{i} {truncateMiddle(`${inp.txid}:${inp.vout}`, 24)}
+                {" · "}
+                {inp.valueSats !== null ? formatBalance(inp.valueSats, balanceUnit) : "?"}
+                {" · "}
+                {inp.belongsToWallet ? "wallet-owned" : "external input"}
               </div>
             ))}
           </div>
 
+          {/* Transaction hex — no broadcast */}
           {verifyResult.extractable && verifyResult.txHex ? (
             <div className="psbt-base64-block">
-              <p className="terminal-heading">&gt; TRANSACTION HEX (ready to broadcast)</p>
+              <p className="terminal-heading">&gt; TRANSACTION HEX</p>
+              {verifyResult.status !== "valid" ? (
+                <p className="psbt-status-warning muted">
+                  Warning: this transaction has unresolved issues. Review carefully before
+                  broadcasting with another tool.
+                </p>
+              ) : null}
+              <p className="muted psbt-change-addr">
+                This wallet does not broadcast transactions. Copy this txHex only after
+                verifying every output.
+              </p>
               {verifyResult.txid ? (
                 <p className="muted psbt-change-addr">txid: {verifyResult.txid}</p>
               ) : null}
@@ -2772,12 +2952,9 @@ function VerifyPsbtPanel({
                   type="button"
                   onClick={() => void copyTxHex()}
                 >
-                  {copiedTxHex ? "Copied!" : "Copy Tx Hex"}
+                  {copiedTxHex ? "Copied txHex!" : "Copy Tx Hex"}
                 </button>
               </div>
-              <p className="muted psbt-safety-footer">
-                This transaction has not been broadcast. Broadcasting is not available in this version.
-              </p>
             </div>
           ) : null}
         </div>
