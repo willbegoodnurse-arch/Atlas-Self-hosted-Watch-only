@@ -60,6 +60,25 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Confirm a successful broadcast displays txid.
 - Confirm there is no raw txHex paste broadcast path.
 - Use testnet/signet first where possible; otherwise use a tiny mainnet transaction first.
+- Follow `docs/tiny-broadcast-validation.md` before the first live broadcast validation.
+
+## Tiny/Testnet Broadcast Validation
+
+- Confirm `BROADCAST_BACKEND=core` is intentionally set.
+- Confirm `CORE_RPC_URL=http://127.0.0.1:8332` or another private Bitcoin Core RPC URL.
+- Confirm Core RPC status is connected from Atlas.
+- Confirm self-hosted mempool is online.
+- Confirm same-origin mode is still active.
+- Confirm API port `3011` is still blocked from the PC/LAN.
+- Confirm the signed PSBT verification status is `valid`.
+- Confirm warning and invalid PSBT broadcast is blocked.
+- Confirm the confirmation checkbox is required.
+- Confirm typing `BROADCAST` is required.
+- Confirm there is no raw txHex broadcast path.
+- Confirm txid is displayed on success.
+- Confirm the txid is checked after broadcast with Bitcoin Core or self-hosted mempool.
+- Use testnet/signet or a tiny amount only.
+- Do not run `sendrawtransaction` manually during validation.
 
 ## Deployment Smoke Test
 
@@ -86,6 +105,20 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - After verification, optionally set `API_HOST=127.0.0.1`.
 - Confirm direct LAN access to port `3011` fails while web `/api/*` continues to work.
 - Keep Bitcoin Core RPC port `8332` private.
+
+## Hardened Runtime Smoke Test
+
+- Follow `docs/hardened-runtime-smoke-test.md` after same-origin mode is deployed.
+- Confirm browser requests use `http://<pi-lan-ip>:3000/api/*`, not `http://<pi-lan-ip>:3011/api/*`.
+- Confirm PC direct access to `http://<pi-lan-ip>:3011/api/auth/session` fails.
+- Confirm Raspberry Pi local access to `http://127.0.0.1:3011/api/auth/session` works.
+- Confirm Bitcoin Core RPC port `8332` is not public.
+- Confirm self-hosted mempool returns a block height from `http://127.0.0.1:8080/api/blocks/tip/height`.
+- Confirm Fulcrum is running and logs do not repeat `401 Unauthorized` or `Lost connection to bitcoind`.
+- Confirm Atlas `.env` uses `API_MODE=mempool`, `MEMPOOL_API_URL=http://127.0.0.1:8080/api`, `NEXT_PUBLIC_API_URL=/api`, `INTERNAL_API_URL=http://127.0.0.1:3011`, and `API_HOST=127.0.0.1`.
+- Confirm camera QR scanning works through SSH localhost forwarding, or confirm text PSBT import/export fallback.
+- Confirm no `sendrawtransaction` command is run during the smoke test.
+- Confirm no secrets are printed in logs, screenshots, docs, terminal output, or chat.
 
 ## Auth And Vault
 

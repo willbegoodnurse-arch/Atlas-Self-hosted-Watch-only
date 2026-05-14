@@ -55,6 +55,8 @@ After external signing:
 
 Atlas does not sign. If `BROADCAST_BACKEND=core` is configured, Atlas can broadcast an already-signed transaction through Bitcoin Core RPC only after verification returns `valid` and the user explicitly confirms.
 
+For a first live broadcast validation, use testnet/signet where possible. If mainnet is used, use a tiny amount only and follow [tiny-broadcast-validation.md](tiny-broadcast-validation.md).
+
 ## What To Verify Before Broadcasting Elsewhere
 
 - Recipient address.

@@ -127,6 +127,39 @@ Mitigations:
 - Test with testnet/signet or a tiny mainnet amount first.
 - Keep the Raspberry Pi and Bitcoin Core updated.
 
+## Live Broadcast Validation Safety
+
+Atlas does not hold signing keys and does not sign transactions. Live broadcast validation should only prove that an already-signed, server-verified transaction can be submitted through the configured Bitcoin Core node.
+
+Protected by design:
+
+- Atlas does not hold seed phrases, private keys, xprv values, or WIF keys.
+- Atlas does not sign.
+- Broadcast requires server-side signed PSBT verification with status `valid`.
+- Broadcast requires explicit user confirmation.
+- Raw txHex paste broadcast is not exposed.
+- Bitcoin Core RPC credentials are server-side only.
+
+Remaining risks:
+
+- A malicious or mistaken signed PSBT can still move funds.
+- A user can approve a wrong recipient or fee.
+- A compromised browser session with an active session may attempt actions.
+- A compromised Raspberry Pi can abuse configured Bitcoin Core RPC.
+- Broadcast is irreversible once accepted.
+
+Mitigations:
+
+- Use testnet or signet first.
+- Use a tiny amount if testing on mainnet.
+- Verify recipient, amount, fee, and change on the external signer.
+- Verify the signed PSBT again in Atlas.
+- Keep the Atlas API bound to localhost in hardened mode.
+- Keep Bitcoin Core RPC private.
+- Keep the self-hosted mempool backend local.
+- Do not share txHex, secrets, session cookies, or full xpub values publicly.
+- Follow [docs/tiny-broadcast-validation.md](docs/tiny-broadcast-validation.md) before first live validation.
+
 ## Threat Model
 
 Protected against by design:
@@ -168,6 +201,8 @@ Preferred hardened deployments should use the same-origin API proxy:
 - Port `3011` can then be blocked from the LAN or tailnet.
 
 Legacy direct mode remains available for transition, but it exposes the API port to the trusted browser network. Do not expose the API to the public internet.
+
+For a practical hardened Raspberry Pi verification flow, use [docs/hardened-runtime-smoke-test.md](docs/hardened-runtime-smoke-test.md). It checks same-origin API access, localhost-only API binding, local Bitcoin Core RPC, Fulcrum, self-hosted mempool, camera localhost forwarding, and broadcast safety without running `sendrawtransaction`.
 
 ## Camera Access And Secure Contexts
 

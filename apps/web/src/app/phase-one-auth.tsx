@@ -3863,6 +3863,8 @@ function VerifyPsbtPanel({
                 <p className="psbt-status-warning muted">
                   Broadcasting sends this verified signed transaction to the Bitcoin network
                   through your Bitcoin Core node. This cannot be undone.
+                  For first validation, use testnet/signet or a tiny amount, and check the
+                  signed transaction on your external signer and again in Atlas.
                 </p>
                 <label className="psbt-checkbox-row">
                   <input

@@ -112,6 +112,8 @@ Do not expose Bitcoin Core RPC port `8332` to the public internet. Prefer localh
 
 For the full Bitcoin Core RPC setup, including `bitcoin.conf`, safe connectivity checks, and the Atlas diagnostic endpoints, see [bitcoin-core-rpc-broadcast.md](bitcoin-core-rpc-broadcast.md). For exact Raspberry Pi wiring commands, see [bitcoin-core-rpc-live-wiring.md](bitcoin-core-rpc-live-wiring.md).
 
+After same-origin mode, localhost-only API binding, local mempool, Fulcrum, and camera localhost forwarding are configured, use [hardened-runtime-smoke-test.md](hardened-runtime-smoke-test.md) for the full operational checklist.
+
 ## Option A: Docker Compose
 
 Build and start:
