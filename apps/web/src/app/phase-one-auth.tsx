@@ -571,7 +571,7 @@ export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
         </div>
 
         {message ? <p className="status-message">{message}</p> : null}
-        <p className="api-diagnostic">API: {apiUrl}</p>
+        <p className="api-diagnostic">Backend: {describeApiConnectionMode(apiUrl)}</p>
         {view !== "loading" ? (
           <p className="terminal-mantra">Self-hosted Bitcoin watch-only wallet for your own node.</p>
         ) : null}
@@ -5909,7 +5909,7 @@ async function apiRequest<T = unknown>(
   }
 
   const url = buildApiUrl(apiUrl, path);
-  console.info("Atlas API request", url);
+  console.info("Atlas API request", { mode: describeApiConnectionMode(apiUrl), path });
 
   let response: Response;
   try {
@@ -5919,9 +5919,9 @@ async function apiRequest<T = unknown>(
       headers
     });
   } catch (error) {
-    console.error("Atlas API fetch failed", { url, error });
+    console.error("Atlas API fetch failed", { mode: describeApiConnectionMode(apiUrl), path, error });
     throw new Error(
-      `Failed to fetch ${url}. Check NEXT_PUBLIC_API_URL and API CORS settings.`
+      "Cannot reach Atlas API. Check web/API services, same-origin proxy, or NEXT_PUBLIC_API_URL configuration."
     );
   }
 
@@ -5935,5 +5935,17 @@ async function apiRequest<T = unknown>(
 }
 
 function buildApiUrl(apiUrl: string, path: string): string {
-  return `${apiUrl.replace(/\/+$/, "")}${path}`;
+  const normalizedBase = apiUrl.trim().replace(/\/+$/, "");
+  if (!normalizedBase || normalizedBase === "/api") {
+    return path;
+  }
+  return `${normalizedBase}${path}`;
+}
+
+function describeApiConnectionMode(apiUrl: string): string {
+  const normalizedBase = apiUrl.trim().replace(/\/+$/, "");
+  if (!normalizedBase || normalizedBase === "/api") {
+    return "same-origin";
+  }
+  return "direct";
 }

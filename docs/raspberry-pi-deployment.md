@@ -74,7 +74,8 @@ Set at least:
 ```env
 SESSION_SECRET=replace_with_a_long_random_session_secret
 WEB_ORIGIN=http://raspberrypi.local:3010,http://<pi-lan-ip>:3010
-NEXT_PUBLIC_API_URL=http://<pi-lan-ip>:3011
+INTERNAL_API_URL=http://127.0.0.1:3011
+NEXT_PUBLIC_API_URL=/api
 COOKIE_SECURE=false
 MEMPOOL_API_URL=http://127.0.0.1:8080/api
 VAULT_AUTO_LOCK_MINUTES=30
@@ -88,7 +89,8 @@ Important environment notes:
 
 - `SESSION_SECRET` must be strong and random for real deployments.
 - `WEB_ORIGIN` must include every frontend origin the browser will use.
-- `NEXT_PUBLIC_API_URL` must be the API URL as seen from the browser, not only from inside Docker.
+- `INTERNAL_API_URL` is used by the Next.js web server to proxy `/api/*` to Atlas API.
+- `NEXT_PUBLIC_API_URL=/api` lets the browser use the web origin instead of reaching the API port directly.
 - `VAULT_AUTO_LOCK_MINUTES` controls server-side vault inactivity locking.
 - `MEMPOOL_API_URL` is used for mempool-compatible balance, UTXO, transaction, and fee lookup.
 - `FULCRUM_*` settings are currently diagnostics-oriented unless the backend mode is expanded later.
@@ -121,7 +123,7 @@ docker compose up --build -d
 Default ports:
 
 - Web: `http://<pi-lan-ip>:3010`
-- API: `http://<pi-lan-ip>:3011`
+- API: `http://<pi-lan-ip>:3011` in legacy/direct mode. In hardened same-origin mode, the browser uses `http://<pi-lan-ip>:3010/api/*`.
 
 Docker details:
 
@@ -129,7 +131,7 @@ Docker details:
 - Docker Compose sets `DATA_DIR=/app/apps/api/data` inside the API container.
 - `API_PORT` is used as both the host and container API port in Compose.
 - `WEB_PORT` is the host port for the web container; the web container listens on port `3000`.
-- `NEXT_PUBLIC_API_URL` is embedded into the web build. If you change it, rebuild the web image with `docker compose up --build -d`.
+- `NEXT_PUBLIC_API_URL` and `INTERNAL_API_URL` affect the web build/proxy. If you change either, rebuild the web image with `docker compose up --build -d`.
 - Do not put real secrets, real xpubs, seed phrases, private keys, or RPC passwords in the image or committed files.
 
 Check reachability:
@@ -137,6 +139,7 @@ Check reachability:
 ```bash
 curl http://<pi-lan-ip>:3011/health
 curl http://<pi-lan-ip>:3011/api/status
+curl http://<pi-lan-ip>:3010/api/status
 ```
 
 View logs:
@@ -285,14 +288,16 @@ sudo ufw allow from <trusted-lan-or-tailscale-ip> to any port 22 proto tcp
 sudo ufw deny 3011/tcp
 ```
 
-If the browser reaches the API directly at `NEXT_PUBLIC_API_URL=http://<pi-lan-ip>:3011`, the API port must be reachable from that trusted browser network. Keep that exposure limited to LAN/Tailscale rather than the public internet.
+Preferred hardened mode uses `NEXT_PUBLIC_API_URL=/api`, so the browser reaches the web origin and the web server proxies to `INTERNAL_API_URL`. After verifying this mode, the API can be bound to `127.0.0.1` and port `3011` can be blocked from the LAN.
+
+Legacy direct mode remains available by setting `NEXT_PUBLIC_API_URL=http://<pi-lan-ip>:3011`. In that mode, the API port must be reachable from the trusted browser network. Keep that exposure limited to LAN/Tailscale rather than the public internet.
 
 ## Tailscale Access
 
 Tailscale is a good fit for a private Raspberry Pi deployment.
 
 1. Install Tailscale on the Pi and client devices.
-2. Use the Pi Tailscale IP or MagicDNS name in `WEB_ORIGIN` and `NEXT_PUBLIC_API_URL`.
+2. Use the Pi Tailscale IP or MagicDNS name in `WEB_ORIGIN`; keep `NEXT_PUBLIC_API_URL=/api` for same-origin mode.
 3. Keep `COOKIE_SECURE=false` for plain HTTP over Tailscale, or use HTTPS if you configure it.
 
 ## Tor Hidden Service Note

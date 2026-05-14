@@ -128,13 +128,16 @@ http://localhost:3000
 
 Use `npm.cmd` in PowerShell if `npm.ps1` is blocked by Windows Execution Policy. In other shells, normal `npm` commands are fine.
 
-The API normally runs on `http://localhost:3011`. The web app normally runs on `http://localhost:3000` during development. `NEXT_PUBLIC_API_URL` must point the frontend at the API, for example:
+The API normally runs on `http://localhost:3011`. The web app normally runs on `http://localhost:3000` during development. By default, the browser calls same-origin `/api/*` and the Next.js web server proxies to the internal API URL:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:3011
+INTERNAL_API_URL=http://127.0.0.1:3011
+NEXT_PUBLIC_API_URL=/api
 WEB_ORIGIN=http://localhost:3000,http://localhost:3010
 COOKIE_SECURE=false
 ```
+
+Legacy direct mode is still available for troubleshooting by setting `NEXT_PUBLIC_API_URL=http://localhost:3011`.
 
 ## Validation
 
@@ -166,9 +169,9 @@ docker compose up --build
 Default Docker ports:
 
 - Web: `http://localhost:3010`
-- API: `http://localhost:3011`
+- API: `http://localhost:3011` in legacy/direct mode; hardened same-origin mode lets the browser use the web origin `/api/*`.
 
-If you change `NEXT_PUBLIC_API_URL`, rebuild the web image because Next.js embeds public environment variables at build time.
+If you change `NEXT_PUBLIC_API_URL` or `INTERNAL_API_URL`, rebuild the web image because Next.js embeds public environment variables and rewrites at build time.
 
 The API container persists encrypted local data through:
 
@@ -183,6 +186,7 @@ Basic reachability checks:
 ```bash
 curl http://localhost:3011/health
 curl http://localhost:3011/api/status
+curl http://localhost:3010/api/status
 ```
 
 See [docs/raspberry-pi-deployment.md](docs/raspberry-pi-deployment.md) for Raspberry Pi deployment notes.
@@ -196,7 +200,8 @@ Important variables:
 - `SESSION_SECRET`: required for real use. Use a long random value.
 - `WEB_ORIGIN`: comma-separated frontend origins allowed by the API.
 - `COOKIE_SECURE`: `false` for local HTTP development, `true` behind HTTPS in production.
-- `NEXT_PUBLIC_API_URL`: API URL used by the web frontend.
+- `INTERNAL_API_URL`: server-side URL used by the Next.js web server to proxy `/api/*` to Atlas API.
+- `NEXT_PUBLIC_API_URL`: browser-visible API base. Prefer `/api` for same-origin mode; direct URLs remain available for legacy testing.
 - `MEMPOOL_API_URL`: mempool-compatible HTTP backend.
 - `API_MODE`: currently `mempool` for normal operation. Fulcrum diagnostics exist, but balance and transaction lookups use a mempool-compatible HTTP API.
 - `BROADCAST_BACKEND`: `disabled` by default. Set to `core` only when Bitcoin Core RPC broadcast is intended.
@@ -257,6 +262,7 @@ This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only
 - [Bitcoin Core RPC broadcast setup](docs/bitcoin-core-rpc-broadcast.md)
 - [Bitcoin Core RPC live wiring checklist](docs/bitcoin-core-rpc-live-wiring.md)
 - [Camera QR secure context guide](docs/camera-qr-secure-context.md)
+- [Same-origin API proxy guide](docs/same-origin-api-proxy.md)
 - [PSBT workflow guide](docs/psbt-workflow.md)
 - [Release and smoke test checklist](docs/release-checklist.md)
 - [Security policy](SECURITY.md)

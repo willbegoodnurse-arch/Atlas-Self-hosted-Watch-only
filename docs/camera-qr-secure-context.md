@@ -72,7 +72,7 @@ http://localhost:3000
 
 Browsers usually treat `localhost` as a secure context for camera access. Keep the SSH session open while testing.
 
-Important: Atlas web uses `NEXT_PUBLIC_API_URL` at build time. If the web app was built with `NEXT_PUBLIC_API_URL=http://172.30.1.50:3011`, the browser may still call the LAN API directly. For clean localhost testing, build/configure Atlas so the frontend API URL also uses the forwarded localhost API, or use a same-origin proxy in a future phase.
+Important: Atlas now supports same-origin API mode. Prefer `NEXT_PUBLIC_API_URL=/api` with `INTERNAL_API_URL` pointing from the web server to the API. If the web app was built in legacy direct mode with `NEXT_PUBLIC_API_URL=http://172.30.1.50:3011`, the browser may still call the LAN API directly. For clean localhost testing, rebuild/configure Atlas for same-origin mode or use the forwarded localhost API URL.
 
 ## Option D: HTTPS Reverse Proxy
 
@@ -84,7 +84,7 @@ Guidelines:
 - Keep Atlas access private unless you intentionally harden the deployment.
 - Keep the API protected by the same access model.
 - Never expose Bitcoin Core RPC port `8332` publicly.
-- Keep `WEB_ORIGIN`, `NEXT_PUBLIC_API_URL`, and cookie settings aligned with the HTTPS origin.
+- Keep `WEB_ORIGIN`, `NEXT_PUBLIC_API_URL=/api`, `INTERNAL_API_URL`, and cookie settings aligned with the HTTPS origin.
 
 Do not expose Atlas publicly just to make camera access work.
 
@@ -95,12 +95,6 @@ Do not expose Atlas publicly just to make camera access work.
 - Do not expose ports `3000`, `3011`, or `8332` to the public internet just for QR scanning.
 - Do not share `.env`, RPC credentials, seed phrases, private keys, or full xpub values.
 
-## Future Improvement
+## API Origin
 
-A future phase may add a same-origin API proxy so the browser can use one HTTPS origin for both web and API traffic.
-
-Possible future phase:
-
-```text
-Phase 36 - Same-Origin API Proxy and API Port Reduction
-```
+For camera-friendly HTTPS deployments, prefer the same-origin API proxy documented in [same-origin-api-proxy.md](same-origin-api-proxy.md). This keeps the browser on one web origin and prepares the API port to be bound to localhost or blocked from the LAN.

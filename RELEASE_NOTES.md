@@ -40,6 +40,7 @@ It is not a custody service, hot wallet, public internet wallet, or replacement 
 - Broadcast is disabled by default and blocked for unsigned, warning, or invalid PSBTs.
 - Atlas does not trust frontend-provided txHex for broadcast.
 - Bitcoin Core RPC diagnostics use non-broadcasting status checks and do not return credentials.
+- Same-origin API mode lets the browser use `/api/*` through the web server instead of directly reaching the API port.
 
 ## What This Release Does Not Do
 
@@ -78,6 +79,7 @@ It is not a custody service, hot wallet, public internet wallet, or replacement 
 - Check Bitcoin Core RPC connectivity before any live broadcast and test with testnet/signet or a tiny mainnet amount first.
 - Use the Bitcoin Core RPC live wiring checklist before enabling broadcast on a Raspberry Pi.
 - If camera QR scanning is blocked on LAN HTTP, use text PSBT import/export or open Atlas over HTTPS/localhost/Tailscale Serve.
+- Prefer same-origin API mode before reducing API port exposure on a Raspberry Pi.
 
 ## Validation Checklist
 

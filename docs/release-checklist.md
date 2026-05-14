@@ -34,11 +34,13 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Confirm `npm install` has completed for direct Node.js deployments.
 - Confirm `.env` is configured and is not committed.
 - Confirm `WEB_ORIGIN` matches the frontend origin.
-- Confirm `NEXT_PUBLIC_API_URL` matches the API URL visible from the browser.
+- Confirm `NEXT_PUBLIC_API_URL=/api` for hardened same-origin mode, or a direct API URL only for legacy testing.
+- Confirm `INTERNAL_API_URL` points from the web server to Atlas API.
 - Confirm `COOKIE_SECURE=false` for local HTTP or `COOKIE_SECURE=true` behind HTTPS.
 - Confirm API and web ports are selected and firewall rules match them.
 - Confirm the `wallets.enc` backup location is known.
 - Confirm Docker users rebuild after changing `NEXT_PUBLIC_API_URL`.
+- Confirm Docker/systemd users rebuild or restart web after changing `INTERNAL_API_URL`.
 - Confirm `BROADCAST_BACKEND=disabled` unless Bitcoin Core RPC broadcast is intentionally configured.
 - If broadcast is configured, confirm Bitcoin Core RPC is private and reachable only from trusted hosts.
 - If broadcast is configured, confirm `CORE_RPC_URL` uses `http://` or `https://` and does not embed credentials.
@@ -70,6 +72,20 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Restart the API and confirm `wallets.enc` persists.
 - Confirm the vault requires manual unlock after restart.
 - Confirm backup and restore steps are documented for the deployment.
+
+## Same-Origin API Proxy
+
+- Confirm direct legacy mode still works before switching.
+- Set `NEXT_PUBLIC_API_URL=/api`.
+- Set `INTERNAL_API_URL=http://127.0.0.1:3011` for same-host systemd/direct Node deployments.
+- Use `INTERNAL_API_URL=http://watch-wallet-api:3011` for Docker Compose.
+- Restart/rebuild web and restart API.
+- Open the web origin and confirm login works.
+- Unlock the vault and confirm wallet list, balance, UTXOs, and transactions load.
+- Confirm signed PSBT verifier and authenticated broadcast status load.
+- After verification, optionally set `API_HOST=127.0.0.1`.
+- Confirm direct LAN access to port `3011` fails while web `/api/*` continues to work.
+- Keep Bitcoin Core RPC port `8332` private.
 
 ## Auth And Vault
 

@@ -3,8 +3,10 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 
-ARG NEXT_PUBLIC_API_URL=http://localhost:3011
+ARG NEXT_PUBLIC_API_URL=/api
+ARG INTERNAL_API_URL=http://127.0.0.1:3011
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV INTERNAL_API_URL=$INTERNAL_API_URL
 
 COPY package*.json ./
 COPY apps/api/package.json apps/api/package.json

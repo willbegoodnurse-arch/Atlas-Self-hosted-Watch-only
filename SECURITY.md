@@ -158,6 +158,17 @@ Not fully protected against:
 
 Public internet exposure is discouraged. If the app is exposed beyond a trusted private network, use HTTPS, a hardened reverse proxy, firewall restrictions, and additional access controls.
 
+## API Exposure Model
+
+Preferred hardened deployments should use the same-origin API proxy:
+
+- Browser calls the web origin at `/api/*`.
+- The Next.js web server proxies to `INTERNAL_API_URL`.
+- The Atlas API can later bind to `127.0.0.1` or a private interface after verification.
+- Port `3011` can then be blocked from the LAN or tailnet.
+
+Legacy direct mode remains available for transition, but it exposes the API port to the trusted browser network. Do not expose the API to the public internet.
+
 ## Camera Access And Secure Contexts
 
 Browser camera APIs usually require HTTPS or localhost. Brave, Chrome, and similar browsers may block camera QR scanning on plain LAN HTTP origins such as `http://172.30.x.x:3000`.

@@ -21,6 +21,7 @@
 - Non-broadcasting Bitcoin Core RPC status diagnostics for live configuration checks.
 - Raspberry Pi Bitcoin Core RPC live wiring checklist.
 - Camera QR secure-context guidance and clearer camera fallback messaging.
+- Same-origin `/api/*` proxy support for reducing browser-visible API port exposure.
 - Raspberry Pi, Docker Compose, systemd example, backup/restore, and smoke test documentation.
 
 ### Security
@@ -33,6 +34,7 @@
 - No unsigned, warning, invalid, automatic, public mempool, Fulcrum, or Electrum broadcast.
 - Bitcoin Core RPC broadcast uses server-extracted txHex from verified signed PSBTs only.
 - Bitcoin Core RPC URL validation rejects unsupported protocols and embedded credentials.
+- Browser can use same-origin `/api` instead of direct LAN API port access.
 - Normal API responses use xpub redaction and masking.
 - Vault password is not stored in `.env`.
 - Derived vault key is memory-only and cleared when the vault locks or the process restarts.
