@@ -11,6 +11,7 @@ import { checkMempoolHealth, getMempoolApiConfig } from "./mempool/usage.js";
 import { registerRuntimeSettingsRoute } from "./settings/runtime.js";
 import { registerVaultRoutes } from "./vault/routes.js";
 import { registerFulcrumStatusRoute } from "./fulcrum/diagnostics.js";
+import { registerBroadcastRoutes } from "./broadcast/routes.js";
 import { redactSensitive } from "./vault/redact.js";
 
 const port = Number(process.env.API_PORT ?? 3011);
@@ -99,6 +100,7 @@ server.get("/api/fees/recommended", async (request, reply) => {
 await registerAuthRoutes(server);
 await registerRuntimeSettingsRoute(server, requireAuthenticatedSession);
 await registerFulcrumStatusRoute(server);
+await registerBroadcastRoutes(server, requireAuthenticatedSession);
 await registerVaultRoutes(server);
 
 try {

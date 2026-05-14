@@ -10,7 +10,8 @@ This project is not audited.
 - No private key input.
 - No xprv, yprv, zprv, or WIF support except rejection.
 - No signing.
-- No transaction broadcast.
+- No automatic, unsigned, warning, invalid, public mempool, Fulcrum, or Electrum transaction broadcast.
+- Optional Bitcoin Core RPC broadcast only for server-verified signed PSBTs with status `valid`.
 - No custody.
 - No normal full xpub, ypub, or zpub exposure in API responses.
 - No labels or notes used for security classification.
@@ -79,15 +80,28 @@ Signed PSBT verification:
 - Accepts a signed PSBT for analysis.
 - Can report whether it is signed, finalizable, finalized, or extractable.
 - Can expose txHex only after signed PSBT verification when extractable.
-- Still does not broadcast.
+- Can optionally broadcast the already-signed transaction through Bitcoin Core RPC when broadcast is configured, the verification status is `valid`, txHex is extractable, and the user explicitly confirms.
 
 Users must verify recipient, amount, change, and fee before broadcasting elsewhere.
+
+## Broadcast Model
+
+Broadcast is disabled by default with `BROADCAST_BACKEND=disabled`.
+
+When `BROADCAST_BACKEND=core`, Atlas can submit an already-signed transaction to Bitcoin Core RPC with `sendrawtransaction`. The server re-runs signed PSBT verification and uses the server-extracted txHex. It does not trust frontend-provided txHex and does not offer raw txHex paste broadcast.
+
+Broadcast is blocked for unsigned PSBTs, invalid PSBTs, warning PSBTs, missing txHex, disabled backend, missing Bitcoin Core RPC configuration, and Bitcoin Core RPC errors.
+
+Broadcasting is irreversible after the transaction is accepted and propagated by your node.
+
+Bitcoin Core RPC credentials must stay out of Git. Do not expose Bitcoin Core RPC to the public internet.
 
 ## Threat Model
 
 Protected against by design:
 
 - Atlas cannot spend funds because it does not store seed phrases or private keys.
+- Atlas cannot sign transactions because it has no signing material.
 - Normal API responses do not expose full xpub, ypub, or zpub values.
 - `wallets.enc` is encrypted server-side.
 - The vault password is not stored in `.env`.
@@ -101,6 +115,7 @@ Not fully protected against:
 - Offline attacks against `wallets.enc` if the vault password is weak.
 - Malware on the operator's computer or signing workflow.
 - Public internet exposure or reverse proxy misconfiguration.
+- Exposed Bitcoin Core RPC credentials or RPC port.
 - A user signing or broadcasting a bad transaction elsewhere.
 - Bugs in pre-release, unaudited software.
 

@@ -17,6 +17,7 @@
 - Unsigned PSBT base64 text export and single QR export when small enough.
 - Signed PSBT verification with optional expected recipient, amount, change, and fee checks.
 - txHex display only when a signed PSBT is extractable.
+- Optional Bitcoin Core RPC broadcast for already-signed transactions after server-side signed PSBT verification returns `valid`.
 - Raspberry Pi, Docker Compose, systemd example, backup/restore, and smoke test documentation.
 
 ### Security
@@ -25,7 +26,9 @@
 - No private key handling.
 - No xprv, yprv, zprv, or WIF support except rejection.
 - No transaction signing.
-- No transaction broadcast.
+- Broadcast disabled by default.
+- No unsigned, warning, invalid, automatic, public mempool, Fulcrum, or Electrum broadcast.
+- Bitcoin Core RPC broadcast uses server-extracted txHex from verified signed PSBTs only.
 - Normal API responses use xpub redaction and masking.
 - Vault password is not stored in `.env`.
 - Derived vault key is memory-only and cleared when the vault locks or the process restarts.
@@ -36,7 +39,7 @@
 ### Limitations
 
 - No signing.
-- No broadcast.
+- No public mempool, Fulcrum, or Electrum broadcast.
 - No seed phrase or private key support.
 - Animated QR export is deferred.
 - BBQr export is deferred.

@@ -39,6 +39,8 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Confirm API and web ports are selected and firewall rules match them.
 - Confirm the `wallets.enc` backup location is known.
 - Confirm Docker users rebuild after changing `NEXT_PUBLIC_API_URL`.
+- Confirm `BROADCAST_BACKEND=disabled` unless Bitcoin Core RPC broadcast is intentionally configured.
+- If broadcast is configured, confirm Bitcoin Core RPC is private and reachable only from trusted hosts.
 
 ## Deployment Smoke Test
 
@@ -115,12 +117,17 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Review output classifications.
 - Review warnings and errors.
 - Copy txHex only when signed/finalized/extractable.
-- Confirm no broadcast button exists.
+- If broadcast is disabled, confirm the UI says broadcast backend is disabled.
+- If broadcast is enabled, confirm a valid signed PSBT requires checkbox plus typing `BROADCAST`.
+- Confirm the broadcast panel warns that broadcasting cannot be undone.
+- Confirm warning and invalid PSBTs cannot broadcast.
+- Confirm there is no raw txHex paste broadcast path.
 
 ## Security Regression Check
 
 - No signing feature exists.
-- No broadcast feature exists.
+- No automatic broadcast feature exists.
+- No public mempool/Fulcrum/Electrum broadcast feature exists.
 - No seed phrase handling exists.
 - No private key handling exists.
 - No xprv/yprv/zprv/WIF handling exists except rejection.
@@ -132,6 +139,7 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Existing vault auto-lock remains.
 - Logout vault lock remains.
 - `.env` contains no vault password.
+- Bitcoin Core RPC credentials are not committed.
 
 ## Backup Check
 

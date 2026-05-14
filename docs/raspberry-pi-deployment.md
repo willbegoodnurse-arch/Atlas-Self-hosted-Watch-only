@@ -2,7 +2,7 @@
 
 This guide describes a practical MVP deployment for Atlas on a Raspberry Pi or small Linux server.
 
-Atlas is a self-hosted watch-only wallet. It does not sign transactions, broadcast transactions, store seed phrases, or store private keys.
+Atlas is a self-hosted watch-only wallet. It does not sign transactions, store seed phrases, or store private keys. Optional broadcast is disabled by default and limited to Bitcoin Core RPC after signed PSBT verification.
 
 ## Target Setup
 
@@ -93,6 +93,20 @@ Important environment notes:
 - `MEMPOOL_API_URL` is used for mempool-compatible balance, UTXO, transaction, and fee lookup.
 - `FULCRUM_*` settings are currently diagnostics-oriented unless the backend mode is expanded later.
 - `ADMIN_USER` in `.env.example` is an operator note, not an automatic bootstrap account.
+
+Optional Bitcoin Core RPC broadcast:
+
+```env
+BROADCAST_BACKEND=core
+CORE_RPC_URL=http://127.0.0.1:8332
+CORE_RPC_USERNAME=your_rpc_user
+CORE_RPC_PASSWORD=your_rpc_password
+CORE_RPC_TIMEOUT_MS=10000
+```
+
+Broadcast is disabled by default. Atlas never signs transactions; when configured, it can broadcast an already-signed transaction through Bitcoin Core RPC only after server-side signed PSBT verification returns `valid` and the user explicitly confirms.
+
+Do not expose Bitcoin Core RPC port `8332` to the public internet. Prefer localhost when Atlas and Bitcoin Core run on the same Raspberry Pi. If Bitcoin Core is on another LAN host, use `CORE_RPC_URL=http://<bitcoin-core-lan-ip>:8332` and restrict access with `rpcbind`, `rpcallowip`, and firewall rules. Test broadcast on testnet/signet or with small transactions first.
 
 ## Option A: Docker Compose
 

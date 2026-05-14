@@ -4,7 +4,7 @@
 
 Atlas v0.1.0 is a release candidate for a self-hosted Bitcoin watch-only wallet dashboard for your own node. It is intended to help an operator view wallet activity, organize watch-only metadata, create unsigned PSBTs, and verify signed PSBTs without putting signing material on the server.
 
-Atlas is watch-only. It does not hold seed phrases or private keys. It does not sign or broadcast transactions.
+Atlas is watch-only for key custody. It does not hold seed phrases or private keys and does not sign transactions. Optional broadcast is disabled by default and uses Bitcoin Core RPC only after server-side signed PSBT verification succeeds.
 
 ## Who This Is For
 
@@ -24,7 +24,7 @@ It is not a custody service, hot wallet, public internet wallet, or replacement 
 8. Export the unsigned PSBT as text or a single QR when it fits.
 9. Sign externally with a cold wallet that holds the private keys.
 10. Paste the signed PSBT into Atlas for verification.
-11. Verify every output before broadcasting elsewhere with another tool.
+11. Verify every output before broadcasting elsewhere with another tool or, if configured, through your Bitcoin Core node.
 
 ## Security Model
 
@@ -37,6 +37,8 @@ It is not a custody service, hot wallet, public internet wallet, or replacement 
 - Vault auto-locks after inactivity.
 - Logout locks the vault.
 - Labels and notes are metadata only and do not change security decisions.
+- Broadcast is disabled by default and blocked for unsigned, warning, or invalid PSBTs.
+- Atlas does not trust frontend-provided txHex for broadcast.
 
 ## What This Release Does Not Do
 
@@ -44,7 +46,8 @@ It is not a custody service, hot wallet, public internet wallet, or replacement 
 - Does not ask for private keys.
 - Does not support xprv, yprv, zprv, or WIF private keys except rejection.
 - Does not sign transactions.
-- Does not broadcast transactions.
+- Does not broadcast automatically.
+- Does not provide public mempool, Fulcrum, Electrum, or raw txHex paste broadcast.
 - Does not claim to be audited.
 - Does not claim to be production-hardened for public internet exposure.
 
@@ -52,6 +55,8 @@ It is not a custody service, hot wallet, public internet wallet, or replacement 
 
 - Animated QR export is deferred.
 - BBQr export is deferred.
+- Public mempool broadcast is deferred.
+- Fulcrum/Electrum broadcast is deferred.
 - Single QR export works only for smaller PSBTs.
 - PSBT compatibility with every cold wallet is not guaranteed.
 - Fee estimates depend on the configured mempool backend.
@@ -68,6 +73,7 @@ It is not a custody service, hot wallet, public internet wallet, or replacement 
 - Back up `wallets.enc` securely.
 - Do not store the vault password next to backups.
 - Review every unsigned PSBT and signed PSBT output on both Atlas and the external signer.
+- If enabling broadcast, use your own Bitcoin Core node and do not expose RPC publicly.
 
 ## Validation Checklist
 

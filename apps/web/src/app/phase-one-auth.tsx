@@ -200,6 +200,19 @@ type RuntimeSettingsResponse = {
   defaultUnit: string;
 };
 
+type BroadcastStatusResponse = {
+  enabled: boolean;
+  backend: "disabled" | "core";
+  configured: boolean;
+  message?: string;
+};
+
+type BroadcastResponse = {
+  status: "broadcasted";
+  backend: "core";
+  txid: string;
+};
+
 type WalletTransactionRelatedAddress = {
   address: string;
   chain: "receive" | "change";
@@ -3152,7 +3165,7 @@ function CreatePsbtBuilderPanel({
           </div>
 
           <div className="muted psbt-safety-footer">
-            <p>This app does not sign or broadcast transactions.</p>
+            <p>This app does not sign transactions. Optional broadcast requires signed PSBT verification and Bitcoin Core RPC.</p>
             <ol>
               <li>Export the unsigned PSBT.</li>
               <li>Sign it with an external cold wallet.</li>
@@ -3186,6 +3199,37 @@ function VerifyPsbtPanel({
   const [verifyStatus, setVerifyStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [verifyMessage, setVerifyMessage] = useState("");
   const [copiedTxHex, setCopiedTxHex] = useState(false);
+  const [broadcastStatus, setBroadcastStatus] = useState<BroadcastStatusResponse | null>(null);
+  const [broadcastMessage, setBroadcastMessage] = useState("");
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+  const [broadcastConfirmed, setBroadcastConfirmed] = useState(false);
+  const [broadcastConfirmText, setBroadcastConfirmText] = useState("");
+  const [broadcastResult, setBroadcastResult] = useState<BroadcastResponse | null>(null);
+  const [copiedTxid, setCopiedTxid] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void apiRequest<BroadcastStatusResponse>(apiUrl, "/api/broadcast/status")
+      .then((status) => {
+        if (!cancelled) {
+          setBroadcastStatus(status);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setBroadcastStatus({
+            enabled: false,
+            backend: "disabled",
+            configured: false,
+            message: "Broadcast status unavailable."
+          });
+          setBroadcastMessage(error instanceof Error ? error.message : "Broadcast status unavailable.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl]);
 
   async function handleVerify() {
     const trimmed = psbtInput.trim();
@@ -3198,26 +3242,9 @@ function VerifyPsbtPanel({
     setVerifyStatus("loading");
     setVerifyMessage("");
     setVerifyResult(null);
+    resetBroadcastConfirmation();
 
-    const expected: {
-      recipientAddress?: string;
-      amountSats?: number;
-      changeAddress?: string | null;
-      feeSats?: number;
-    } = {};
-
-    if (expectedRecipient.trim()) expected.recipientAddress = expectedRecipient.trim();
-    if (expectedAmount.trim()) {
-      const n = parseInt(expectedAmount, 10);
-      if (Number.isInteger(n) && n > 0) expected.amountSats = n;
-    }
-    if (expectedChange.trim()) {
-      expected.changeAddress = expectedChange.trim() === "none" ? null : expectedChange.trim();
-    }
-    if (expectedFee.trim()) {
-      const n = parseInt(expectedFee, 10);
-      if (Number.isInteger(n) && n >= 0) expected.feeSats = n;
-    }
+    const expected = buildExpectedPsbtChecks();
 
     try {
       const result = await apiRequest<VerifyPsbtResponse>(
@@ -3250,6 +3277,97 @@ function VerifyPsbtPanel({
     } catch {
       setVerifyMessage("Clipboard copy failed. Select and copy manually.");
     }
+  }
+
+  async function handleBroadcast() {
+    const trimmed = psbtInput.trim();
+    if (!verifyResult || verifyResult.status !== "valid" || !verifyResult.extractable || !verifyResult.txHex) {
+      setBroadcastMessage("Broadcast requires a valid, extractable signed PSBT.");
+      return;
+    }
+    if (!broadcastStatus?.enabled || broadcastStatus.backend !== "core" || !broadcastStatus.configured) {
+      setBroadcastMessage("Broadcast backend is disabled. Configure Bitcoin Core RPC to broadcast.");
+      return;
+    }
+    if (!broadcastConfirmed || broadcastConfirmText !== "BROADCAST") {
+      setBroadcastMessage("Confirm the checklist and type BROADCAST before broadcasting.");
+      return;
+    }
+
+    setBroadcastLoading(true);
+    setBroadcastMessage("");
+    setBroadcastResult(null);
+    const expected = buildExpectedPsbtChecks();
+
+    try {
+      const result = await apiRequest<BroadcastResponse>(
+        apiUrl,
+        `/api/wallets/${wallet.id}/psbt/broadcast`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            psbtBase64: trimmed,
+            expected: Object.keys(expected).length > 0 ? expected : undefined,
+            addressLimit
+          }),
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+      setBroadcastResult(result);
+      setBroadcastMessage("Broadcast submitted through Bitcoin Core.");
+    } catch (error) {
+      setBroadcastMessage(error instanceof Error ? error.message : "Broadcast failed.");
+    } finally {
+      setBroadcastLoading(false);
+    }
+  }
+
+  async function copyTxid() {
+    if (!broadcastResult?.txid) return;
+    try {
+      await navigator.clipboard.writeText(broadcastResult.txid);
+      setCopiedTxid(true);
+      setTimeout(() => setCopiedTxid(false), 2000);
+    } catch {
+      setBroadcastMessage("Clipboard copy failed. Select and copy manually.");
+    }
+  }
+
+  function buildExpectedPsbtChecks(): {
+    recipientAddress?: string;
+    amountSats?: number;
+    changeAddress?: string | null;
+    feeSats?: number;
+  } {
+    const expected: {
+      recipientAddress?: string;
+      amountSats?: number;
+      changeAddress?: string | null;
+      feeSats?: number;
+    } = {};
+
+    if (expectedRecipient.trim()) expected.recipientAddress = expectedRecipient.trim();
+    if (expectedAmount.trim()) {
+      const n = parseInt(expectedAmount, 10);
+      if (Number.isInteger(n) && n > 0) expected.amountSats = n;
+    }
+    if (expectedChange.trim()) {
+      expected.changeAddress = expectedChange.trim() === "none" ? null : expectedChange.trim();
+    }
+    if (expectedFee.trim()) {
+      const n = parseInt(expectedFee, 10);
+      if (Number.isInteger(n) && n >= 0) expected.feeSats = n;
+    }
+
+    return expected;
+  }
+
+  function resetBroadcastConfirmation() {
+    setBroadcastMessage("");
+    setBroadcastLoading(false);
+    setBroadcastConfirmed(false);
+    setBroadcastConfirmText("");
+    setBroadcastResult(null);
   }
 
   // ---- derived summary values ----
@@ -3311,6 +3429,18 @@ function VerifyPsbtPanel({
     riskLevel === "LOW" ? "psbt-status-valid"
     : riskLevel === "MEDIUM" ? "psbt-status-warning"
     : "psbt-status-invalid";
+  const broadcastReady =
+    verifyResult?.status === "valid" && verifyResult.extractable && Boolean(verifyResult.txHex);
+  const broadcastBackendReady =
+    broadcastStatus?.enabled === true &&
+    broadcastStatus.backend === "core" &&
+    broadcastStatus.configured === true;
+  const broadcastButtonDisabled =
+    broadcastLoading ||
+    !broadcastReady ||
+    !broadcastBackendReady ||
+    !broadcastConfirmed ||
+    broadcastConfirmText !== "BROADCAST";
 
   const safetyMessages: string[] = [];
   if (verifyResult) {
@@ -3612,7 +3742,7 @@ function VerifyPsbtPanel({
             ))}
           </div>
 
-          {/* Transaction hex — no broadcast */}
+          {/* Transaction hex and optional Bitcoin Core broadcast */}
           {verifyResult.extractable && verifyResult.txHex ? (
             <div className="psbt-base64-block">
               <p className="terminal-heading">&gt; TRANSACTION HEX</p>
@@ -3623,8 +3753,8 @@ function VerifyPsbtPanel({
                 </p>
               ) : null}
               <p className="muted psbt-change-addr">
-                This wallet does not broadcast transactions. Copy this txHex only after
-                verifying every output.
+                Broadcast is optional and disabled unless Bitcoin Core RPC is configured.
+                Copy this txHex only after verifying every output.
               </p>
               {verifyResult.txid ? (
                 <p className="muted psbt-change-addr">txid: {verifyResult.txid}</p>
@@ -3646,6 +3776,89 @@ function VerifyPsbtPanel({
               </div>
             </div>
           ) : null}
+
+          <div className="psbt-base64-block">
+            <p className="terminal-heading">&gt; BROADCAST SIGNED TRANSACTION</p>
+            <p className="muted psbt-change-addr">
+              This app does not sign transactions. Broadcasting sends an already-signed
+              transaction to Bitcoin Core and cannot be undone.
+            </p>
+
+            {!verifyResult.extractable || !verifyResult.txHex ? (
+              <p className="psbt-status-warning muted">
+                Broadcast unavailable because no extractable transaction hex was produced.
+              </p>
+            ) : verifyResult.status === "warning" ? (
+              <p className="psbt-status-warning muted">
+                Broadcast disabled because this signed PSBT has warnings. Review and fix
+                before broadcasting.
+              </p>
+            ) : verifyResult.status === "invalid" ? (
+              <p className="psbt-status-invalid muted">
+                Broadcast disabled because this signed PSBT is invalid.
+              </p>
+            ) : !broadcastBackendReady ? (
+              <p className="muted">
+                Broadcast backend is disabled. You can copy txHex and broadcast with another
+                trusted tool, or configure Bitcoin Core RPC.
+              </p>
+            ) : (
+              <>
+                <p className="psbt-status-warning muted">
+                  Broadcasting sends this verified signed transaction to the Bitcoin network
+                  through your Bitcoin Core node. This cannot be undone.
+                </p>
+                <label className="psbt-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={broadcastConfirmed}
+                    onChange={(e) => setBroadcastConfirmed(e.target.checked)}
+                  />
+                  <span>I verified the recipient, amount, change output, and fee.</span>
+                </label>
+                <label className="psbt-field">
+                  <span>Type BROADCAST to confirm</span>
+                  <input
+                    className="psbt-input"
+                    type="text"
+                    value={broadcastConfirmText}
+                    onChange={(e) => setBroadcastConfirmText(e.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </label>
+                <div className="psbt-actions">
+                  <button
+                    className="compact-button"
+                    type="button"
+                    disabled={broadcastButtonDisabled}
+                    onClick={() => void handleBroadcast()}
+                  >
+                    {broadcastLoading ? "Broadcasting..." : "Broadcast transaction"}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {broadcastStatus?.message ? (
+              <p className="muted psbt-change-addr">
+                Backend: {broadcastStatus.backend === "core" ? "Bitcoin Core" : "disabled"} - {broadcastStatus.message}
+              </p>
+            ) : null}
+
+            {broadcastMessage ? <p className="status-message">{broadcastMessage}</p> : null}
+
+            {broadcastResult ? (
+              <div className="psbt-verify-section">
+                <p className="terminal-heading psbt-status-valid">&gt; BROADCAST SUBMITTED</p>
+                <p className="muted">Backend: Bitcoin Core</p>
+                <p className="muted psbt-change-addr">txid: {broadcastResult.txid}</p>
+                <button className="compact-button" type="button" onClick={() => void copyTxid()}>
+                  {copiedTxid ? "Copied txid!" : "Copy txid"}
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </details>

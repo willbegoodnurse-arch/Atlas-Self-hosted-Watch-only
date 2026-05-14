@@ -20,7 +20,7 @@ The project is an MVP. It is useful for watch-only coordination, but it is not a
 - Not a hot wallet.
 - Not a signing wallet.
 - Not a custody service.
-- Not a transaction broadcast tool.
+- Not an automatic or public transaction broadcast service.
 - Not a seed phrase or private key manager.
 - Not a replacement for a mature signer such as Sparrow, Coldcard, Passport, Keystone, SeedSigner, Jade, Krux, or another dedicated wallet.
 
@@ -49,7 +49,7 @@ The project is an MVP. It is useful for watch-only coordination, but it is not a
 - Single QR export when the PSBT is small enough.
 - Signed PSBT verification.
 - txHex extraction only after signed PSBT verification when the PSBT is extractable.
-- No transaction broadcast.
+- Optional Bitcoin Core RPC broadcast for already-signed transactions after server-side signed PSBT verification.
 
 ## Security Model
 
@@ -58,7 +58,9 @@ Atlas is watch-only by design.
 - The app never asks for seed phrases or private keys.
 - The app rejects xprv, yprv, zprv, WIF private keys, and seed phrase-looking input.
 - The app never signs transactions.
-- The app never broadcasts transactions.
+- Broadcast is disabled by default. When configured, Atlas can broadcast an already-signed transaction through Bitcoin Core RPC only after server-side signed PSBT verification returns `valid`.
+- Atlas does not broadcast unsigned, invalid, or warning PSBTs.
+- Broadcasting is irreversible after the transaction is accepted and propagated by your node.
 - Extended public keys are privacy-sensitive. Anyone with a full xpub, ypub, or zpub can monitor wallet history and future addresses.
 - `wallets.enc` stores watch-only wallet data and user metadata encrypted on the server.
 - The vault password is required to unlock the vault.
@@ -197,6 +199,8 @@ Important variables:
 - `NEXT_PUBLIC_API_URL`: API URL used by the web frontend.
 - `MEMPOOL_API_URL`: mempool-compatible HTTP backend.
 - `API_MODE`: currently `mempool` for normal operation. Fulcrum diagnostics exist, but balance and transaction lookups use a mempool-compatible HTTP API.
+- `BROADCAST_BACKEND`: `disabled` by default. Set to `core` only when Bitcoin Core RPC broadcast is intended.
+- `CORE_RPC_URL`, `CORE_RPC_USERNAME`, `CORE_RPC_PASSWORD`: Bitcoin Core RPC settings for optional broadcast. Keep credentials out of Git and never expose Core RPC publicly.
 - `VAULT_AUTO_LOCK_MINUTES`: inactivity timeout for the unlocked vault.
 
 Do not put seed phrases, private keys, xprv values, WIF keys, real wallet xpubs, or RPC passwords in `.env.example` or committed docs.
@@ -221,13 +225,15 @@ Signed PSBT verification:
 3. Review warnings and errors.
 4. Verify every output.
 5. Copy txHex only if the signed PSBT is extractable and you intentionally want to broadcast elsewhere.
+6. If Bitcoin Core RPC broadcast is configured, explicitly confirm broadcast only after the signed PSBT is `valid`.
 
-This app does not sign or broadcast. See [docs/psbt-workflow.md](docs/psbt-workflow.md).
+This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only, disabled by default, irreversible after submission, and requires explicit confirmation. See [docs/psbt-workflow.md](docs/psbt-workflow.md).
 
 ## Known Limitations
 
 - No signing.
-- No broadcast.
+- No public mempool broadcast.
+- No Fulcrum/Electrum broadcast.
 - No seed phrase support.
 - No private key support.
 - No xprv, yprv, zprv, or WIF support except rejection.

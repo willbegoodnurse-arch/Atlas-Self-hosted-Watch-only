@@ -1,6 +1,6 @@
 # PSBT Workflow Guide
 
-Atlas creates unsigned PSBTs and verifies signed PSBTs. It does not sign, finalize unsigned PSBTs, or broadcast transactions.
+Atlas creates unsigned PSBTs and verifies signed PSBTs. It does not sign or finalize unsigned PSBTs. Broadcast is optional, disabled by default, and limited to Bitcoin Core RPC after server-side signed PSBT verification succeeds.
 
 Treat the unsigned PSBT builder as a spending plan for an external cold wallet.
 
@@ -47,9 +47,9 @@ After external signing:
 5. Verify every output.
 6. Review unknown or external outputs carefully.
 7. Copy txHex only if the PSBT is signed, finalized/extractable, and the details are safe.
-8. Broadcast elsewhere only if you intentionally choose to do so.
+8. Broadcast elsewhere only if you intentionally choose to do so, or use Atlas Bitcoin Core RPC broadcast only if it is configured and the verification result is `valid`.
 
-Atlas does not broadcast.
+Atlas does not sign. If `BROADCAST_BACKEND=core` is configured, Atlas can broadcast an already-signed transaction through Bitcoin Core RPC only after verification returns `valid` and the user explicitly confirms.
 
 ## What To Verify Before Broadcasting Elsewhere
 
@@ -85,7 +85,8 @@ Do not ignore warnings just because labels or notes look familiar.
 ## Security Boundaries
 
 - No signing.
-- No broadcast.
+- No public mempool broadcast.
+- No Fulcrum/Electrum broadcast.
 - No seed phrase input.
 - No private key input.
 - No xprv, yprv, zprv, or WIF input.
@@ -93,3 +94,28 @@ Do not ignore warnings just because labels or notes look familiar.
 - No labels or notes are used for ownership or safety classification.
 
 If a cold wallet shows a different recipient, amount, change output, or fee than Atlas showed, stop and investigate before signing or broadcasting elsewhere.
+
+## Optional Bitcoin Core Broadcast
+
+Broadcast is disabled unless configured:
+
+```env
+BROADCAST_BACKEND=core
+CORE_RPC_URL=http://127.0.0.1:8332
+CORE_RPC_USERNAME=your_rpc_user
+CORE_RPC_PASSWORD=your_rpc_password
+```
+
+Atlas sends only the server-extracted transaction hex from a verified signed PSBT. It does not accept raw txHex paste for broadcast and does not broadcast warning or invalid PSBTs.
+
+Broadcasting is irreversible after the transaction is accepted and propagated by your node.
+
+Before broadcasting:
+
+1. Verify the signed PSBT status is `valid`.
+2. Review recipient, amount, change, and fee.
+3. Confirm Bitcoin Core RPC is your own trusted node.
+4. Check the confirmation box.
+5. Type `BROADCAST`.
+
+Public mempool broadcast, Fulcrum broadcast, Electrum broadcast, and self-hosted mempool broadcast are intentionally deferred.

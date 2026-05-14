@@ -789,6 +789,18 @@ code {
   margin: 3px 0;
 }
 
+.psbt-checkbox-row {
+  align-items: flex-start;
+  color: var(--muted);
+  display: flex;
+  gap: 0.6rem;
+  line-height: 1.5;
+}
+
+.psbt-checkbox-row input {
+  margin-top: 0.25rem;
+}
+
 .qr-preview {
   width: min(320px, 100%);
   height: auto;
