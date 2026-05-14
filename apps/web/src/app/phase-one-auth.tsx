@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import QRCode from "qrcode";
 import type { IScannerControls } from "@zxing/browser";
 
@@ -4596,8 +4597,8 @@ function WalletAddressPanel({
         />
       ) : null}
 
-      {qrAddress ? (
-        <div className="qr-modal" role="dialog" aria-modal="true">
+      {qrAddress ? createPortal(
+        <div className="qr-modal" role="dialog" aria-modal="true" aria-label="Receive address QR">
           <div className="qr-dialog">
             <div className="wallet-card-header">
               <h2>Address QR</h2>
@@ -4606,9 +4607,19 @@ function WalletAddressPanel({
               </button>
             </div>
             <div className="qr-box">
-              {qrDataUrl ? <img alt="Address QR code" src={qrDataUrl} /> : null}
+              {qrDataUrl ? <img alt="Address QR code" src={qrDataUrl} width={240} height={240} /> : null}
               {!qrDataUrl && !qrError ? <span className="muted">Rendering address QR...</span> : null}
-              {qrError ? <span className="psbt-status-warning muted">{qrError}</span> : null}
+              {qrError ? <span className="muted">{qrError}</span> : null}
+            </div>
+            <code>{qrAddress.address}</code>
+            <div className="button-row">
+              <button
+                className="secondary-button compact-button"
+                type="button"
+                onClick={() => void copyAddress(qrAddress)}
+              >
+                Copy address
+              </button>
             </div>
             <dl className="qr-context">
               <div>
@@ -4640,9 +4651,9 @@ function WalletAddressPanel({
                 <dd>{qrAddress.path}</dd>
               </div>
             </dl>
-            <code>{qrAddress.address}</code>
           </div>
-        </div>
+        </div>,
+        document.body
       ) : null}
     </section>
   );

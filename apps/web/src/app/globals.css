@@ -838,11 +838,12 @@ code {
   display: grid;
   gap: 16px;
   width: min(420px, 100%);
-  border: 1px solid var(--line);
+  max-height: 90vh;
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
   border-radius: 4px;
-  background: var(--panel-strong);
+  background: rgb(12 18 28 / 98%);
   box-shadow: var(--shadow-deep);
-  backdrop-filter: blur(12px);
   padding: 20px;
 }
 
