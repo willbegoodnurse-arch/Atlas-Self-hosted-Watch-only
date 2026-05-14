@@ -431,6 +431,7 @@ Logs should not contain vault passwords, seed phrases, private keys, xprv/WIF va
 - Vault locked: unlock manually with the vault password.
 - Vault auto-locks too quickly: adjust `VAULT_AUTO_LOCK_MINUTES`.
 - Single QR export fails: use text export; animated QR and BBQr are intentionally deferred.
+- Camera QR scanning fails on LAN HTTP: browsers may block camera access on origins such as `http://172.30.x.x:3000`. Use text import/export, HTTPS, localhost forwarding, or Tailscale Serve. Do not expose Atlas or Bitcoin Core RPC publicly just to enable camera access. See [camera-qr-secure-context.md](camera-qr-secure-context.md).
 
 ## Security Checklist
 

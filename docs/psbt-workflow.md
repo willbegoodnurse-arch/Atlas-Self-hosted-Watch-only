@@ -29,6 +29,8 @@ Current export options:
 - Download text file.
 - Single QR when the PSBT is small enough.
 
+QR display/export can work over plain HTTP because it does not use the camera. Camera QR scanning is different: Brave/Chrome may require HTTPS or localhost and may block `http://172.30.x.x` LAN origins. If camera scanning is unavailable, use text PSBT import/export. See [camera-qr-secure-context.md](camera-qr-secure-context.md).
+
 Deferred export options:
 
 - Animated QR.

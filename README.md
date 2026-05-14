@@ -240,6 +240,7 @@ This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only
 - Animated QR export is deferred.
 - BBQr export is deferred.
 - QR export works only for PSBTs small enough for a single QR.
+- Camera QR scanning requires HTTPS or localhost; text PSBT import/export remains the fallback on plain LAN HTTP.
 - PSBT compatibility with every cold wallet is not guaranteed.
 - Fee estimates depend on the configured mempool backend.
 - Address discovery depends on scan depth and gap limit behavior.
@@ -255,6 +256,7 @@ This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only
 - [Raspberry Pi deployment guide](docs/raspberry-pi-deployment.md)
 - [Bitcoin Core RPC broadcast setup](docs/bitcoin-core-rpc-broadcast.md)
 - [Bitcoin Core RPC live wiring checklist](docs/bitcoin-core-rpc-live-wiring.md)
+- [Camera QR secure context guide](docs/camera-qr-secure-context.md)
 - [PSBT workflow guide](docs/psbt-workflow.md)
 - [Release and smoke test checklist](docs/release-checklist.md)
 - [Security policy](SECURITY.md)

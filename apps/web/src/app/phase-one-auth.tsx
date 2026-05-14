@@ -1355,8 +1355,9 @@ function WalletCreateForm({
   }
 
   async function startScanner() {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setScannerMessage("Camera access is not available in this browser.");
+    const cameraUnavailableMessage = getCameraUnavailableMessage();
+    if (cameraUnavailableMessage) {
+      setScannerMessage(cameraUnavailableMessage);
       setScannerOpen(true);
       return;
     }
@@ -1415,7 +1416,7 @@ function WalletCreateForm({
       setScannerMessage("Point the camera at an xpub, descriptor, key expression, JSON, or UR QR.");
     } catch (error) {
       stopScanner();
-      setScannerMessage(error instanceof Error ? error.message : "Unable to start QR scanner.");
+      setScannerMessage(getCameraStartErrorMessage(error));
     }
   }
 
@@ -1559,6 +1560,11 @@ function WalletCreateForm({
           QR Scan
         </button>
       </div>
+      <p className="muted">
+        Camera QR scanning requires HTTPS or localhost. LAN HTTP addresses such as
+        http://172.30.x.x may be blocked by Brave/Chrome. Text PSBT and watch-only
+        import/export remain available.
+      </p>
       <label>
         <span className="field-header">
           <span>Import payload</span>
@@ -1652,6 +1658,10 @@ function WalletCreateForm({
                 Close
               </button>
             </div>
+            <p className="muted">
+              Camera QR scanning requires HTTPS or localhost. If camera access is blocked,
+              paste the watch-only export text or import a file instead.
+            </p>
             <video ref={scannerVideo} className="scanner-video" muted playsInline />
             {qrFrameFormat ? (
               <p className="muted">
@@ -1678,6 +1688,40 @@ function WalletCreateForm({
 
 const watchOnlyImportError =
   "This is a watch-only wallet. Private keys or seed phrases must never be imported.";
+
+function getCameraUnavailableMessage(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  if (!window.isSecureContext) {
+    return "Camera scanning requires a secure browser context. Use HTTPS, localhost, or a trusted tunnel such as Tailscale Serve. You can still paste PSBT or watch-only export text manually.";
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return "Camera access is not available in this browser. Use text import/export or open Atlas over HTTPS/localhost.";
+  }
+
+  return null;
+}
+
+function getCameraStartErrorMessage(error: unknown): string {
+  const name = error instanceof DOMException || error instanceof Error ? error.name : "";
+
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return "Camera permission was denied. Allow camera access in the browser site settings, or use text import/export.";
+  }
+
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "No camera device was found. Use text import/export.";
+  }
+
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "The camera is already in use or could not be started. Close other camera apps or use text import/export.";
+  }
+
+  return error instanceof Error ? error.message : "Unable to start QR scanner. Use text import/export.";
+}
 
 const sourceDeviceOptions: Array<{ value: SourceDevice; label: string }> = [
   { value: "coldcard", label: "Coldcard" },

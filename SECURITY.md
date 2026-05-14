@@ -158,6 +158,14 @@ Not fully protected against:
 
 Public internet exposure is discouraged. If the app is exposed beyond a trusted private network, use HTTPS, a hardened reverse proxy, firewall restrictions, and additional access controls.
 
+## Camera Access And Secure Contexts
+
+Browser camera APIs usually require HTTPS or localhost. Brave, Chrome, and similar browsers may block camera QR scanning on plain LAN HTTP origins such as `http://172.30.x.x:3000`.
+
+Do not disable browser security globally as a permanent workaround. Prefer text PSBT import/export, SSH localhost forwarding, Tailscale Serve, or a carefully configured HTTPS reverse proxy.
+
+Never expose Atlas API or Bitcoin Core RPC publicly just to make camera scanning work. Bitcoin Core RPC must remain private.
+
 ## Reporting Vulnerabilities
 
 If a private security advisory channel is available through the repository, use it. Otherwise, open a GitHub issue that describes the affected area without including secrets, private keys, seed phrases, full xpub/ypub/zpub values, cookies, or exploit details that would put users at immediate risk.

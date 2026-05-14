@@ -140,6 +140,15 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Confirm warning and invalid PSBTs cannot broadcast.
 - Confirm there is no raw txHex paste broadcast path.
 
+## Camera QR
+
+- Open Atlas over HTTPS or localhost if camera scanning is required.
+- Confirm plain LAN HTTP camera blocking shows a clear secure-context fallback message.
+- Confirm permission denied shows a clear fallback message.
+- Confirm text PSBT import/export works without camera access.
+- Confirm no public internet exposure is introduced to make camera scanning work.
+- Confirm Bitcoin Core RPC remains private.
+
 ## Security Regression Check
 
 - No signing feature exists.

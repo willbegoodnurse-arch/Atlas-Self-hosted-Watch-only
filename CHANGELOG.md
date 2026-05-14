@@ -20,6 +20,7 @@
 - Optional Bitcoin Core RPC broadcast for already-signed transactions after server-side signed PSBT verification returns `valid`.
 - Non-broadcasting Bitcoin Core RPC status diagnostics for live configuration checks.
 - Raspberry Pi Bitcoin Core RPC live wiring checklist.
+- Camera QR secure-context guidance and clearer camera fallback messaging.
 - Raspberry Pi, Docker Compose, systemd example, backup/restore, and smoke test documentation.
 
 ### Security

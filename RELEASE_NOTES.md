@@ -77,6 +77,7 @@ It is not a custody service, hot wallet, public internet wallet, or replacement 
 - If enabling broadcast, use your own Bitcoin Core node and do not expose RPC publicly.
 - Check Bitcoin Core RPC connectivity before any live broadcast and test with testnet/signet or a tiny mainnet amount first.
 - Use the Bitcoin Core RPC live wiring checklist before enabling broadcast on a Raspberry Pi.
+- If camera QR scanning is blocked on LAN HTTP, use text PSBT import/export or open Atlas over HTTPS/localhost/Tailscale Serve.
 
 ## Validation Checklist
 
