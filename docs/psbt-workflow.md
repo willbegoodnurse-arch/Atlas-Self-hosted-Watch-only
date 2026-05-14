@@ -47,7 +47,9 @@ After external signing:
 5. Verify every output.
 6. Review unknown or external outputs carefully.
 7. Copy txHex only if the PSBT is signed, finalized/extractable, and the details are safe.
-8. Broadcast elsewhere only if you intentionally choose to do so, or use Atlas Bitcoin Core RPC broadcast only if it is configured and the verification result is `valid`.
+8. If broadcast is disabled, copy txHex only when you intentionally want to use another trusted tool.
+9. If Bitcoin Core broadcast is enabled, confirm outputs and fee, read the irreversible warning, check the confirmation box, type `BROADCAST`, and click Broadcast transaction.
+10. Record the returned txid.
 
 Atlas does not sign. If `BROADCAST_BACKEND=core` is configured, Atlas can broadcast an already-signed transaction through Bitcoin Core RPC only after verification returns `valid` and the user explicitly confirms.
 
@@ -106,6 +108,8 @@ CORE_RPC_USERNAME=your_rpc_user
 CORE_RPC_PASSWORD=your_rpc_password
 ```
 
+Use [bitcoin-core-rpc-broadcast.md](bitcoin-core-rpc-broadcast.md) for Raspberry Pi and Bitcoin Core RPC configuration details.
+
 Atlas sends only the server-extracted transaction hex from a verified signed PSBT. It does not accept raw txHex paste for broadcast and does not broadcast warning or invalid PSBTs.
 
 Broadcasting is irreversible after the transaction is accepted and propagated by your node.
@@ -117,5 +121,6 @@ Before broadcasting:
 3. Confirm Bitcoin Core RPC is your own trusted node.
 4. Check the confirmation box.
 5. Type `BROADCAST`.
+6. Prefer testnet/signet first. If using mainnet, use a tiny amount first.
 
 Public mempool broadcast, Fulcrum broadcast, Electrum broadcast, and self-hosted mempool broadcast are intentionally deferred.

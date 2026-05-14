@@ -5,7 +5,12 @@ import {
   WalletNotFoundError,
   verifyPsbt
 } from "../vault/store.js";
-import { BroadcastError, broadcastTransaction, getBroadcastStatus } from "./index.js";
+import {
+  BroadcastError,
+  broadcastTransaction,
+  getBroadcastStatus,
+  getCoreRpcDiagnosticStatus
+} from "./index.js";
 
 type AuthGuard = (request: FastifyRequest, reply: FastifyReply) => unknown;
 
@@ -30,6 +35,13 @@ export async function registerBroadcastRoutes(
       return;
     }
     return reply.send(getBroadcastStatus());
+  });
+
+  server.get("/api/broadcast/core/status", async (request, reply) => {
+    if (!requireSession(request, reply)) {
+      return;
+    }
+    return reply.send(await getCoreRpcDiagnosticStatus());
   });
 
   server.post<{ Body: BroadcastPsbtBody; Params: { id: string } }>(

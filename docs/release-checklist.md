@@ -41,6 +41,22 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Confirm Docker users rebuild after changing `NEXT_PUBLIC_API_URL`.
 - Confirm `BROADCAST_BACKEND=disabled` unless Bitcoin Core RPC broadcast is intentionally configured.
 - If broadcast is configured, confirm Bitcoin Core RPC is private and reachable only from trusted hosts.
+- If broadcast is configured, confirm `CORE_RPC_URL` uses `http://` or `https://` and does not embed credentials.
+- If broadcast is configured, confirm `.env` is ignored by Git and RPC credentials are not visible in docs, UI, or logs.
+
+## Bitcoin Core Broadcast Readiness
+
+- Confirm `bitcoin-cli getblockchaininfo` works on the Bitcoin Core host.
+- Confirm `GET /api/broadcast/status` shows disabled by default or core enabled only when intended.
+- Confirm `GET /api/broadcast/core/status` does not return RPC username, password, or full RPC URL.
+- Confirm Bitcoin Core RPC port `8332` is not exposed publicly.
+- Confirm firewall, `rpcbind`, and `rpcallowip` restrict RPC to localhost or trusted private hosts.
+- Confirm invalid PSBT broadcast is blocked.
+- Confirm warning PSBT broadcast is blocked.
+- Confirm valid signed PSBT broadcast requires checkbox plus typing `BROADCAST`.
+- Confirm a successful broadcast displays txid.
+- Confirm there is no raw txHex paste broadcast path.
+- Use testnet/signet first where possible; otherwise use a tiny mainnet transaction first.
 
 ## Deployment Smoke Test
 

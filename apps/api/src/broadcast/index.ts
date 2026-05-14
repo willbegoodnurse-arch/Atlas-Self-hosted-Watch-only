@@ -1,4 +1,4 @@
-import { BitcoinCoreRpcError, sendRawTransactionViaCore } from "./core-rpc.js";
+import { BitcoinCoreRpcError, checkBitcoinCoreRpc, sendRawTransactionViaCore } from "./core-rpc.js";
 
 export type BroadcastBackend = "disabled" | "core";
 
@@ -7,6 +7,14 @@ export type BroadcastStatus = {
   backend: BroadcastBackend;
   configured: boolean;
   message?: string;
+};
+
+export type CoreRpcDiagnosticStatus = BroadcastStatus & {
+  reachable: boolean;
+  chain?: string;
+  blocks?: number;
+  headers?: number;
+  initialBlockDownload?: boolean;
 };
 
 export class BroadcastError extends Error {
@@ -87,6 +95,55 @@ export async function broadcastTransaction(txHex: string): Promise<{
   }
 }
 
+export async function getCoreRpcDiagnosticStatus(): Promise<CoreRpcDiagnosticStatus> {
+  const config = getBroadcastConfig();
+
+  if (config.backend === "disabled") {
+    return {
+      enabled: false,
+      backend: "disabled",
+      configured: false,
+      reachable: false,
+      message: "Broadcast backend is disabled."
+    };
+  }
+
+  if (!config.core) {
+    return {
+      enabled: true,
+      backend: "core",
+      configured: false,
+      reachable: false,
+      message: "Bitcoin Core RPC broadcast is enabled but not fully configured."
+    };
+  }
+
+  try {
+    const info = await checkBitcoinCoreRpc(config.core);
+    return {
+      enabled: true,
+      backend: "core",
+      configured: true,
+      reachable: true,
+      chain: info.chain,
+      blocks: info.blocks,
+      headers: info.headers,
+      initialBlockDownload: info.initialBlockDownload,
+      message: "Bitcoin Core RPC is reachable."
+    };
+  } catch (error) {
+    return {
+      enabled: true,
+      backend: "core",
+      configured: true,
+      reachable: false,
+      message: error instanceof BitcoinCoreRpcError
+        ? error.message
+        : "Bitcoin Core RPC is unavailable."
+    };
+  }
+}
+
 function getBroadcastConfig():
   | { backend: "disabled"; core: null }
   | {
@@ -103,7 +160,7 @@ function getBroadcastConfig():
     return { backend, core: null };
   }
 
-  const url = process.env.CORE_RPC_URL?.trim() ?? "";
+  const url = parseCoreRpcUrl(process.env.CORE_RPC_URL);
   const username = process.env.CORE_RPC_USERNAME?.trim() ?? "";
   const password = process.env.CORE_RPC_PASSWORD ?? "";
   const timeoutMs = parseTimeout(process.env.CORE_RPC_TIMEOUT_MS);
@@ -125,6 +182,26 @@ function getBroadcastConfig():
 
 function parseBackend(value: string | undefined): BroadcastBackend {
   return value?.trim() === "core" ? "core" : "disabled";
+}
+
+function parseCoreRpcUrl(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+    if (url.username || url.password) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 function parseTimeout(value: string | undefined): number {

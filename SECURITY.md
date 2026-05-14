@@ -96,6 +96,37 @@ Broadcasting is irreversible after the transaction is accepted and propagated by
 
 Bitcoin Core RPC credentials must stay out of Git. Do not expose Bitcoin Core RPC to the public internet.
 
+## Broadcast Threat Model
+
+Broadcast does not give Atlas private keys and does not mean Atlas can create transactions by itself. Atlas can only submit an already-signed transaction after the server verifies the signed PSBT and extracts txHex.
+
+Protected by design:
+
+- No signing keys, seed phrases, or private keys are stored.
+- Broadcast is disabled unless `BROADCAST_BACKEND=core`.
+- The server re-runs signed PSBT verification before broadcast.
+- Invalid, warning, unsigned, and non-extractable PSBTs are blocked.
+- The UI requires explicit confirmation plus typing `BROADCAST`.
+- The Core RPC status endpoints do not return RPC credentials or the full RPC URL.
+
+Remaining risks:
+
+- A user can still approve a bad signed transaction after failing to review it carefully.
+- A compromised browser session could attempt broadcast while the user session is active.
+- A compromised Raspberry Pi with RPC credentials could abuse the configured Core RPC connection.
+- Exposed Core RPC credentials or a public RPC port are critical risks.
+- Broadcast is irreversible once accepted and propagated.
+
+Mitigations:
+
+- Keep broadcast disabled unless needed.
+- Prefer `CORE_RPC_URL=http://127.0.0.1:8332`.
+- Keep Atlas on local network, Tailscale, or carefully configured Tor access.
+- Use strong Atlas account and vault passwords.
+- Review recipient, amount, change output, and fee before broadcast.
+- Test with testnet/signet or a tiny mainnet amount first.
+- Keep the Raspberry Pi and Bitcoin Core updated.
+
 ## Threat Model
 
 Protected against by design:

@@ -13,6 +13,13 @@ export type CoreRpcErrorKind =
   | "rejected"
   | "already-known";
 
+export type CoreRpcChainInfo = {
+  chain?: string;
+  blocks?: number;
+  headers?: number;
+  initialBlockDownload?: boolean;
+};
+
 export class BitcoinCoreRpcError extends Error {
   constructor(
     public readonly kind: CoreRpcErrorKind,
@@ -39,6 +46,61 @@ export async function sendRawTransactionViaCore(
   config: CoreRpcConfig,
   fetchImpl: FetchLike = fetch
 ): Promise<string> {
+  const payload = await callCoreRpc(
+    config,
+    "sendrawtransaction",
+    [txHex],
+    "atlas-broadcast",
+    fetchImpl,
+    "Bitcoin Core rejected the transaction."
+  );
+
+  if (typeof payload.result !== "string" || !/^[0-9a-fA-F]{64}$/.test(payload.result)) {
+    throw new BitcoinCoreRpcError(
+      "rejected",
+      "Bitcoin Core rejected the transaction."
+    );
+  }
+
+  return payload.result;
+}
+
+export async function checkBitcoinCoreRpc(
+  config: CoreRpcConfig,
+  fetchImpl: FetchLike = fetch
+): Promise<CoreRpcChainInfo> {
+  const payload = await callCoreRpc(
+    config,
+    "getblockchaininfo",
+    [],
+    "atlas-core-status",
+    fetchImpl,
+    "Bitcoin Core RPC status check failed."
+  );
+
+  if (!isRecord(payload.result)) {
+    throw new BitcoinCoreRpcError(
+      "unavailable",
+      "Bitcoin Core RPC is unavailable."
+    );
+  }
+
+  return {
+    chain: readString(payload.result.chain),
+    blocks: readNumber(payload.result.blocks),
+    headers: readNumber(payload.result.headers),
+    initialBlockDownload: readBoolean(payload.result.initialblockdownload)
+  };
+}
+
+async function callCoreRpc(
+  config: CoreRpcConfig,
+  method: string,
+  params: unknown[],
+  id: string,
+  fetchImpl: FetchLike,
+  rejectedMessage: string
+): Promise<JsonRpcResponse> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
 
@@ -52,9 +114,9 @@ export async function sendRawTransactionViaCore(
       },
       body: JSON.stringify({
         jsonrpc: "1.0",
-        id: "atlas-broadcast",
-        method: "sendrawtransaction",
-        params: [txHex]
+        id,
+        method,
+        params
       })
     });
 
@@ -75,17 +137,10 @@ export async function sendRawTransactionViaCore(
     }
 
     if (payload?.error) {
-      throw rpcErrorFromPayload(payload.error);
+      throw rpcErrorFromPayload(payload.error, rejectedMessage);
     }
 
-    if (typeof payload?.result !== "string" || !/^[0-9a-fA-F]{64}$/.test(payload.result)) {
-      throw new BitcoinCoreRpcError(
-        "rejected",
-        "Bitcoin Core rejected the transaction."
-      );
-    }
-
-    return payload.result;
+    return payload ?? {};
   } catch (error) {
     if (error instanceof BitcoinCoreRpcError) {
       throw error;
@@ -100,7 +155,26 @@ export async function sendRawTransactionViaCore(
   }
 }
 
-function rpcErrorFromPayload(error: NonNullable<JsonRpcResponse["error"]>): BitcoinCoreRpcError {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function rpcErrorFromPayload(
+  error: NonNullable<JsonRpcResponse["error"]>,
+  rejectedMessage: string
+): BitcoinCoreRpcError {
   const code = typeof error.code === "number" ? error.code : undefined;
   const message = sanitizeRpcMessage(error.message);
 
@@ -115,7 +189,7 @@ function rpcErrorFromPayload(error: NonNullable<JsonRpcResponse["error"]>): Bitc
 
   return new BitcoinCoreRpcError(
     "rejected",
-    "Bitcoin Core rejected the transaction.",
+    rejectedMessage,
     code,
     message
   );

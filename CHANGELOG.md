@@ -18,6 +18,7 @@
 - Signed PSBT verification with optional expected recipient, amount, change, and fee checks.
 - txHex display only when a signed PSBT is extractable.
 - Optional Bitcoin Core RPC broadcast for already-signed transactions after server-side signed PSBT verification returns `valid`.
+- Non-broadcasting Bitcoin Core RPC status diagnostics for live configuration checks.
 - Raspberry Pi, Docker Compose, systemd example, backup/restore, and smoke test documentation.
 
 ### Security
@@ -29,6 +30,7 @@
 - Broadcast disabled by default.
 - No unsigned, warning, invalid, automatic, public mempool, Fulcrum, or Electrum broadcast.
 - Bitcoin Core RPC broadcast uses server-extracted txHex from verified signed PSBTs only.
+- Bitcoin Core RPC URL validation rejects unsupported protocols and embedded credentials.
 - Normal API responses use xpub redaction and masking.
 - Vault password is not stored in `.env`.
 - Derived vault key is memory-only and cleared when the vault locks or the process restarts.

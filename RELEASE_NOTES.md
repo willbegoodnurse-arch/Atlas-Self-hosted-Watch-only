@@ -39,6 +39,7 @@ It is not a custody service, hot wallet, public internet wallet, or replacement 
 - Labels and notes are metadata only and do not change security decisions.
 - Broadcast is disabled by default and blocked for unsigned, warning, or invalid PSBTs.
 - Atlas does not trust frontend-provided txHex for broadcast.
+- Bitcoin Core RPC diagnostics use non-broadcasting status checks and do not return credentials.
 
 ## What This Release Does Not Do
 
@@ -74,6 +75,7 @@ It is not a custody service, hot wallet, public internet wallet, or replacement 
 - Do not store the vault password next to backups.
 - Review every unsigned PSBT and signed PSBT output on both Atlas and the external signer.
 - If enabling broadcast, use your own Bitcoin Core node and do not expose RPC publicly.
+- Check Bitcoin Core RPC connectivity before any live broadcast and test with testnet/signet or a tiny mainnet amount first.
 
 ## Validation Checklist
 
@@ -89,4 +91,4 @@ It is not a custody service, hot wallet, public internet wallet, or replacement 
 - Add address label, UTXO note, and transaction note.
 - Create and export an unsigned PSBT.
 - Verify a signed PSBT.
-- Confirm there is no signing or broadcast path.
+- Confirm there is no signing path, no automatic broadcast, and no raw txHex paste broadcast path.

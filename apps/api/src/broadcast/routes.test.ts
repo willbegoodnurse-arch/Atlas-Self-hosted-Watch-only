@@ -89,6 +89,12 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
     });
     assert.equal(unauthenticatedStatus.statusCode, 401);
 
+    const unauthenticatedCoreStatus = await server.inject({
+      method: "GET",
+      url: "/api/broadcast/core/status"
+    });
+    assert.equal(unauthenticatedCoreStatus.statusCode, 401);
+
     const disabledStatus = await server.inject({
       method: "GET",
       url: "/api/broadcast/status",
@@ -99,6 +105,20 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       enabled: false,
       backend: "disabled",
       configured: false,
+      message: "Broadcast backend is disabled."
+    });
+
+    const disabledCoreStatus = await server.inject({
+      method: "GET",
+      url: "/api/broadcast/core/status",
+      headers
+    });
+    assert.equal(disabledCoreStatus.statusCode, 200);
+    assert.deepEqual(disabledCoreStatus.json(), {
+      enabled: false,
+      backend: "disabled",
+      configured: false,
+      reachable: false,
       message: "Broadcast backend is disabled."
     });
 
@@ -146,6 +166,18 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
     assert.equal(missingConfigStatus.json().configured, false);
     assert.doesNotMatch(missingConfigStatus.body, /password|secret/i);
 
+    const missingConfigCoreStatus = await server.inject({
+      method: "GET",
+      url: "/api/broadcast/core/status",
+      headers
+    });
+    assert.equal(missingConfigCoreStatus.statusCode, 200);
+    assert.equal(missingConfigCoreStatus.json().enabled, true);
+    assert.equal(missingConfigCoreStatus.json().backend, "core");
+    assert.equal(missingConfigCoreStatus.json().configured, false);
+    assert.equal(missingConfigCoreStatus.json().reachable, false);
+    assert.doesNotMatch(missingConfigCoreStatus.body, /password|secret|127\.0\.0\.1/);
+
     const missingConfigBroadcast = await server.inject({
       method: "POST",
       url: `/api/wallets/${wallet.id}/psbt/broadcast`,
@@ -155,11 +187,98 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
     assert.equal(missingConfigBroadcast.statusCode, 503);
     assert.match(missingConfigBroadcast.json().error, /not configured/i);
 
+    process.env.CORE_RPC_URL = "http://atlas_rpc_user:atlas_rpc_password@127.0.0.1:8332";
+    process.env.CORE_RPC_USERNAME = "atlas_rpc_user";
+    process.env.CORE_RPC_PASSWORD = "atlas_rpc_password";
+    const embeddedCredentialStatus = await server.inject({
+      method: "GET",
+      url: "/api/broadcast/status",
+      headers
+    });
+    assert.equal(embeddedCredentialStatus.statusCode, 200);
+    assert.equal(embeddedCredentialStatus.json().enabled, true);
+    assert.equal(embeddedCredentialStatus.json().configured, false);
+    assert.doesNotMatch(embeddedCredentialStatus.body, /atlas_rpc_password|atlas_rpc_user|127\.0\.0\.1/);
+
+    process.env.CORE_RPC_URL = "file:///tmp/bitcoin-cookie";
+    const invalidProtocolStatus = await server.inject({
+      method: "GET",
+      url: "/api/broadcast/status",
+      headers
+    });
+    assert.equal(invalidProtocolStatus.statusCode, 200);
+    assert.equal(invalidProtocolStatus.json().configured, false);
+
     process.env.CORE_RPC_URL = "http://127.0.0.1:8332";
     process.env.CORE_RPC_USERNAME = "atlas_rpc_user";
     process.env.CORE_RPC_PASSWORD = "atlas_rpc_password";
 
     const rpcCalls: Array<{ body: { method: string; params: string[] }; auth: string | null }> = [];
+    globalThis.fetch = (async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { method: string; params: string[] };
+      rpcCalls.push({
+        body,
+        auth: init?.headers instanceof Headers ? init.headers.get("Authorization") : null
+      });
+      if (body.method === "getblockchaininfo") {
+        return new Response(
+          JSON.stringify({
+            result: {
+              chain: "main",
+              blocks: 840_000,
+              headers: 840_001,
+              initialblockdownload: false
+            }
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      return new Response(JSON.stringify({ result: BROADCAST_TXID }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }) as typeof fetch;
+
+    const reachableCoreStatus = await server.inject({
+      method: "GET",
+      url: "/api/broadcast/core/status",
+      headers
+    });
+    assert.equal(reachableCoreStatus.statusCode, 200);
+    assert.equal(reachableCoreStatus.json().enabled, true);
+    assert.equal(reachableCoreStatus.json().backend, "core");
+    assert.equal(reachableCoreStatus.json().configured, true);
+    assert.equal(reachableCoreStatus.json().reachable, true);
+    assert.equal(reachableCoreStatus.json().chain, "main");
+    assert.equal(reachableCoreStatus.json().blocks, 840_000);
+    assert.doesNotMatch(reachableCoreStatus.body, /atlas_rpc_password|atlas_rpc_user|127\.0\.0\.1/);
+
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            code: -28,
+            message: "loading block index atlas_rpc_password"
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )) as typeof fetch;
+
+    const failingCoreStatus = await server.inject({
+      method: "GET",
+      url: "/api/broadcast/core/status",
+      headers
+    });
+    assert.equal(failingCoreStatus.statusCode, 200);
+    assert.equal(failingCoreStatus.json().enabled, true);
+    assert.equal(failingCoreStatus.json().configured, true);
+    assert.equal(failingCoreStatus.json().reachable, false);
+    assert.equal(failingCoreStatus.json().message, "Bitcoin Core RPC status check failed.");
+    assert.doesNotMatch(failingCoreStatus.body, /atlas_rpc_password|127\.0\.0\.1/);
+
     globalThis.fetch = (async (_url, init) => {
       const body = JSON.parse(String(init?.body)) as { method: string; params: string[] };
       rpcCalls.push({
@@ -186,10 +305,10 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
     assert.equal(validBroadcast.json().status, "broadcasted");
     assert.equal(validBroadcast.json().backend, "core");
     assert.equal(validBroadcast.json().txid, BROADCAST_TXID);
-    assert.equal(rpcCalls.length, 1);
-    assert.equal(rpcCalls[0].body.method, "sendrawtransaction");
-    assert.notEqual(rpcCalls[0].body.params[0], "deadbeef");
-    assert.match(rpcCalls[0].body.params[0], /^[0-9a-f]+$/i);
+    assert.equal(rpcCalls.length, 2);
+    assert.equal(rpcCalls[1].body.method, "sendrawtransaction");
+    assert.notEqual(rpcCalls[1].body.params[0], "deadbeef");
+    assert.match(rpcCalls[1].body.params[0], /^[0-9a-f]+$/i);
     assert.doesNotMatch(validBroadcast.body, /atlas_rpc_password|deadbeef/);
 
     const fetchCountAfterValid = rpcCalls.length;

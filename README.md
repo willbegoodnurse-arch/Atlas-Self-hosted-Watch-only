@@ -200,7 +200,7 @@ Important variables:
 - `MEMPOOL_API_URL`: mempool-compatible HTTP backend.
 - `API_MODE`: currently `mempool` for normal operation. Fulcrum diagnostics exist, but balance and transaction lookups use a mempool-compatible HTTP API.
 - `BROADCAST_BACKEND`: `disabled` by default. Set to `core` only when Bitcoin Core RPC broadcast is intended.
-- `CORE_RPC_URL`, `CORE_RPC_USERNAME`, `CORE_RPC_PASSWORD`: Bitcoin Core RPC settings for optional broadcast. Keep credentials out of Git and never expose Core RPC publicly.
+- `CORE_RPC_URL`, `CORE_RPC_USERNAME`, `CORE_RPC_PASSWORD`: Bitcoin Core RPC settings for optional broadcast. `CORE_RPC_URL` must use `http://` or `https://` and must not embed credentials. Keep credentials out of Git and never expose Core RPC publicly.
 - `VAULT_AUTO_LOCK_MINUTES`: inactivity timeout for the unlocked vault.
 
 Do not put seed phrases, private keys, xprv values, WIF keys, real wallet xpubs, or RPC passwords in `.env.example` or committed docs.
@@ -227,7 +227,7 @@ Signed PSBT verification:
 5. Copy txHex only if the signed PSBT is extractable and you intentionally want to broadcast elsewhere.
 6. If Bitcoin Core RPC broadcast is configured, explicitly confirm broadcast only after the signed PSBT is `valid`.
 
-This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only, disabled by default, irreversible after submission, and requires explicit confirmation. See [docs/psbt-workflow.md](docs/psbt-workflow.md).
+This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only, disabled by default, irreversible after submission, and requires explicit confirmation. See [docs/psbt-workflow.md](docs/psbt-workflow.md) and [docs/bitcoin-core-rpc-broadcast.md](docs/bitcoin-core-rpc-broadcast.md).
 
 ## Known Limitations
 
@@ -253,6 +253,7 @@ This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only
 - [Release notes](RELEASE_NOTES.md)
 - [Changelog](CHANGELOG.md)
 - [Raspberry Pi deployment guide](docs/raspberry-pi-deployment.md)
+- [Bitcoin Core RPC broadcast setup](docs/bitcoin-core-rpc-broadcast.md)
 - [PSBT workflow guide](docs/psbt-workflow.md)
 - [Release and smoke test checklist](docs/release-checklist.md)
 - [Security policy](SECURITY.md)
