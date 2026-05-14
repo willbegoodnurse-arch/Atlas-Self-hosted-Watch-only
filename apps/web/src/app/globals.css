@@ -827,7 +827,7 @@ code {
 .qr-modal {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: 1000;
   display: grid;
   place-items: center;
   background: rgb(0 0 0 / 78%);

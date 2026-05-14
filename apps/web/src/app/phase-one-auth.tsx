@@ -4173,6 +4173,12 @@ function WalletAddressPanel({
     void refreshAddresses();
   }, [wallet.id, chain, refreshToken]);
 
+  function openAddressQr(address: DerivedAddress) {
+    setQrDataUrl("");
+    setQrError("");
+    setQrAddress({ ...address });
+  }
+
   useEffect(() => {
     if (!qrAddress) {
       setQrDataUrl("");
@@ -4435,7 +4441,12 @@ function WalletAddressPanel({
               <button
                 className="secondary-button compact-button"
                 type="button"
-                onClick={() => setQrAddress(nextReceiveAddress)}
+                onPointerDown={(event) => {
+                  if (event.button === 0) {
+                    openAddressQr(nextReceiveAddress);
+                  }
+                }}
+                onClick={() => openAddressQr(nextReceiveAddress)}
               >
                 QR
               </button>
@@ -4560,7 +4571,7 @@ function WalletAddressPanel({
           onLabelDraftChange={setAddressLabelDraft}
           onNotesDraftChange={setAddressNotesDraft}
           onSaveLabel={saveAddressLabel}
-          onShowQr={setQrAddress}
+          onShowQr={openAddressQr}
         />
       ) : null}
       {changeAddresses.length ? (
@@ -4581,7 +4592,7 @@ function WalletAddressPanel({
           onLabelDraftChange={setAddressLabelDraft}
           onNotesDraftChange={setAddressNotesDraft}
           onSaveLabel={saveAddressLabel}
-          onShowQr={setQrAddress}
+          onShowQr={openAddressQr}
         />
       ) : null}
 
@@ -5246,7 +5257,16 @@ function AddressTable({
                 >
                   Copy
                 </button>
-                <button className="secondary-button compact-button" type="button" onClick={() => onShowQr(address)}>
+                <button
+                  className="secondary-button compact-button"
+                  type="button"
+                  onPointerDown={(event) => {
+                    if (event.button === 0) {
+                      onShowQr(address);
+                    }
+                  }}
+                  onClick={() => onShowQr(address)}
+                >
                   QR
                 </button>
                 <button
