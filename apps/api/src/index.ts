@@ -83,8 +83,9 @@ server.get("/api/fees/recommended", async (request, reply) => {
 
   const estimates = await lookupFeeEstimates();
   if (!estimates) {
-    return reply.code(503).send({
+    return reply.send({
       status: "unavailable",
+      estimates: null,
       error: "Fee estimates unavailable. Enter a custom fee rate.",
       mempool: getMempoolApiConfig()
     });

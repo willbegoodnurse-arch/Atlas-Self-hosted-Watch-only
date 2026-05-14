@@ -314,14 +314,15 @@ type CreatePsbtResponse = {
 };
 
 type FeeEstimatesResponse = {
-  status: "online";
+  status: "online" | "unavailable";
   estimates: {
     fastestFee: number | null;
     halfHourFee: number | null;
     hourFee: number | null;
     economyFee: number | null;
     minimumFee: number | null;
-  };
+  } | null;
+  error?: string;
 };
 
 type VerifyPsbtResponse = {
@@ -2720,8 +2721,14 @@ function CreatePsbtBuilderPanel({
     setFeeEstimateMessage("");
     try {
       const response = await apiRequest<FeeEstimatesResponse>(apiUrl, "/api/fees/recommended");
+      if (response.status !== "online" || !response.estimates) {
+        setFeeEstimates(null);
+        setFeeEstimateMessage(response.error ?? "Fee estimates unavailable. Enter a custom fee rate.");
+        return;
+      }
       setFeeEstimates(response.estimates);
     } catch {
+      setFeeEstimates(null);
       setFeeEstimateMessage("Fee estimates unavailable. Enter a custom fee rate.");
     }
   }
@@ -4155,6 +4162,7 @@ function WalletAddressPanel({
   const [loading, setLoading] = useState(false);
   const [qrAddress, setQrAddress] = useState<DerivedAddress | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState("");
+  const [qrError, setQrError] = useState("");
   const [editingAddressLabelKey, setEditingAddressLabelKey] = useState("");
   const [addressLabelDraft, setAddressLabelDraft] = useState("");
   const [addressNotesDraft, setAddressNotesDraft] = useState("");
@@ -4168,19 +4176,29 @@ function WalletAddressPanel({
   useEffect(() => {
     if (!qrAddress) {
       setQrDataUrl("");
+      setQrError("");
       return;
     }
 
     let cancelled = false;
-    void QRCode.toDataURL(qrAddress.address, {
+    setQrDataUrl("");
+    setQrError("");
+    void QRCode.toString(qrAddress.address, {
+      type: "svg",
       errorCorrectionLevel: "M",
       margin: 2,
       width: 240
-    }).then((dataUrl) => {
-      if (!cancelled) {
-        setQrDataUrl(dataUrl);
-      }
-    });
+    })
+      .then((svg) => {
+        if (!cancelled) {
+          setQrDataUrl(svgToDataUrl(svg));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setQrError("Address QR could not be rendered. Copy the address text instead.");
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -4576,7 +4594,11 @@ function WalletAddressPanel({
                 Close
               </button>
             </div>
-            <div className="qr-box">{qrDataUrl ? <img alt="Address QR code" src={qrDataUrl} /> : null}</div>
+            <div className="qr-box">
+              {qrDataUrl ? <img alt="Address QR code" src={qrDataUrl} /> : null}
+              {!qrDataUrl && !qrError ? <span className="muted">Rendering address QR...</span> : null}
+              {qrError ? <span className="psbt-status-warning muted">{qrError}</span> : null}
+            </div>
             <dl className="qr-context">
               <div>
                 <dt>Wallet</dt>
@@ -5455,6 +5477,10 @@ function formatBalance(sats: number, unit: "sats" | "btc"): string {
   }
 
   return `${new Intl.NumberFormat("en-US").format(sats)} sats`;
+}
+
+function svgToDataUrl(svg: string): string {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 function truncateMiddle(str: string, maxLen: number): string {
