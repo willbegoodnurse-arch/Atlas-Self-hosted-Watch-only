@@ -204,6 +204,11 @@ type BroadcastStatusResponse = {
   enabled: boolean;
   backend: "disabled" | "core";
   configured: boolean;
+  reachable?: boolean;
+  chain?: string;
+  blocks?: number;
+  headers?: number;
+  initialBlockDownload?: boolean;
   message?: string;
 };
 
@@ -3209,7 +3214,7 @@ function VerifyPsbtPanel({
 
   useEffect(() => {
     let cancelled = false;
-    void apiRequest<BroadcastStatusResponse>(apiUrl, "/api/broadcast/status")
+    void apiRequest<BroadcastStatusResponse>(apiUrl, "/api/broadcast/core/status")
       .then((status) => {
         if (!cancelled) {
           setBroadcastStatus(status);
@@ -3285,8 +3290,13 @@ function VerifyPsbtPanel({
       setBroadcastMessage("Broadcast requires a valid, extractable signed PSBT.");
       return;
     }
-    if (!broadcastStatus?.enabled || broadcastStatus.backend !== "core" || !broadcastStatus.configured) {
-      setBroadcastMessage("Broadcast backend is disabled. Configure Bitcoin Core RPC to broadcast.");
+    if (
+      !broadcastStatus?.enabled ||
+      broadcastStatus.backend !== "core" ||
+      !broadcastStatus.configured ||
+      broadcastStatus.reachable !== true
+    ) {
+      setBroadcastMessage("Bitcoin Core RPC is not configured or not reachable.");
       return;
     }
     if (!broadcastConfirmed || broadcastConfirmText !== "BROADCAST") {
@@ -3434,7 +3444,8 @@ function VerifyPsbtPanel({
   const broadcastBackendReady =
     broadcastStatus?.enabled === true &&
     broadcastStatus.backend === "core" &&
-    broadcastStatus.configured === true;
+    broadcastStatus.configured === true &&
+    broadcastStatus.reachable === true;
   const broadcastButtonDisabled =
     broadcastLoading ||
     !broadcastReady ||
@@ -3799,8 +3810,9 @@ function VerifyPsbtPanel({
               </p>
             ) : !broadcastBackendReady ? (
               <p className="muted">
-                Broadcast backend is disabled. You can copy txHex and broadcast with another
-                trusted tool, or configure Bitcoin Core RPC.
+                {broadcastStatus?.enabled && broadcastStatus.backend === "core"
+                  ? "Bitcoin Core RPC is not configured or not reachable. Check the Atlas server configuration and /api/broadcast/core/status."
+                  : "Broadcast backend is disabled. Configure Bitcoin Core RPC to broadcast from Atlas, or copy txHex and use another trusted tool."}
               </p>
             ) : (
               <>
@@ -3843,6 +3855,11 @@ function VerifyPsbtPanel({
             {broadcastStatus?.message ? (
               <p className="muted psbt-change-addr">
                 Backend: {broadcastStatus.backend === "core" ? "Bitcoin Core" : "disabled"} - {broadcastStatus.message}
+                {broadcastStatus.backend === "core" && broadcastStatus.reachable
+                  ? ` Core RPC: connected${broadcastStatus.chain ? ` (${broadcastStatus.chain})` : ""}.`
+                  : broadcastStatus.backend === "core"
+                    ? " Core RPC: unavailable."
+                    : ""}
               </p>
             ) : null}
 

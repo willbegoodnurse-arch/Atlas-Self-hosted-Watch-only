@@ -19,6 +19,7 @@
 - txHex display only when a signed PSBT is extractable.
 - Optional Bitcoin Core RPC broadcast for already-signed transactions after server-side signed PSBT verification returns `valid`.
 - Non-broadcasting Bitcoin Core RPC status diagnostics for live configuration checks.
+- Raspberry Pi Bitcoin Core RPC live wiring checklist.
 - Raspberry Pi, Docker Compose, systemd example, backup/restore, and smoke test documentation.
 
 ### Security

@@ -254,6 +254,7 @@ This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only
 - [Changelog](CHANGELOG.md)
 - [Raspberry Pi deployment guide](docs/raspberry-pi-deployment.md)
 - [Bitcoin Core RPC broadcast setup](docs/bitcoin-core-rpc-broadcast.md)
+- [Bitcoin Core RPC live wiring checklist](docs/bitcoin-core-rpc-live-wiring.md)
 - [PSBT workflow guide](docs/psbt-workflow.md)
 - [Release and smoke test checklist](docs/release-checklist.md)
 - [Security policy](SECURITY.md)

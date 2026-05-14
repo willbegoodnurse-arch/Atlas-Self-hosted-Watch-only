@@ -51,6 +51,7 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Confirm `GET /api/broadcast/core/status` does not return RPC username, password, or full RPC URL.
 - Confirm Bitcoin Core RPC port `8332` is not exposed publicly.
 - Confirm firewall, `rpcbind`, and `rpcallowip` restrict RPC to localhost or trusted private hosts.
+- Follow `docs/bitcoin-core-rpc-live-wiring.md` before any real broadcast attempt.
 - Confirm invalid PSBT broadcast is blocked.
 - Confirm warning PSBT broadcast is blocked.
 - Confirm valid signed PSBT broadcast requires checkbox plus typing `BROADCAST`.

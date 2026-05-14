@@ -76,6 +76,7 @@ It is not a custody service, hot wallet, public internet wallet, or replacement 
 - Review every unsigned PSBT and signed PSBT output on both Atlas and the external signer.
 - If enabling broadcast, use your own Bitcoin Core node and do not expose RPC publicly.
 - Check Bitcoin Core RPC connectivity before any live broadcast and test with testnet/signet or a tiny mainnet amount first.
+- Use the Bitcoin Core RPC live wiring checklist before enabling broadcast on a Raspberry Pi.
 
 ## Validation Checklist
 

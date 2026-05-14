@@ -4,6 +4,8 @@ Atlas can optionally broadcast an already-signed transaction through Bitcoin Cor
 
 Broadcast is disabled by default. Do not enable it until Bitcoin Core RPC is reachable only from trusted local hosts.
 
+For the Raspberry Pi wiring checklist with exact operator commands, see [bitcoin-core-rpc-live-wiring.md](bitcoin-core-rpc-live-wiring.md).
+
 ## Recommended Topology
 
 Run Atlas API and Bitcoin Core on the same Raspberry Pi or Linux host when possible:

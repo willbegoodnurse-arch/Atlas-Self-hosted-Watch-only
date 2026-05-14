@@ -108,7 +108,7 @@ Broadcast is disabled by default. Atlas never signs transactions; when configure
 
 Do not expose Bitcoin Core RPC port `8332` to the public internet. Prefer localhost when Atlas and Bitcoin Core run on the same Raspberry Pi. If Bitcoin Core is on another LAN host, use `CORE_RPC_URL=http://<bitcoin-core-lan-ip>:8332` and restrict access with `rpcbind`, `rpcallowip`, and firewall rules. Test broadcast on testnet/signet or with small transactions first.
 
-For the full Bitcoin Core RPC setup, including `bitcoin.conf`, safe connectivity checks, and the Atlas diagnostic endpoints, see [bitcoin-core-rpc-broadcast.md](bitcoin-core-rpc-broadcast.md).
+For the full Bitcoin Core RPC setup, including `bitcoin.conf`, safe connectivity checks, and the Atlas diagnostic endpoints, see [bitcoin-core-rpc-broadcast.md](bitcoin-core-rpc-broadcast.md). For exact Raspberry Pi wiring commands, see [bitcoin-core-rpc-live-wiring.md](bitcoin-core-rpc-live-wiring.md).
 
 ## Option A: Docker Compose
 
