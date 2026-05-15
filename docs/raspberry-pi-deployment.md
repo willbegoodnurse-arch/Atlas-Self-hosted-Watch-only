@@ -118,6 +118,12 @@ For the full Bitcoin Core RPC setup, including `bitcoin.conf`, safe connectivity
 
 After same-origin mode, localhost-only API binding, local mempool, Fulcrum, and camera localhost forwarding are configured, use [hardened-runtime-smoke-test.md](hardened-runtime-smoke-test.md) for the full operational checklist.
 
+For operator safety planning, review:
+
+- [backup-restore.md](backup-restore.md) for backup, restore, and disaster recovery.
+- [tailscale-https-access.md](tailscale-https-access.md) for private HTTPS and camera-access planning.
+- [network-exposure-audit.md](network-exposure-audit.md) for final port and firewall review.
+
 ## Option A: Docker Compose
 
 Build and start:
@@ -306,6 +312,8 @@ Tailscale is a good fit for a private Raspberry Pi deployment.
 2. Use the Pi Tailscale IP or MagicDNS name in `WEB_ORIGIN`; keep `NEXT_PUBLIC_API_URL=/api` for same-origin mode.
 3. Keep `COOKIE_SECURE=false` for plain HTTP over Tailscale, or use HTTPS if you configure it.
 
+For HTTPS camera access planning with Tailscale Serve, review [tailscale-https-access.md](tailscale-https-access.md) before changing `.env`, Tailscale settings, or firewall rules.
+
 ## Tor Hidden Service Note
 
 Tor can be used for private remote access, but this project does not include a complete Tor deployment. If you configure Tor yourself, only expose the web entry point and make sure API access is still restricted to trusted origins.
@@ -324,6 +332,8 @@ Authenticated runtime settings are available in the app through `GET /api/settin
 These endpoints must not be treated as a substitute for wallet verification. They only tell you whether the service and configured backends are reachable.
 
 ## Back Up wallets.enc
+
+For the complete backup, restore, and disaster recovery checklist, see [backup-restore.md](backup-restore.md).
 
 The encrypted vault lives at:
 

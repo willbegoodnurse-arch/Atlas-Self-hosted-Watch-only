@@ -42,6 +42,9 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Confirm `COOKIE_SECURE=false` for local HTTP or `COOKIE_SECURE=true` behind HTTPS.
 - Confirm API and web ports are selected and firewall rules match them.
 - Confirm the `wallets.enc` backup location is known.
+- Review `docs/backup-restore.md` and confirm backup/restore ownership is assigned.
+- Review `docs/network-exposure-audit.md` and confirm intended port exposure.
+- Review `docs/tailscale-https-access.md` before enabling HTTPS camera access through Tailscale Serve or another proxy.
 - Confirm Docker users rebuild after changing `NEXT_PUBLIC_API_URL`.
 - Confirm Docker/systemd users rebuild or restart web after changing `INTERNAL_API_URL`.
 - Confirm `BROADCAST_BACKEND=disabled` unless Bitcoin Core RPC broadcast is intentionally configured.
@@ -109,6 +112,8 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Restart the API and confirm `wallets.enc` persists.
 - Confirm the vault requires manual unlock after restart.
 - Confirm backup and restore steps are documented for the deployment.
+- Confirm the operator has a current backup of `wallets.enc` and a protected copy of `.env`.
+- Confirm the restore checklist has been tested or scheduled before live use.
 
 ## Same-Origin API Proxy
 
@@ -238,12 +243,27 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 
 ## Backup Check
 
+- Follow `docs/backup-restore.md`.
 - Confirm `apps/api/data/wallets.enc` exists after wallet registration.
 - Lock the vault or stop the API before backup when practical.
 - Back up `wallets.enc` securely.
 - Verify the backup file exists.
 - Record that the vault password is required and cannot be recovered by the app.
 - Record that backups may contain xpubs, labels, notes, addresses, and wallet-history metadata, and must not be shared publicly.
+
+## Phase 47 - Operator Safety Pack
+
+- [ ] Review `docs/backup-restore.md`.
+- [ ] Confirm `wallets.enc` and `.env` backup plan exists.
+- [ ] Confirm vault password recovery responsibility is documented outside Atlas.
+- [ ] Review `docs/tailscale-https-access.md`.
+- [ ] Confirm HTTPS/camera access does not expose API `3011`.
+- [ ] Confirm Tailscale Serve or reverse proxy serves only the web entry point when used.
+- [ ] Review `docs/network-exposure-audit.md`.
+- [ ] Confirm API `3011` is private in hardened same-origin mode.
+- [ ] Confirm Bitcoin Core RPC `8332` is not public.
+- [ ] Confirm no firewall, `.env`, systemd, or Tailscale changes are made without operator review.
+- [ ] Confirm no `sendrawtransaction` command is run during safety-pack review.
 
 ## Phase 42 — Broadcast validation
 

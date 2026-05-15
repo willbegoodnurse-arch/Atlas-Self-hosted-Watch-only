@@ -3,6 +3,14 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 47 - Operator safety pack
+
+- Added backup, restore, and disaster recovery guidance for `wallets.enc`, `.env`, service files, deployment commit tracking, and sensitive screenshot/chat hygiene.
+- Added Tailscale Serve / HTTPS access planning for private camera-capable access while keeping the Atlas API and Bitcoin Core RPC private.
+- Added a network exposure audit checklist covering web, API, Bitcoin Core RPC, Fulcrum, mempool, same-origin mode, and public exposure risks.
+- Linked the new safety docs from the Raspberry Pi guide, release checklist, README, and security policy.
+- No wallet, PSBT, broadcast, firewall, `.env`, or live system behavior was changed.
+
 ## Dashboard/login UI cleanup
 
 - Restored the vault-password gate so the main dashboard renders only after the vault is unlocked.

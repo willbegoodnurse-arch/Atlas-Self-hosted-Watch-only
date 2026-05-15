@@ -101,6 +101,14 @@ apps/api/data/wallets.enc
 
 These files are ignored by Git. Back up `wallets.enc` securely if you need to preserve watch-only wallet records, labels, and notes.
 
+Operator safety docs:
+
+- [Backup / restore / disaster recovery](docs/backup-restore.md)
+- [Tailscale Serve / HTTPS access planning](docs/tailscale-https-access.md)
+- [Network exposure audit](docs/network-exposure-audit.md)
+- [Raspberry Pi deployment guide](docs/raspberry-pi-deployment.md)
+- [Release and smoke test checklist](docs/release-checklist.md)
+
 ## Development On Windows
 
 From PowerShell:

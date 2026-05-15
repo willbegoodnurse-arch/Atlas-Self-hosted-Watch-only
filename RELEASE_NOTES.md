@@ -1,6 +1,12 @@
 
 # Atlas v0.1.0 Release Candidate Notes
 
+## Phase 47 - Operator Safety Pack
+
+Phase 47 adds operator-facing safety documentation for backup/restore/disaster recovery, Tailscale Serve HTTPS access planning, and final network exposure audits. The new docs emphasize that watch-only metadata is privacy-sensitive, `.env` is secret, `wallets.enc` needs the vault password, API `3011` should remain private in hardened mode, and Bitcoin Core RPC `8332` must not be public.
+
+This phase is documentation-only. It does not change wallet logic, PSBT logic, broadcast behavior, `.env`, firewall rules, systemd units, Tailscale settings, or live network exposure.
+
 ## Dashboard/Login UI Cleanup
 
 The login/dashboard flow now gates the main app behind vault unlock again: after sign-in, a locked vault shows only the vault password prompt before the dashboard is mounted. The dashboard also removes redundant ATLAS text branding, normal-state technical status clutter, backend subtitle copy, the watch-only import explanation block, and the extended public key prefix guide.

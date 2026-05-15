@@ -209,6 +209,8 @@ The browser is a convenience display, not the trusted wallet database. A comprom
 
 Future metadata export features must be encrypted or clearly marked sensitive. Plaintext exports must not be presented as safe to share.
 
+For operational backup and restore planning, follow [docs/backup-restore.md](docs/backup-restore.md).
+
 ## Recommended Access Model
 
 - Local network.
@@ -216,6 +218,8 @@ Future metadata export features must be encrypted or clearly marked sensitive. P
 - Tor, if the operator configures it carefully.
 
 Public internet exposure is discouraged. If the app is exposed beyond a trusted private network, use HTTPS, a hardened reverse proxy, firewall restrictions, and additional access controls.
+
+For private HTTPS planning, review [docs/tailscale-https-access.md](docs/tailscale-https-access.md). For final port exposure review, use [docs/network-exposure-audit.md](docs/network-exposure-audit.md).
 
 ## API Exposure Model
 
