@@ -34,6 +34,7 @@ It is not a custody service, hot wallet, public internet wallet, or replacement 
 - The derived vault key is memory-only.
 - Normal API responses return masked extended public keys.
 - Full xpub reveal is explicit, temporary, and rate-limited.
+- Receive address QR display is inline; remaining blocking overlays use body-portal modal panels.
 - Vault auto-locks after inactivity.
 - Logout locks the vault.
 - Labels and notes are metadata only and do not change security decisions.

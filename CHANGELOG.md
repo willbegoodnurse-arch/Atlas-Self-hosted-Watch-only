@@ -22,6 +22,7 @@
 - Raspberry Pi Bitcoin Core RPC live wiring checklist.
 - Camera QR secure-context guidance and clearer camera fallback messaging.
 - Same-origin `/api/*` proxy support for reducing browser-visible API port exposure.
+- Portal-safe scanner and xpub reveal modals with explicit visible panels above backdrops.
 - Raspberry Pi, Docker Compose, systemd example, backup/restore, and smoke test documentation.
 
 ### Security
@@ -39,6 +40,7 @@
 - Vault password is not stored in `.env`.
 - Derived vault key is memory-only and cleared when the vault locks or the process restarts.
 - Explicit xpub reveal endpoint is rate-limited.
+- Receive address QR display is inline, and remaining true modals render through a body portal.
 - Logs redact sensitive material such as wallet keys, private-key-looking values, cookies, and auth headers.
 - Labels and notes do not affect wallet ownership, change, recipient, warning, or PSBT verification decisions.
 

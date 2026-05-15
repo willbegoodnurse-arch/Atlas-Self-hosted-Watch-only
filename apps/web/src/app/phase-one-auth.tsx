@@ -4,6 +4,7 @@ import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import QRCode from "qrcode";
 import type { IScannerControls } from "@zxing/browser";
+import type { ReactNode } from "react";
 
 type SessionResponse = {
   authenticated: boolean;
@@ -1652,37 +1653,57 @@ function WalletCreateForm({
         Save wallet
       </button>
       {scannerOpen ? (
-        <div className="qr-modal" role="dialog" aria-modal="true">
-          <div className="qr-dialog scanner-dialog">
-            <div className="wallet-card-header">
-              <h2>Scan QR</h2>
-              <button className="secondary-button compact-button" type="button" onClick={closeScanner}>
-                Close
+        <PortalModal ariaLabel="Scan watch-only import QR" panelClassName="scanner-dialog" onClose={closeScanner}>
+          <div className="wallet-card-header">
+            <h2>Scan QR</h2>
+            <button className="secondary-button compact-button" type="button" onClick={closeScanner}>
+              Close
+            </button>
+          </div>
+          <p className="muted">
+            Camera QR scanning requires HTTPS or localhost. If camera access is blocked,
+            paste the watch-only export text or import a file instead.
+          </p>
+          <div className="scanner-fallback-row">
+            <button
+              className="secondary-button compact-button"
+              type="button"
+              onClick={() => {
+                closeScanner();
+                setImportMethod("paste");
+              }}
+            >
+              Use Paste
+            </button>
+            <button
+              className="secondary-button compact-button"
+              type="button"
+              onClick={() => {
+                closeScanner();
+                setImportMethod("file");
+              }}
+            >
+              Use File
+            </button>
+          </div>
+          <video ref={scannerVideo} className="scanner-video" muted playsInline />
+          {qrFrameFormat ? (
+            <p className="muted">
+              format: {qrFrameFormat} &bull; frames: {qrFrames.length}{qrFrameTotal ? `/${qrFrameTotal}` : ""}
+            </p>
+          ) : null}
+          {qrFrames.length > 0 ? (
+            <div className="tab-row">
+              <button className="secondary-button compact-button" type="button" onClick={resetFrames}>
+                Reset
+              </button>
+              <button className="compact-button" type="button" onClick={tryImportFromFrames}>
+                Try Import
               </button>
             </div>
-            <p className="muted">
-              Camera QR scanning requires HTTPS or localhost. If camera access is blocked,
-              paste the watch-only export text or import a file instead.
-            </p>
-            <video ref={scannerVideo} className="scanner-video" muted playsInline />
-            {qrFrameFormat ? (
-              <p className="muted">
-                format: {qrFrameFormat} &bull; frames: {qrFrames.length}{qrFrameTotal ? `/${qrFrameTotal}` : ""}
-              </p>
-            ) : null}
-            {qrFrames.length > 0 ? (
-              <div className="tab-row">
-                <button className="secondary-button compact-button" type="button" onClick={resetFrames}>
-                  Reset
-                </button>
-                <button className="compact-button" type="button" onClick={tryImportFromFrames}>
-                  Try Import
-                </button>
-              </div>
-            ) : null}
-            {scannerMessage ? <p className="muted">{scannerMessage}</p> : null}
-          </div>
-        </div>
+          ) : null}
+          {scannerMessage ? <p className="status-message">{scannerMessage}</p> : null}
+        </PortalModal>
       ) : null}
     </form>
   );
@@ -2046,6 +2067,53 @@ function WalletCard({
 
 const XPUB_REVEAL_AUTO_CLOSE_SECONDS = 60;
 
+function PortalModal({
+  ariaLabel,
+  children,
+  panelClassName = "",
+  onClose
+}: {
+  ariaLabel: string;
+  children: ReactNode;
+  panelClassName?: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
+    <div className="portal-modal-root">
+      <button
+        aria-label={`Close ${ariaLabel}`}
+        className="portal-modal-backdrop"
+        type="button"
+        onClick={onClose}
+      />
+      <div
+        aria-label={ariaLabel}
+        aria-modal="true"
+        className={panelClassName ? `portal-modal-panel ${panelClassName}` : "portal-modal-panel"}
+        role="dialog"
+      >
+        {children}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function XpubRevealModal({
   apiUrl,
   walletId,
@@ -2105,57 +2173,58 @@ function XpubRevealModal({
   }
 
   return (
-    <div className="qr-modal" role="dialog" aria-modal="true" aria-label="Reveal extended public key">
-      <div className="qr-dialog">
-        {step === "warning" ? (
-          <>
-            <div className="wallet-card-header">
-              <h3>Reveal extended public key</h3>
-            </div>
-            <p className="muted">
-              <strong>{walletName}</strong> — your extended public key reveals your complete wallet
-              address history and all future addresses. Anyone who obtains it can monitor your
-              entire Bitcoin activity.
-            </p>
-            <p className="muted">
-              It is not a private key and cannot spend funds, but it is privacy-sensitive. Only
-              reveal it if you need to copy it for a specific purpose.
-            </p>
-            {fetchError ? <p className="status-message error">{fetchError}</p> : null}
-            <div className="tab-row">
-              <button className="secondary-button" type="button" onClick={onClose} disabled={loading}>
-                Cancel
-              </button>
-              <button
-                className="compact-button"
-                type="button"
-                onClick={() => void handleReveal()}
-                disabled={loading}
-              >
-                {loading ? "Loading…" : "I understand, show xpub"}
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="wallet-card-header">
-              <h3>Extended public key</h3>
-              <span className="muted">Auto-closing in {secondsLeft}s</span>
-            </div>
-            <p className="muted">Keep this private. Do not share it unless you trust the recipient.</p>
-            <code className="xpub-reveal-code">{xpub}</code>
-            <div className="tab-row">
-              <button className="secondary-button compact-button" type="button" onClick={handleCopy}>
-                {copied ? "Copied!" : "Copy"}
-              </button>
-              <button className="compact-button" type="button" onClick={onClose}>
-                Close
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+    <PortalModal ariaLabel="Reveal extended public key" onClose={onClose}>
+      {step === "warning" ? (
+        <>
+          <div className="wallet-card-header">
+            <h3>Reveal extended public key</h3>
+            <button className="secondary-button compact-button" type="button" onClick={onClose} disabled={loading}>
+              Close
+            </button>
+          </div>
+          <p className="muted">
+            <strong>{walletName}</strong> — your extended public key reveals your complete wallet
+            address history and all future addresses. Anyone who obtains it can monitor your
+            entire Bitcoin activity.
+          </p>
+          <p className="muted">
+            It is not a private key and cannot spend funds, but it is privacy-sensitive. Only
+            reveal it if you need to copy it for a specific purpose.
+          </p>
+          {fetchError ? <p className="status-message error">{fetchError}</p> : null}
+          <div className="tab-row">
+            <button className="secondary-button" type="button" onClick={onClose} disabled={loading}>
+              Cancel
+            </button>
+            <button
+              className="compact-button"
+              type="button"
+              onClick={() => void handleReveal()}
+              disabled={loading}
+            >
+              {loading ? "Loading…" : "I understand, show xpub"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="wallet-card-header">
+            <h3>Extended public key</h3>
+            <span className="muted">Auto-closing in {secondsLeft}s</span>
+          </div>
+          <p className="muted">Keep this private. Do not share it unless you trust the recipient.</p>
+          <code className="xpub-reveal-code">{xpub}</code>
+          <div className="tab-row">
+            <button className="secondary-button compact-button" type="button" onClick={handleCopy}>
+              {copied ? "Copied!" : "Copy"}
+            </button>
+            <button className="compact-button" type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </>
+      )}
+    </PortalModal>
   );
 }
 
