@@ -1,6 +1,22 @@
 
 # Atlas v0.1.0 Release Candidate Notes
 
+## Dashboard/Login UI Cleanup
+
+The login/dashboard flow now gates the main app behind vault unlock again: after sign-in, a locked vault shows only the vault password prompt before the dashboard is mounted. The dashboard also removes redundant ATLAS text branding, normal-state technical status clutter, backend subtitle copy, the watch-only import explanation block, and the extended public key prefix guide.
+
+Wallets now live in the main dashboard as a horizontal selector with wallet-specific Receive and Send actions. Send remains the existing unsigned PSBT creation flow and does not add signing.
+
+## Selected Wallet and Dashboard UX Cleanup
+
+The selected wallet screen now keeps balance first, hides scan configuration text and default UTXO/status clutter, and exposes UTXO rows only when the operator enters UTXO selection mode. Dashboard wallet cards are wider horizontal selector cards, and unsigned PSBT creation plus signed PSBT import/verification now happen in a focused portal workflow instead of always-visible lower panels.
+
+## Wallet Action and PSBT Workflow Cleanup
+
+Wallet card Receive/받기 now opens the selected wallet's receive flow, while Send/보내기 opens the Create unsigned PSBT workflow directly. The selected-wallet detail page no longer shows a default Receive / Select UTXOs combined panel; manual single or multiple UTXO selection now lives inside the PSBT modal, with automatic coin selection preserved when no UTXO is selected.
+
+Unsigned PSBT export and signed PSBT import/verification remain in the same focused workflow. Atlas remains watch-only and does not sign transactions.
+
 ## Phase 44
 
 Phase 44 hardens the watch-only metadata threat model for Raspberry Pi deployments. It adds web/API security headers, runtime warnings for risky production configuration, broader sensitive log redaction, stricter trusted-origin parsing, and clearer UI/docs warnings about compromised browsers, PSBT verification, backups, and xpub/metadata privacy.

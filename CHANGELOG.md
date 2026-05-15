@@ -3,6 +3,30 @@
 
 ## v0.1.0 - Release Candidate
 
+## Dashboard/login UI cleanup
+
+- Restored the vault-password gate so the main dashboard renders only after the vault is unlocked.
+- Removed visible ATLAS text branding, dashboard backend/subtitle copy, redundant sidebar status clutter, wallet detail status strips, watch-only import explanation copy, and the extended public key prefix guide from the active UI.
+- Moved wallets into the main dashboard as a horizontal selector with wallet-specific Receive and Send actions; Send continues to open the unsigned PSBT flow only.
+- Kept xpub masking, vault security, secret input rejection, receive QR, signed PSBT verification, and broadcast confirmation behavior unchanged.
+
+## Selected wallet and dashboard UX cleanup
+
+- Hid scan configuration text, default UTXO tables, and normal-state wallet-detail mempool/backend/tip/latency clutter from the visible interface.
+- Kept selected wallet balance as the first major wallet content block, with receive still visible and UTXO selection available only after clicking the selector action.
+- Changed dashboard wallet cards to wide horizontal selector cards and kept wallet-specific Receive/Send actions.
+- Moved unsigned PSBT creation and signed PSBT import/verification into a focused portal workflow instead of always-visible bottom panels.
+- Updated typography toward a cleaner sans-serif dashboard while keeping monospace for addresses, txids, xpub snippets, and PSBT text.
+
+## Wallet action and PSBT workflow cleanup
+
+- Wired wallet card Receive/받기 actions to the dedicated wallet receive flow.
+- Wired wallet card Send/보내기 actions directly to the Create unsigned PSBT workflow.
+- Removed the default selected-wallet Receive / Select UTXOs combined panel from the wallet detail page.
+- Moved single and multiple UTXO selection into the Create PSBT modal while preserving automatic coin selection when no UTXOs are manually selected.
+- Kept unsigned PSBT export and signed PSBT import/verification in the same focused workflow.
+- Preserved the watch-only, unsigned-PSBT-only security model.
+
 ## Phase 44 - Security threat model hardening
 
 - Added API and web security headers for content sniffing, referrer policy, frame denial, limited CSP frame ancestry, and scoped camera/clipboard permissions.
