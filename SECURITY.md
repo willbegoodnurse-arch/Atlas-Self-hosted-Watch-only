@@ -22,6 +22,8 @@ If a change weakens any of these boundaries, it should be treated as a security 
 
 Extended public keys such as xpub, ypub, and zpub are not signing keys, but they are privacy-sensitive. Anyone with a full extended public key can monitor wallet history and future addresses.
 
+Master fingerprint and account path are not private keys, but they are wallet-identifying metadata. Treat screenshots containing fingerprint, account path, xpub-derived addresses, labels, notes, or transaction history as privacy-sensitive.
+
 Atlas stores watch-only wallet records in the encrypted vault:
 
 ```text

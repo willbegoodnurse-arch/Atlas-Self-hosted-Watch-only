@@ -3,6 +3,15 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 48 - Wallet identity verification display
+
+- Added a wallet detail identity panel for master fingerprint, account path, script type, network, source device, key/import type, and first receive address.
+- Added a registered-wallet MFP reveal control beside the extended public key area so fingerprint metadata is not shown by default.
+- Added missing-fingerprint guidance for bare xpub/zpub imports and signer verification copy before receiving funds.
+- Improved import preview to show fingerprint/path/script/key metadata alongside the first receive address.
+- Added import preview tests for bare zpub and descriptor/origin metadata without echoing the full xpub.
+- No signing, private-key handling, derivation logic, broadcast behavior, or xpub reveal behavior changed.
+
 ## Phase 47 - Operator safety pack
 
 - Added backup, restore, and disaster recovery guidance for `wallets.enc`, `.env`, service files, deployment commit tracking, and sensitive screenshot/chat hygiene.

@@ -612,7 +612,7 @@ button:disabled {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.wallet-details > div:last-child {
+.wallet-details > div.full-span {
   grid-column: 1 / -1;
 }
 
@@ -625,6 +625,10 @@ button:disabled {
 
 .key-row {
   flex-wrap: wrap;
+}
+
+.fingerprint-reveal-control {
+  display: inline-flex;
 }
 
 code,
@@ -647,6 +651,33 @@ code {
   border-radius: 4px;
   background: rgb(2 5 8 / 72%);
   padding: 10px 12px;
+}
+
+.identity-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.identity-grid > div {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.identity-grid dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.identity-grid dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.wallet-identity-panel,
+.identity-receive-check {
+  display: grid;
+  gap: 14px;
 }
 
 .next-address-placeholder dd {
@@ -1085,10 +1116,11 @@ label.tx-limit-select select {
   .vault-status,
   .form-grid,
   .wallet-details,
-  .wallet-mini-balance,
-  .balance-grid,
-  .metadata-grid,
-  .qr-context,
+    .wallet-mini-balance,
+    .balance-grid,
+    .identity-grid,
+    .metadata-grid,
+    .qr-context,
   .address-row,
   .recipient-row,
   .spending-plan-flow {

@@ -166,6 +166,14 @@ type WalletBalanceResponse = {
   };
 };
 
+type WalletAddressesResponse = {
+  walletId: string;
+  network: WalletRecord["network"];
+  scriptType: WalletRecord["scriptType"];
+  usageStatus: "unknown" | "partial" | "ready";
+  addresses: DerivedAddress[];
+};
+
 type MempoolStatusResponse = {
   status: "online" | "degraded" | "offline";
   mode: string;
@@ -1880,9 +1888,36 @@ function WalletCreateForm({
         {previewLoading ? <p className="muted">Deriving first receive address...</p> : null}
         {preview ? (
           <>
-            <p className="muted">First receive address derived. Verify it on your hardware wallet before receiving funds.</p>
+            <p className="muted">
+              First receive address derived. Verify the fingerprint, account path, script type, and address
+              against your external signer before receiving funds.
+            </p>
+            <dl className="identity-grid">
+              <div>
+                <dt>Master fingerprint</dt>
+                <dd>{preview.masterFingerprint ?? "not provided"}</dd>
+              </div>
+              <div>
+                <dt>Account path</dt>
+                <dd>{preview.accountPath ?? effectiveAccountPath ?? "not provided"}</dd>
+              </div>
+              <div>
+                <dt>Script type</dt>
+                <dd>{formatScriptType(preview.scriptType)}</dd>
+              </div>
+              <div>
+                <dt>Key/import type</dt>
+                <dd>{preview.keyType ?? "unknown"} / {preview.importFormat}</dd>
+              </div>
+            </dl>
             <code className="preview-code">{preview.firstReceiveAddress}</code>
             <p className="technical-line">path: {preview.firstReceivePath}</p>
+            {!preview.masterFingerprint ? (
+              <p className="psbt-status-warning muted">
+                Fingerprint not provided. Bare xpub/zpub imports are allowed, but for real wallets prefer signer exports
+                with fingerprint and path.
+              </p>
+            ) : null}
           </>
         ) : null}
         {!previewLoading && previewMessage ? <p className="status-message">{previewMessage}</p> : null}
@@ -2268,7 +2303,7 @@ function WalletCard({
           <dt>Gap limit</dt>
           <dd>{wallet.gapLimit}</dd>
         </div>
-        <div>
+        <div className="full-span">
           <dt>Extended public key</dt>
           <dd className="key-row">
             <code>{wallet.extendedPublicKey}</code>
@@ -2279,6 +2314,12 @@ function WalletCard({
             >
               Reveal
             </button>
+          </dd>
+        </div>
+        <div className="full-span">
+          <dt>MFP</dt>
+          <dd>
+            <FingerprintRevealControl fingerprint={wallet.masterFingerprint} />
           </dd>
         </div>
       </dl>
@@ -2295,6 +2336,27 @@ function WalletCard({
 }
 
 const XPUB_REVEAL_AUTO_CLOSE_SECONDS = 60;
+
+function FingerprintRevealControl({ fingerprint }: { fingerprint: string | null }) {
+  const [revealed, setRevealed] = useState(false);
+
+  if (!fingerprint) {
+    return <span className="muted">not provided</span>;
+  }
+
+  return (
+    <span className="key-row fingerprint-reveal-control">
+      <code>{revealed ? fingerprint : "********"}</code>
+      <button
+        className="secondary-button compact-button"
+        type="button"
+        onClick={() => setRevealed((current) => !current)}
+      >
+        {revealed ? "Close" : "Reveal"}
+      </button>
+    </span>
+  );
+}
 
 function PortalModal({
   ariaLabel,
@@ -2430,7 +2492,6 @@ function XpubRevealModal({
   const [xpub, setXpub] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(XPUB_REVEAL_AUTO_CLOSE_SECONDS);
 
   useEffect(() => {
@@ -2465,14 +2526,6 @@ function XpubRevealModal({
     }
   }
 
-  function handleCopy() {
-    if (!xpub) return;
-    void navigator.clipboard.writeText(xpub).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-
   return (
     <PortalModal ariaLabel="Reveal extended public key" onClose={onClose}>
       {step === "warning" ? (
@@ -2484,7 +2537,7 @@ function XpubRevealModal({
             </button>
           </div>
           <p className="muted">
-            <strong>{walletName}</strong> — your extended public key reveals your complete wallet
+            <strong>{walletName}</strong> - your extended public key reveals your complete wallet
             address history and all future addresses. Anyone who obtains it can monitor your
             entire Bitcoin activity.
           </p>
@@ -2494,17 +2547,14 @@ function XpubRevealModal({
           </p>
           {fetchError ? <p className="status-message error">{fetchError}</p> : null}
           <div className="tab-row">
-            <button className="secondary-button" type="button" onClick={onClose} disabled={loading}>
-              Cancel
-            </button>
             <button
               className="compact-button"
               type="button"
               onClick={() => void handleReveal()}
               disabled={loading}
             >
-                Cancel
-              </button>
+              {loading ? "Revealing..." : "Reveal"}
+            </button>
           </div>
         </>
       ) : (
@@ -2516,9 +2566,6 @@ function XpubRevealModal({
           <p className="muted">Keep this private. Do not share it unless you trust the recipient.</p>
           <code className="xpub-reveal-code">{xpub}</code>
           <div className="tab-row">
-            <button className="secondary-button compact-button" type="button" onClick={handleCopy}>
-                Cancel
-              </button>
             <button className="compact-button" type="button" onClick={onClose}>
               Close
             </button>
@@ -2526,6 +2573,144 @@ function XpubRevealModal({
         </>
       )}
     </PortalModal>
+  );
+}
+
+function WalletIdentityPanel({
+  apiUrl,
+  wallet
+}: {
+  apiUrl: string;
+  wallet: WalletRecord;
+}) {
+  const [firstReceive, setFirstReceive] = useState<DerivedAddress | null>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [message, setMessage] = useState("");
+  const [copyMessage, setCopyMessage] = useState("");
+  const accountPath = wallet.accountPath ?? wallet.derivationPath ?? null;
+  const fingerprintMissing = !wallet.masterFingerprint;
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus("loading");
+    setMessage("");
+    setCopyMessage("");
+    setFirstReceive(null);
+
+    void apiRequest<WalletAddressesResponse>(
+      apiUrl,
+      `/api/wallets/${wallet.id}/addresses?chain=receive&limit=1`
+    )
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+        const address = response.addresses[0] ?? null;
+        setFirstReceive(address);
+        setStatus(address ? "ready" : "error");
+        setMessage(address ? "" : "First receive address could not be derived. Do not receive funds until this wallet is verified.");
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setFirstReceive(null);
+          setStatus("error");
+          setMessage(error instanceof Error ? error.message : "First receive address could not be derived.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, wallet.id]);
+
+  async function copyFirstReceive() {
+    if (!firstReceive) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(firstReceive.address);
+      setCopyMessage("First receive address copied.");
+      setTimeout(() => setCopyMessage(""), 2000);
+    } catch {
+      setCopyMessage("Clipboard copy failed. Select and copy the address manually.");
+    }
+  }
+
+  return (
+    <section className="wallet-identity-panel terminal-panel" aria-labelledby="wallet-identity-heading">
+      <div className="wallet-card-header">
+        <div>
+          <p className="terminal-heading">Wallet identity</p>
+          <h2 id="wallet-identity-heading">Signer verification</h2>
+        </div>
+        <span className={fingerprintMissing ? "status-badge status-degraded" : "status-badge status-online"}>
+          {fingerprintMissing ? "fingerprint missing" : "fingerprint present"}
+        </span>
+      </div>
+
+      <dl className="identity-grid">
+        <div>
+          <dt>Master fingerprint</dt>
+          <dd>
+            <FingerprintRevealControl fingerprint={wallet.masterFingerprint} />
+          </dd>
+        </div>
+        <div>
+          <dt>Account path</dt>
+          <dd>{accountPath ?? "not provided"}</dd>
+        </div>
+        <div>
+          <dt>Script type</dt>
+          <dd>{formatScriptType(wallet.scriptType)}</dd>
+        </div>
+        <div>
+          <dt>Network</dt>
+          <dd>{wallet.network}</dd>
+        </div>
+        <div>
+          <dt>Source device</dt>
+          <dd>{deviceLabel(wallet.sourceDevice)}</dd>
+        </div>
+        <div>
+          <dt>Key / import type</dt>
+          <dd>{wallet.type} / {wallet.importFormat}</dd>
+        </div>
+      </dl>
+
+      <div className="identity-receive-check">
+        <p className="terminal-heading">First receive address</p>
+        {status === "loading" ? <p className="muted">Deriving first receive address...</p> : null}
+        {firstReceive ? (
+          <>
+            <code className="preview-code">{firstReceive.address}</code>
+            <p className="technical-line">path: {firstReceive.path}</p>
+            <div className="button-row">
+              <button className="secondary-button compact-button" type="button" onClick={() => void copyFirstReceive()}>
+                Copy first receive address
+              </button>
+            </div>
+          </>
+        ) : null}
+        {status === "error" ? (
+          <p className="status-message">
+            {message || "First receive address unavailable. Do not receive funds until this watch-only wallet is verified against the signer."}
+          </p>
+        ) : null}
+        {copyMessage ? <p className="status-message">{copyMessage}</p> : null}
+      </div>
+
+      {fingerprintMissing ? (
+        <p className="psbt-status-warning muted">
+          Master fingerprint was not provided. This can happen when importing a bare zpub/xpub. For real wallets,
+          prefer a descriptor or signer export that includes fingerprint and path. Before receiving funds, verify
+          the account path and first receive address on your external signer.
+        </p>
+      ) : (
+        <p className="muted">
+          Verify this fingerprint, account path, and first receive address against your external signer before receiving funds.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -2673,6 +2858,7 @@ function WalletDetailView({
           </details>
         </div>
       </div>
+      <WalletIdentityPanel apiUrl={apiUrl} wallet={wallet} />
       <TransactionHistoryPanel
         apiUrl={apiUrl}
         backendKind={runtimeSettings?.backendKind ?? "unknown"}

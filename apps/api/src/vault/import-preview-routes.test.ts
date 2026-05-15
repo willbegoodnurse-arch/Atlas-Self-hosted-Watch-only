@@ -48,9 +48,31 @@ test("wallet import preview derives first receive address without echoing the xp
   assert.equal(previewPayload.keyType, "zpub");
   assert.equal(previewPayload.network, "mainnet");
   assert.equal(previewPayload.scriptType, "native-segwit");
+  assert.equal(previewPayload.masterFingerprint, null);
+  assert.equal(previewPayload.accountPath, "m/84'/0'/0'");
   assert.match(previewPayload.firstReceiveAddress, /^bc1q/);
   assert.equal(previewPayload.firstReceivePath, "m/84'/0'/0'/0/0");
   assert.doesNotMatch(previewResponse.body, new RegExp(ZPUB));
+
+  const descriptorResponse = await server.inject({
+    method: "POST",
+    url: "/api/wallets/import-preview",
+    headers,
+    payload: {
+      importText: `wpkh([f23a9c1d/84'/0'/0']${ZPUB}/0/*)`,
+      network: "mainnet",
+      sourceDevice: "other",
+      scriptType: "native-segwit"
+    }
+  });
+
+  assert.equal(descriptorResponse.statusCode, 200);
+  const descriptorPayload = descriptorResponse.json();
+  assert.equal(descriptorPayload.masterFingerprint, "f23a9c1d");
+  assert.equal(descriptorPayload.accountPath, "m/84'/0'/0'");
+  assert.equal(descriptorPayload.scriptType, "native-segwit");
+  assert.match(descriptorPayload.firstReceiveAddress, /^bc1q/);
+  assert.doesNotMatch(descriptorResponse.body, new RegExp(ZPUB));
 
   const secretResponse = await server.inject({
     method: "POST",

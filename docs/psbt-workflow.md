@@ -6,6 +6,19 @@ Treat the unsigned PSBT builder as a spending plan for an external cold wallet.
 
 Atlas is not the final authority for signing decisions. A compromised browser can visually alter recipients, amounts, QR codes, clipboard contents, and warnings. Always verify recipient, amount, change output, and fee on the external signing device before signing.
 
+## Wallet Identity Check
+
+Before receiving funds or building PSBTs, verify the watch-only wallet identity against the external signer:
+
+- Confirm the master fingerprint if it was provided by the signer export.
+- Confirm the account path, such as `m/84'/0'/0'`.
+- Confirm the script type and network.
+- Confirm the first receive address against the signing device or trusted signer software.
+
+If the master fingerprint is missing, the wallet may still be a valid bare xpub/zpub import, but do not treat that as verified signer identity. Prefer descriptor/origin imports or signer export files that include fingerprint and path for real wallets.
+
+The signing device remains the final authority for recipient, amount, change, and fee.
+
 ## Unsigned PSBT Creation
 
 1. Log in.

@@ -1,6 +1,12 @@
 
 # Atlas v0.1.0 Release Candidate Notes
 
+## Phase 48 - Wallet Identity Verification Display
+
+Wallet detail now includes a signer verification panel showing master fingerprint, account path, script type, network, source device, key/import type, and the first receive address. Registered-wallet MFP display uses a reveal control near the extended public key area so fingerprint metadata is not shown by default. Bare xpub/zpub imports clearly show fingerprint as not provided and advise operators to verify the account path and first receive address on the external signer.
+
+Import preview now presents the same verification metadata more clearly, and API tests cover bare zpub and descriptor/origin metadata without echoing the full xpub. This phase does not add signing, private-key handling, broadcast changes, or xpub reveal changes.
+
 ## Phase 47 - Operator Safety Pack
 
 Phase 47 adds operator-facing safety documentation for backup/restore/disaster recovery, Tailscale Serve HTTPS access planning, and final network exposure audits. The new docs emphasize that watch-only metadata is privacy-sensitive, `.env` is secret, `wallets.enc` needs the vault password, API `3011` should remain private in hardened mode, and Bitcoin Core RPC `8332` must not be public.

@@ -116,6 +116,10 @@ For `.env`, use an encrypted backup store or password manager export process. Do
 - [ ] Confirm wallet list loads.
 - [ ] Confirm xpubs remain masked by default.
 - [ ] Confirm labels/notes appear as expected.
+- [ ] Confirm master fingerprint matches the external signer when it was provided.
+- [ ] Confirm account path matches the external signer.
+- [ ] Confirm first receive address matches the external signer before receiving funds.
+- [ ] If fingerprint is not provided, do not treat that as proof of failure, but verify the first receive address and prefer fingerprint/path exports for real wallets.
 - [ ] Confirm receive addresses and PSBT creation still work.
 - [ ] Confirm API `3011` and Bitcoin Core RPC `8332` remain private.
 
@@ -148,6 +152,7 @@ After a restore:
 - [ ] Vault unlock works.
 - [ ] Wallets appear.
 - [ ] Normal API responses do not expose full xpub/ypub/zpub.
+- [ ] Wallet identity panel shows fingerprint/path/source device/script type and first receive address.
 - [ ] Receive address display works.
 - [ ] Unsigned PSBT creation works with automatic or manual UTXO selection.
 - [ ] Signed PSBT verification still blocks invalid/warning cases.
