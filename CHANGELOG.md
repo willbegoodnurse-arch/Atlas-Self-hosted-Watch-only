@@ -3,6 +3,14 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 49 - Origin metadata import parsing
+
+- Added first-class import format handling for bare extended public keys, origin-wrapped extended public keys, and descriptors.
+- Bare xpub/ypub/zpub imports still work and still show master fingerprint as not provided when no origin metadata exists.
+- Parsed BIP32 origin metadata such as `[f23a9c1d/84'/0'/0']zpub...` and descriptor imports such as `wpkh([f23a9c1d/84'/0'/0']zpub.../0/*)` into master fingerprint and account path metadata.
+- Added validation so malformed origin fingerprints do not silently fall back to bare extended public key imports.
+- Clarified wallet identity copy: `not provided` means the import lacked MFP metadata, not that the import failed.
+
 ## Phase 48 - Wallet identity verification display
 
 - Added a wallet detail identity panel for master fingerprint, account path, script type, network, source device, key/import type, and first receive address.

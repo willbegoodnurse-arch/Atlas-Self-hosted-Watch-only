@@ -45,7 +45,7 @@ const testWallet: WalletRecord = {
   scriptType: "native-segwit",
   accountPath: "m/84'/0'/0'",
   masterFingerprint: null,
-  importFormat: "plain-xpub",
+  importFormat: "bare-extended-public-key",
   rawImport: null,
   notes: null,
   walletNotes: null,

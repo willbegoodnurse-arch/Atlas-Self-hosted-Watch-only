@@ -97,10 +97,9 @@ type SourceDevice =
   | "other";
 type WalletScriptType = "legacy" | "nested-segwit" | "native-segwit" | "taproot" | "unknown";
 type ImportFormat =
-  | "plain-xpub"
-  | "slip132"
+  | "bare-extended-public-key"
+  | "origin-extended-public-key"
   | "descriptor"
-  | "key-expression"
   | "coldcard-json"
   | "crypto-account-ur"
   | "crypto-hdkey-ur"
@@ -1914,8 +1913,8 @@ function WalletCreateForm({
             <p className="technical-line">path: {preview.firstReceivePath}</p>
             {!preview.masterFingerprint ? (
               <p className="psbt-status-warning muted">
-                Fingerprint not provided. Bare xpub/zpub imports are allowed, but for real wallets prefer signer exports
-                with fingerprint and path.
+                Bare extended public keys usually do not include master fingerprint metadata. To verify wallet identity,
+                compare the account path, script type, and first receive address with the external signer.
               </p>
             ) : null}
           </>
@@ -2704,6 +2703,12 @@ function WalletIdentityPanel({
           Master fingerprint was not provided. This can happen when importing a bare zpub/xpub. For real wallets,
           prefer a descriptor or signer export that includes fingerprint and path. Before receiving funds, verify
           the account path and first receive address on your external signer.
+        </p>
+      ) : null}
+      {fingerprintMissing ? (
+        <p className="muted">
+          Bare extended public keys usually do not include master fingerprint metadata. To verify wallet identity,
+          compare the account path, script type, and first receive address with the external signer.
         </p>
       ) : (
         <p className="muted">
@@ -6141,7 +6146,7 @@ function detectImportMetadata(
       network: candidate?.key ? networkForKey(candidate.key) : null,
       scriptType: candidate?.scriptType ?? "unknown",
       accountPath: candidate?.accountPath ?? null,
-      masterFingerprint: xfp?.toLowerCase() ?? null,
+      masterFingerprint: normalizeFingerprint(xfp),
       importFormat: "coldcard-json",
       privateInput: false,
       warnings: candidate ? [] : ["JSON detected, but no supported watch-only extended public key was found."],
@@ -6203,10 +6208,20 @@ function detectImportMetadata(
     };
   }
 
-  const descriptorScript = descriptorScriptType(trimmed);
+  const descriptorText = findDescriptorCandidate(trimmed);
+  const descriptorScript = descriptorText ? descriptorScriptType(descriptorText) : null;
   if (descriptorScript) {
-    const key = extractExtendedPublicKey(trimmed);
-    const origin = trimmed.match(/\[([0-9a-fA-F]{8})(?:\/([^\]]+))?\]/);
+    if (/\[[^\]]+\]/.test(descriptorText ?? "") && !/\[[0-9a-fA-F]{8}(?:\/[^\]]+)?\]/.test(descriptorText ?? "")) {
+      return {
+        ...emptyImportDetection(),
+        importFormat: "descriptor",
+        warnings: ["Invalid BIP32 origin metadata: master fingerprint must be 8 hex characters."],
+        unsupportedReason: "Invalid BIP32 origin metadata: master fingerprint must be 8 hex characters."
+      };
+    }
+
+    const key = extractExtendedPublicKey(descriptorText ?? "");
+    const origin = descriptorText?.match(/\[([0-9a-fA-F]{8})(?:\/([^\]]+))?\]/);
     return {
       extendedPublicKey: key,
       type: key ? key.slice(0, 4) as ExtendedPublicKeyType : null,
@@ -6221,7 +6236,20 @@ function detectImportMetadata(
     };
   }
 
-  const keyExpression = trimmed.match(/^\[([0-9a-fA-F]{8})(?:\/([^\]]+))?\]((xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,})/);
+  const originCandidate = findOriginKeyCandidate(trimmed);
+  if (originCandidate) {
+    const validOrigin = originCandidate.match(/^\[([0-9a-fA-F]{8})(?:\/([^\]]+))?\]/);
+    if (!validOrigin) {
+      return {
+        ...emptyImportDetection(),
+        importFormat: "origin-extended-public-key",
+        warnings: ["Invalid BIP32 origin metadata: master fingerprint must be 8 hex characters."],
+        unsupportedReason: "Invalid BIP32 origin metadata: master fingerprint must be 8 hex characters."
+      };
+    }
+  }
+
+  const keyExpression = originCandidate?.match(/^\[([0-9a-fA-F]{8})(?:\/([^\]]+))?\]((xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,})/);
   if (keyExpression) {
     const key = keyExpression[3] ?? "";
     return {
@@ -6231,7 +6259,7 @@ function detectImportMetadata(
       scriptType: scriptTypeForKey(key),
       accountPath: keyExpression[2] ? normalizeAccountPath(keyExpression[2]) : accountPathFor(scriptTypeForKey(key), network),
       masterFingerprint: keyExpression[1]?.toLowerCase() ?? null,
-      importFormat: "key-expression",
+      importFormat: "origin-extended-public-key",
       privateInput: false,
       warnings: scriptTypeForKey(key) === "unknown" ? ["xpub/tpub detected. Confirm script type before receiving funds."] : [],
       unsupportedReason: null
@@ -6248,7 +6276,7 @@ function detectImportMetadata(
       scriptType,
       accountPath: accountPathFor(scriptType, networkForKey(key) ?? network),
       masterFingerprint: null,
-      importFormat: key.startsWith("xpub") || key.startsWith("tpub") ? "plain-xpub" : "slip132",
+      importFormat: "bare-extended-public-key",
       privateInput: false,
       warnings: scriptType === "unknown" ? ["xpub/tpub detected. Confirm script type before receiving funds."] : [],
       unsupportedReason: null
@@ -6279,9 +6307,9 @@ function emptyImportDetection() {
 }
 
 type QrFrameFormat =
-  | "plain-xpub"
+  | "bare-extended-public-key"
   | "descriptor"
-  | "key-expression"
+  | "origin-extended-public-key"
   | "coldcard-json"
   | "crypto-account-ur"
   | "crypto-hdkey-ur"
@@ -6342,7 +6370,7 @@ function classifyQrFrame(frame: string): QrFrameClassification {
   }
 
   if (/^\[[0-9a-fA-F]{8}/.test(trimmed) && /\b(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,}/.test(trimmed)) {
-    return { format: "key-expression", animated: false, watchOnlyCandidate: true, frameIndex: null, totalFrames: null };
+    return { format: "origin-extended-public-key", animated: false, watchOnlyCandidate: true, frameIndex: null, totalFrames: null };
   }
 
   if (trimmed.startsWith("{")) {
@@ -6351,7 +6379,7 @@ function classifyQrFrame(frame: string): QrFrameClassification {
   }
 
   if (/\b(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,}/.test(trimmed)) {
-    return { format: "plain-xpub", animated: false, watchOnlyCandidate: true, frameIndex: null, totalFrames: null };
+    return { format: "bare-extended-public-key", animated: false, watchOnlyCandidate: true, frameIndex: null, totalFrames: null };
   }
 
   return { format: "unknown", animated: false, watchOnlyCandidate: false, frameIndex: null, totalFrames: null };
@@ -6398,6 +6426,29 @@ function descriptorScriptType(value: string): WalletScriptType | null {
   return null;
 }
 
+function findDescriptorCandidate(value: string): string | null {
+  const descriptorPrefixes = ["sh(wpkh(", "wpkh(", "pkh(", "tr("];
+  for (const rawLine of value.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const start = descriptorPrefixes
+      .map((prefix) => line.indexOf(prefix))
+      .filter((index) => index >= 0)
+      .sort((a, b) => a - b)[0];
+    if (start === undefined) continue;
+    const candidate = line.slice(start).trim().split(/\s+/)[0] ?? "";
+    if (descriptorPrefixes.some((prefix) => candidate.startsWith(prefix))) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function findOriginKeyCandidate(value: string): string | null {
+  const match = value.match(/\[[^\]]+\](xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,}/);
+  return match?.[0] ?? null;
+}
+
 function scriptTypeForKey(value: string): WalletScriptType {
   if (value.startsWith("ypub") || value.startsWith("upub")) return "nested-segwit";
   if (value.startsWith("zpub") || value.startsWith("vpub")) return "native-segwit";
@@ -6421,6 +6472,10 @@ function accountPathFor(scriptType: WalletScriptType, network: WalletRecord["net
 
 function normalizeAccountPath(value: string): string {
   return `m/${value.replace(/h/gi, "'").replace(/^m\//, "")}`;
+}
+
+function normalizeFingerprint(value: string | null): string | null {
+  return value && /^[0-9a-fA-F]{8}$/.test(value) ? value.toLowerCase() : null;
 }
 
 function parseImportJson(value: string): Record<string, unknown> | null {
@@ -6532,7 +6587,7 @@ function walletSafetyWarnings(wallet: WalletRecord): string[] {
   if ((wallet.type === "xpub" || wallet.type === "tpub") && wallet.scriptType !== "legacy") {
     warnings.push("xpub/tpub can be used with multiple policies. Verify the receive address on your cold wallet.");
   }
-  if (wallet.scriptType === "taproot" && wallet.importFormat !== "descriptor" && wallet.importFormat !== "key-expression") {
+  if (wallet.scriptType === "taproot" && wallet.importFormat !== "descriptor" && wallet.importFormat !== "origin-extended-public-key") {
     warnings.push("Taproot wallet via xpub/tpub: confirm BIP86 derivation path (m/86'/0'/0') before receiving funds.");
   }
   if (

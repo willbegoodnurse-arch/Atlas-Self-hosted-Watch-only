@@ -7,17 +7,17 @@ const xpub =
 const zpub =
   "zpub6rtpJPNNq6CeKuycgiXu7RBRDzQcPG9uJWbKQ4NCiuVzP3wW6WspGjCD3h1gUKKwZRgo8Mzm21GEkD2HpUUHkfPrwyfcRaaWA93NSnnKTaP";
 
-test("classifies plain zpub as plain-xpub watch-only candidate", () => {
+test("classifies plain zpub as bare extended public key watch-only candidate", () => {
   const result = classifyQrPayload(zpub);
-  assert.equal(result.format, "plain-xpub");
+  assert.equal(result.format, "bare-extended-public-key");
   assert.equal(result.animated, false);
   assert.equal(result.watchOnlyCandidate, true);
   assert.equal(result.warning, null);
 });
 
-test("classifies plain xpub as plain-xpub watch-only candidate", () => {
+test("classifies plain xpub as bare extended public key watch-only candidate", () => {
   const result = classifyQrPayload(xpub);
-  assert.equal(result.format, "plain-xpub");
+  assert.equal(result.format, "bare-extended-public-key");
   assert.equal(result.watchOnlyCandidate, true);
   assert.equal(result.animated, false);
 });
@@ -42,11 +42,17 @@ test("classifies sh(wpkh()) descriptor as descriptor", () => {
   assert.equal(result.watchOnlyCandidate, true);
 });
 
-test("classifies key expression as key-expression", () => {
+test("classifies key expression as origin extended public key", () => {
   const result = classifyQrPayload(`[abcd1234/84'/0'/0']${xpub}`);
-  assert.equal(result.format, "key-expression");
+  assert.equal(result.format, "origin-extended-public-key");
   assert.equal(result.watchOnlyCandidate, true);
   assert.equal(result.animated, false);
+});
+
+test("classifies descriptor embedded in export text", () => {
+  const result = classifyQrPayload(`Output descriptor\nreceive = wpkh([abcd1234/84'/0'/0']${zpub}/0/*)#abcd1234`);
+  assert.equal(result.format, "descriptor");
+  assert.equal(result.watchOnlyCandidate, true);
 });
 
 test("classifies Coldcard JSON with xpub as coldcard-json", () => {

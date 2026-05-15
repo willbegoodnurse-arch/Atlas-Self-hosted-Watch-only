@@ -1,6 +1,12 @@
 
 # Atlas v0.1.0 Release Candidate Notes
 
+## Phase 49 - Origin Metadata Import Parsing
+
+Atlas now treats bare extended public keys, origin-wrapped extended public keys, and descriptors as distinct import formats. Bare zpub/xpub/ypub imports still work and normally do not include a master fingerprint, so `not provided` is expected and is not an import failure.
+
+When an import includes BIP32 origin metadata, such as `[f23a9c1d/84'/0'/0']zpub...` or `wpkh([f23a9c1d/84'/0'/0']zpub.../0/*)`, Atlas extracts and stores the master fingerprint and account path for wallet identity verification. Malformed origin fingerprints are rejected instead of silently falling back to a bare key import.
+
 ## Phase 48 - Wallet Identity Verification Display
 
 Wallet detail now includes a signer verification panel showing master fingerprint, account path, script type, network, source device, key/import type, and the first receive address. Registered-wallet MFP display uses a reveal control near the extended public key area so fingerprint metadata is not shown by default. Bare xpub/zpub imports clearly show fingerprint as not provided and advise operators to verify the account path and first receive address on the external signer.

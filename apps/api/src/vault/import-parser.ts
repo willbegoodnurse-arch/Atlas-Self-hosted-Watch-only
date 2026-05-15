@@ -212,7 +212,59 @@ export function accountPathFor(scriptType: ScriptType, network: BitcoinNetwork):
 }
 
 export function importFormatForKey(value: string): ImportFormat {
-  return value.startsWith("xpub") || value.startsWith("tpub") ? "plain-xpub" : "slip132";
+  return "bare-extended-public-key";
+}
+
+function findDescriptorCandidate(value: string): string | null {
+  const descriptorPrefixes = ["sh(wpkh(", "wpkh(", "pkh(", "tr("];
+  for (const rawLine of value.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    const start = descriptorPrefixes
+      .map((prefix) => line.indexOf(prefix))
+      .filter((index) => index >= 0)
+      .sort((a, b) => a - b)[0];
+    if (start === undefined) {
+      continue;
+    }
+    const candidate = line.slice(start).trim().split(/\s+/)[0] ?? "";
+    if (descriptorPrefixes.some((prefix) => candidate.startsWith(prefix))) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function findOriginKeyCandidate(value: string): string | null {
+  const match = value.match(/\[[^\]]+\](xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,}/);
+  return match?.[0] ?? null;
+}
+
+function unsupportedImport(
+  reason: string,
+  options: {
+    sourceDevice: SourceDevice;
+    network: BitcoinNetwork;
+    importFormat: ImportFormat;
+    notes: string | null;
+  }
+): ParsedWalletImport {
+  return {
+    extendedPublicKey: null,
+    type: null,
+    sourceDevice: options.sourceDevice,
+    network: options.network,
+    scriptType: "unknown",
+    accountPath: null,
+    masterFingerprint: null,
+    importFormat: options.importFormat,
+    rawImport: null,
+    notes: options.notes,
+    warnings: [reason],
+    unsupportedReason: reason
+  };
 }
 
 function parseDescriptor(
@@ -222,7 +274,11 @@ function parseDescriptor(
   notes: string | null
 ): ParsedWalletImport | null {
   const trimmed = value.trim();
-  const descriptor = trimmed.replace(/#[a-z0-9]+$/i, "");
+  const descriptorText = findDescriptorCandidate(trimmed);
+  if (!descriptorText) {
+    return null;
+  }
+  const descriptor = descriptorText.replace(/#[a-z0-9]+$/i, "");
   const scriptType = descriptor.startsWith("sh(wpkh(")
     ? "nested-segwit"
     : descriptor.startsWith("wpkh(")
@@ -235,6 +291,15 @@ function parseDescriptor(
 
   if (!scriptType) {
     return null;
+  }
+
+  if (/\[[^\]]+\]/.test(descriptor) && !/\[[0-9a-fA-F]{8}(?:\/[^\]]+)?\]/.test(descriptor)) {
+    return unsupportedImport("Invalid BIP32 origin metadata: master fingerprint must be 8 hex characters.", {
+      sourceDevice,
+      network,
+      importFormat: "descriptor",
+      notes
+    });
   }
 
   const key = extractExtendedPublicKey(descriptor);
@@ -252,7 +317,7 @@ function parseDescriptor(
     accountPath,
     masterFingerprint: origin?.[1]?.toLowerCase() ?? null,
     importFormat: "descriptor",
-    rawImport: trimmed,
+    rawImport: descriptorText,
     notes,
     warnings,
     unsupportedReason: key ? unsupportedReasonForScript(scriptType) : "Descriptor did not contain a supported xpub"
@@ -265,7 +330,22 @@ function parseKeyExpression(
   network: BitcoinNetwork,
   notes: string | null
 ): ParsedWalletImport | null {
-  const match = value.trim().match(/^\[([0-9a-fA-F]{8})(?:\/([^\]]+))?\]((xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,})/);
+  const trimmed = value.trim();
+  const originCandidate = findOriginKeyCandidate(trimmed);
+
+  if (originCandidate) {
+    const validOrigin = originCandidate.match(/^\[([0-9a-fA-F]{8})(?:\/([^\]]+))?\]/);
+    if (!validOrigin) {
+      return unsupportedImport("Invalid BIP32 origin metadata: master fingerprint must be 8 hex characters.", {
+        sourceDevice,
+        network,
+        importFormat: "origin-extended-public-key",
+        notes
+      });
+    }
+  }
+
+  const match = originCandidate?.match(/^\[([0-9a-fA-F]{8})(?:\/([^\]]+))?\]((xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,})/);
   if (!match) {
     return null;
   }
@@ -276,8 +356,8 @@ function parseKeyExpression(
     network: networkForKey(key) ?? network,
     accountPath: match[2] ? normalizePath(match[2]) : null,
     masterFingerprint: match[1]?.toLowerCase() ?? null,
-    importFormat: "key-expression",
-    rawImport: value.trim(),
+    importFormat: "origin-extended-public-key",
+    rawImport: originCandidate,
     notes,
     warnings: scriptTypeForKey(key) === "unknown"
       ? ["Key expression used xpub/tpub; confirm script type before receiving funds."]
@@ -362,7 +442,7 @@ function parseColdcardLikeJson(
     network: key ? networkForKey(key) ?? network : network,
     scriptType: selected?.scriptType ?? "unknown",
     accountPath: selected?.accountPath ?? null,
-    masterFingerprint: xfp?.toLowerCase() ?? null,
+    masterFingerprint: normalizeFingerprint(xfp),
     importFormat: "coldcard-json",
     rawImport,
     notes,
@@ -478,6 +558,10 @@ function stringField(value: Record<string, unknown>, field: string): string | nu
 function normalizePath(value: string): string {
   const normalized = value.replace(/h/gi, "'").replace(/^m\//, "");
   return `m/${normalized}`;
+}
+
+function normalizeFingerprint(value: string | null): string | null {
+  return value && /^[0-9a-fA-F]{8}$/.test(value) ? value.toLowerCase() : null;
 }
 
 function sanitizeOptionalText(value: unknown, maxLength: number): string | null {

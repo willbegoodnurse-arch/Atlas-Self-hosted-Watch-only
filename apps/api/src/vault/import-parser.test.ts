@@ -15,21 +15,22 @@ const tpub = `tpub${"A".repeat(80)}`;
 
 test("detects xpub as plain import with script confirmation required", () => {
   const parsed = parseWalletImport({ importText: xpub, network: "mainnet" });
-  assert.equal(parsed.importFormat, "plain-xpub");
+  assert.equal(parsed.importFormat, "bare-extended-public-key");
   assert.equal(parsed.type, "xpub");
   assert.equal(parsed.scriptType, "unknown");
   assert.equal(parsed.network, "mainnet");
   assert.ok(parsed.warnings.some((warning) => warning.includes("script type confirmation")));
 });
 
-test("detects ypub and zpub slip132 script types", () => {
+test("detects ypub and zpub script types as bare extended public keys", () => {
   const nested = parseWalletImport({ importText: ypub, network: "mainnet" });
-  assert.equal(nested.importFormat, "slip132");
+  assert.equal(nested.importFormat, "bare-extended-public-key");
   assert.equal(nested.scriptType, "nested-segwit");
 
   const native = parseWalletImport({ importText: zpub, network: "mainnet" });
-  assert.equal(native.importFormat, "slip132");
+  assert.equal(native.importFormat, "bare-extended-public-key");
   assert.equal(native.scriptType, "native-segwit");
+  assert.equal(native.masterFingerprint, null);
 });
 
 test("detects tpub/upub/vpub as testnet candidates", () => {
@@ -99,10 +100,87 @@ test("parses key expression fingerprint and path", () => {
     scriptType: "native-segwit"
   });
 
-  assert.equal(parsed.importFormat, "key-expression");
+  assert.equal(parsed.importFormat, "origin-extended-public-key");
   assert.equal(parsed.masterFingerprint, "abcd1234");
   assert.equal(parsed.accountPath, "m/84'/0'/0'");
   assert.equal(parsed.scriptType, "native-segwit");
+});
+
+test("parses zpub origin metadata fingerprint and path", () => {
+  const parsed = parseWalletImport({
+    importText: `[f23a9c1d/84h/0h/0h]${zpub}`,
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.importFormat, "origin-extended-public-key");
+  assert.equal(parsed.type, "zpub");
+  assert.equal(parsed.masterFingerprint, "f23a9c1d");
+  assert.equal(parsed.accountPath, "m/84'/0'/0'");
+  assert.equal(parsed.scriptType, "native-segwit");
+});
+
+test("parses zpub descriptor origin metadata as native segwit", () => {
+  const parsed = parseWalletImport({
+    importText: `wpkh([f23a9c1d/84'/0'/0']${zpub}/0/*)`,
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.importFormat, "descriptor");
+  assert.equal(parsed.type, "zpub");
+  assert.equal(parsed.masterFingerprint, "f23a9c1d");
+  assert.equal(parsed.accountPath, "m/84'/0'/0'");
+  assert.equal(parsed.scriptType, "native-segwit");
+});
+
+test("parses Sparrow-style multiline descriptor exports", () => {
+  const parsed = parseWalletImport({
+    importText: [
+      "# Sparrow wallet descriptor export",
+      "receive = wpkh([f23a9c1d/84'/0'/0']" + zpub + "/0/*)#abcd1234",
+      "change = wpkh([f23a9c1d/84'/0'/0']" + zpub + "/1/*)#abcd1234"
+    ].join("\n"),
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.importFormat, "descriptor");
+  assert.equal(parsed.masterFingerprint, "f23a9c1d");
+  assert.equal(parsed.accountPath, "m/84'/0'/0'");
+  assert.equal(parsed.scriptType, "native-segwit");
+  assert.equal(parsed.rawImport?.includes("Sparrow"), false);
+});
+
+test("parses origin extended public key embedded in text export", () => {
+  const parsed = parseWalletImport({
+    importText: `Keystore: [f23a9c1d/84'/0'/0']${zpub}`,
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.importFormat, "origin-extended-public-key");
+  assert.equal(parsed.masterFingerprint, "f23a9c1d");
+  assert.equal(parsed.accountPath, "m/84'/0'/0'");
+  assert.equal(parsed.scriptType, "native-segwit");
+});
+
+test("invalid origin fingerprint is rejected without falling back to bare zpub", () => {
+  const parsed = parseWalletImport({
+    importText: `[nothex12/84'/0'/0']${zpub}`,
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.extendedPublicKey, null);
+  assert.equal(parsed.importFormat, "origin-extended-public-key");
+  assert.match(parsed.unsupportedReason ?? "", /fingerprint must be 8 hex/i);
+});
+
+test("invalid descriptor origin fingerprint is rejected without falling back to descriptor key", () => {
+  const parsed = parseWalletImport({
+    importText: `wpkh([badf00dZ/84'/0'/0']${zpub}/0/*)`,
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.extendedPublicKey, null);
+  assert.equal(parsed.importFormat, "descriptor");
+  assert.match(parsed.unsupportedReason ?? "", /fingerprint must be 8 hex/i);
 });
 
 test("rejects private keys and seed phrases", () => {

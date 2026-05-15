@@ -48,6 +48,7 @@ test("wallet import preview derives first receive address without echoing the xp
   assert.equal(previewPayload.keyType, "zpub");
   assert.equal(previewPayload.network, "mainnet");
   assert.equal(previewPayload.scriptType, "native-segwit");
+  assert.equal(previewPayload.importFormat, "bare-extended-public-key");
   assert.equal(previewPayload.masterFingerprint, null);
   assert.equal(previewPayload.accountPath, "m/84'/0'/0'");
   assert.match(previewPayload.firstReceiveAddress, /^bc1q/);
@@ -68,6 +69,7 @@ test("wallet import preview derives first receive address without echoing the xp
 
   assert.equal(descriptorResponse.statusCode, 200);
   const descriptorPayload = descriptorResponse.json();
+  assert.equal(descriptorPayload.importFormat, "descriptor");
   assert.equal(descriptorPayload.masterFingerprint, "f23a9c1d");
   assert.equal(descriptorPayload.accountPath, "m/84'/0'/0'");
   assert.equal(descriptorPayload.scriptType, "native-segwit");

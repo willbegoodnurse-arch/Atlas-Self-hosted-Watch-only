@@ -1,7 +1,7 @@
 export type QrPayloadFormat =
-  | "plain-xpub"
+  | "bare-extended-public-key"
   | "descriptor"
-  | "key-expression"
+  | "origin-extended-public-key"
   | "coldcard-json"
   | "crypto-account-ur"
   | "crypto-hdkey-ur"
@@ -121,13 +121,7 @@ export function classifyQrPayload(frame: string): QrPayloadClassification {
   }
 
   // Descriptor (strip checksum)
-  const stripped = trimmed.replace(/#[a-z0-9]+$/i, "");
-  if (
-    stripped.startsWith("sh(wpkh(") ||
-    stripped.startsWith("wpkh(") ||
-    stripped.startsWith("pkh(") ||
-    stripped.startsWith("tr(")
-  ) {
+  if (findDescriptorCandidate(trimmed)) {
     return {
       format: "descriptor",
       animated: false,
@@ -139,9 +133,9 @@ export function classifyQrPayload(frame: string): QrPayloadClassification {
   }
 
   // Key expression [fingerprint/path]xpub
-  if (/^\[[0-9a-fA-F]{8}/.test(trimmed) && xpubPattern.test(trimmed)) {
+  if (/\[[0-9a-fA-F]{8}(?:\/[^\]]+)?\](xpub|ypub|zpub|tpub|upub|vpub)/.test(trimmed)) {
     return {
-      format: "key-expression",
+      format: "origin-extended-public-key",
       animated: false,
       watchOnlyCandidate: true,
       frameIndex: null,
@@ -166,7 +160,7 @@ export function classifyQrPayload(frame: string): QrPayloadClassification {
   // Plain xpub/ypub/zpub/tpub/upub/vpub
   if (xpubPattern.test(trimmed)) {
     return {
-      format: "plain-xpub",
+      format: "bare-extended-public-key",
       animated: false,
       watchOnlyCandidate: true,
       frameIndex: null,
@@ -194,6 +188,28 @@ function urTotalFrames(value: string): number | null {
     value.match(/^ur:[^/]+\/\d+of(\d+)\//i) ??
     value.match(/^ur:[^/]+\/\d+-(\d+)\//i);
   return m?.[1] !== undefined ? parseInt(m[1], 10) : null;
+}
+
+function findDescriptorCandidate(value: string): string | null {
+  const descriptorPrefixes = ["sh(wpkh(", "wpkh(", "pkh(", "tr("];
+  for (const rawLine of value.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    const start = descriptorPrefixes
+      .map((prefix) => line.indexOf(prefix))
+      .filter((index) => index >= 0)
+      .sort((a, b) => a - b)[0];
+    if (start === undefined) {
+      continue;
+    }
+    const candidate = line.slice(start).trim().split(/\s+/)[0] ?? "";
+    if (descriptorPrefixes.some((prefix) => candidate.startsWith(prefix))) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 function notWatchOnly(format: QrPayloadFormat, warning: string | null): QrPayloadClassification {

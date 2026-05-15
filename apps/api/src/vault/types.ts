@@ -10,10 +10,9 @@ export type SourceDevice =
   | "jade"
   | "other";
 export type ImportFormat =
-  | "plain-xpub"
-  | "slip132"
+  | "bare-extended-public-key"
+  | "origin-extended-public-key"
   | "descriptor"
-  | "key-expression"
   | "coldcard-json"
   | "crypto-account-ur"
   | "crypto-hdkey-ur"

@@ -598,9 +598,15 @@ function normalizeSourceDevice(value: unknown): SourceDevice {
 }
 
 function normalizeImportFormat(value: unknown): ImportFormat | null {
+  if (value === "plain-xpub" || value === "slip132") {
+    return "bare-extended-public-key";
+  }
+  if (value === "key-expression") {
+    return "origin-extended-public-key";
+  }
   const formats: ImportFormat[] = [
-    "plain-xpub", "slip132", "descriptor", "key-expression", "coldcard-json",
-    "crypto-account-ur", "ur-xpub", "passport-setup-qr", "unknown"
+    "bare-extended-public-key", "origin-extended-public-key", "descriptor", "coldcard-json",
+    "crypto-account-ur", "crypto-hdkey-ur", "ur-xpub", "passport-setup-qr", "bbqr", "psbt-ur", "unknown"
   ];
   return formats.includes(value as ImportFormat) ? value as ImportFormat : null;
 }
@@ -610,7 +616,7 @@ function normalizeFingerprint(value: unknown): string | null {
 }
 
 function importFormatForExistingKey(type: ExtendedPublicKeyType): ImportFormat {
-  return type === "xpub" || type === "tpub" ? "plain-xpub" : "slip132";
+  return "bare-extended-public-key";
 }
 
 async function saveUnlockedVault(): Promise<void> {
