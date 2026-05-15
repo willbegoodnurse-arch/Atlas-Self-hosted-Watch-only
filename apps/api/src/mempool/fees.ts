@@ -1,4 +1,4 @@
-import { fetchMempoolJson } from "./request.js";
+import { MempoolHttpError, errorMessage, fetchMempoolJson } from "./request.js";
 import { getMempoolRequestConfig } from "./usage.js";
 
 export type FeeEstimatePreset = {
@@ -7,6 +7,24 @@ export type FeeEstimatePreset = {
   hourFee: number | null;
   economyFee: number | null;
   minimumFee: number | null;
+};
+
+export type FeeEstimateSource = "recommended" | "mempool-blocks";
+
+export type FeeEstimateLookupAttempt = {
+  path: string;
+  status: "ok" | "failed";
+  httpStatus: number | null;
+  error: string | null;
+};
+
+export type FeeEstimateLookupResult = {
+  status: "online" | "unavailable";
+  estimates: FeeEstimatePreset | null;
+  source: FeeEstimateSource | null;
+  checkedAt: string;
+  attempts: FeeEstimateLookupAttempt[];
+  message: string | null;
 };
 
 export function parseFeeEstimates(raw: unknown): FeeEstimatePreset | null {
@@ -24,39 +42,86 @@ export function parseFeeEstimates(raw: unknown): FeeEstimatePreset | null {
   return hasAnyFee(estimates) ? estimates : null;
 }
 
+export function parseMempoolBlockFeeEstimates(raw: unknown): FeeEstimatePreset | null {
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+  const medians = raw
+    .map((block) => {
+      if (typeof block !== "object" || block === null) {
+        return null;
+      }
+      return readFee((block as Record<string, unknown>).medianFee);
+    })
+    .filter((fee): fee is number => fee !== null);
+
+  if (medians.length === 0) {
+    return null;
+  }
+
+  const sorted = [...medians].sort((a, b) => a - b);
+  const estimate = {
+    fastestFee: medians[0] ?? null,
+    halfHourFee: medians[1] ?? medians[0] ?? null,
+    hourFee: medians[2] ?? medians[medians.length - 1] ?? null,
+    economyFee: medians[medians.length - 1] ?? null,
+    minimumFee: sorted[0] ?? null
+  };
+  return hasAnyFee(estimate) ? estimate : null;
+}
+
 export async function lookupFeeEstimates(
   options: {
     fetchFeesFn?: () => Promise<unknown>;
     fetchJson?: (url: string) => Promise<unknown>;
   } = {}
 ): Promise<FeeEstimatePreset | null> {
+  const result = await lookupFeeEstimateResult(options);
+  return result.estimates;
+}
+
+export async function lookupFeeEstimateResult(
+  options: {
+    fetchFeesFn?: () => Promise<unknown>;
+    fetchJson?: (url: string) => Promise<unknown>;
+  } = {}
+): Promise<FeeEstimateLookupResult> {
   const { url } = getMempoolRequestConfig();
+  const checkedAt = new Date().toISOString();
   if (options.fetchFeesFn) {
     try {
-      return parseFeeEstimates(await options.fetchFeesFn());
-    } catch {
-      return null;
+      const estimates = parseFeeEstimates(await options.fetchFeesFn());
+      return estimates
+        ? onlineResult(estimates, "recommended", checkedAt, [{ path: "custom", status: "ok", httpStatus: null, error: null }])
+        : unavailableResult(checkedAt, [{ path: "custom", status: "failed", httpStatus: null, error: "no usable fee estimates" }]);
+    } catch (error) {
+      return unavailableResult(checkedAt, [failedAttempt("custom", error)]);
     }
   }
 
   const fetchJson = options.fetchJson ?? fetchMempoolJson;
   const candidates = [
-    `${url}/v1/fees/recommended`,
-    `${url}/fees/recommended`
+    { path: "/v1/fees/recommended", parser: parseFeeEstimates, source: "recommended" as const },
+    { path: "/fees/recommended", parser: parseFeeEstimates, source: "recommended" as const },
+    { path: "/v1/fees/mempool-blocks", parser: parseMempoolBlockFeeEstimates, source: "mempool-blocks" as const }
   ];
+  const attempts: FeeEstimateLookupAttempt[] = [];
 
   for (const candidate of candidates) {
     try {
-      const estimates = parseFeeEstimates(await fetchJson(candidate));
+      const estimates = candidate.parser(await fetchJson(`${url}${candidate.path}`));
       if (estimates) {
-        return estimates;
+        attempts.push({ path: candidate.path, status: "ok", httpStatus: null, error: null });
+        return onlineResult(estimates, candidate.source, checkedAt, attempts);
       }
-    } catch {
+      attempts.push({ path: candidate.path, status: "failed", httpStatus: null, error: "no usable fee estimates" });
+    } catch (error) {
+      attempts.push(failedAttempt(candidate.path, error));
       // Try the next known mempool-compatible fee path.
     }
   }
 
-  return null;
+  return unavailableResult(checkedAt, attempts);
 }
 
 function readFee(value: unknown): number | null {
@@ -65,4 +130,56 @@ function readFee(value: unknown): number | null {
 
 function hasAnyFee(estimates: FeeEstimatePreset): boolean {
   return Object.values(estimates).some((fee) => fee !== null);
+}
+
+function onlineResult(
+  estimates: FeeEstimatePreset,
+  source: FeeEstimateSource,
+  checkedAt: string,
+  attempts: FeeEstimateLookupAttempt[]
+): FeeEstimateLookupResult {
+  return {
+    status: "online",
+    estimates,
+    source,
+    checkedAt,
+    attempts,
+    message: source === "mempool-blocks"
+      ? "Fee estimates derived from local mempool block medians because recommended fee endpoint was unavailable."
+      : null
+  };
+}
+
+function unavailableResult(checkedAt: string, attempts: FeeEstimateLookupAttempt[]): FeeEstimateLookupResult {
+  return {
+    status: "unavailable",
+    estimates: null,
+    source: null,
+    checkedAt,
+    attempts,
+    message: "Local mempool fee estimates are unavailable. Manual fee entry remains available."
+  };
+}
+
+function failedAttempt(path: string, error: unknown): FeeEstimateLookupAttempt {
+  return {
+    path,
+    status: "failed",
+    httpStatus: error instanceof MempoolHttpError ? error.status : null,
+    error: sanitizeFeeError(error)
+  };
+}
+
+function sanitizeFeeError(error: unknown): string {
+  if (error instanceof MempoolHttpError) {
+    return `HTTP ${error.status}`;
+  }
+  const message = errorMessage(error);
+  if (/timeout|abort/i.test(message)) {
+    return "request timed out";
+  }
+  if (/fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|network/i.test(message)) {
+    return "network error";
+  }
+  return "fee endpoint unavailable";
 }

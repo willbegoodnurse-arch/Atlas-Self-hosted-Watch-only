@@ -106,6 +106,7 @@ Operator safety docs:
 - [Backup / restore / disaster recovery](docs/backup-restore.md)
 - [Tailscale Serve / HTTPS access planning](docs/tailscale-https-access.md)
 - [Network exposure audit](docs/network-exposure-audit.md)
+- [Self-hosted mempool fee estimates](docs/mempool-fee-estimates.md)
 - [Raspberry Pi deployment guide](docs/raspberry-pi-deployment.md)
 - [Release and smoke test checklist](docs/release-checklist.md)
 
@@ -282,6 +283,7 @@ This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only
 - [Camera QR secure context guide](docs/camera-qr-secure-context.md)
 - [Same-origin API proxy guide](docs/same-origin-api-proxy.md)
 - [PSBT workflow guide](docs/psbt-workflow.md)
+- [Self-hosted mempool fee estimates](docs/mempool-fee-estimates.md)
 - [Release and smoke test checklist](docs/release-checklist.md)
 - [Security policy](SECURITY.md)
 - [Development notes](DEVELOPMENT.md)

@@ -343,6 +343,8 @@ type FeeEstimatesResponse = {
     economyFee: number | null;
     minimumFee: number | null;
   } | null;
+  source?: "recommended" | "mempool-blocks" | null;
+  diagnostic?: string | null;
   error?: string;
 };
 
@@ -3326,10 +3328,15 @@ function CreatePsbtBuilderPanel({
       const response = await apiRequest<FeeEstimatesResponse>(apiUrl, "/api/fees/recommended");
       if (response.status !== "online" || !response.estimates) {
         setFeeEstimates(null);
-        setFeeEstimateMessage(response.error ?? "Fee estimates unavailable. Enter a custom fee rate.");
+        setFeeEstimateMessage(response.error ?? response.diagnostic ?? "Fee estimates unavailable. Enter a custom fee rate.");
         return;
       }
       setFeeEstimates(response.estimates);
+      setFeeEstimateMessage(
+        response.source === "mempool-blocks"
+          ? "Fee presets derived from local mempool block medians. Review the sat/vB value before creating the unsigned PSBT."
+          : ""
+      );
     } catch {
       setFeeEstimates(null);
       setFeeEstimateMessage("Fee estimates unavailable. Enter a custom fee rate.");

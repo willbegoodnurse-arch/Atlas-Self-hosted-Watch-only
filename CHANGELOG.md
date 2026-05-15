@@ -3,6 +3,14 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 50 - Self-hosted mempool fee estimate root cause
+
+- Added sanitized fee estimate diagnostics for local mempool fee endpoint failures, including attempted endpoint paths and HTTP status codes.
+- Added a local-only fallback that derives fee presets from `/api/v1/fees/mempool-blocks` medians when recommended fee endpoints are unavailable.
+- Improved fee UI copy so manual fee entry remains clear when local fee presets are unavailable or derived from mempool block medians.
+- Added self-hosted mempool fee estimate troubleshooting docs and release checklist links.
+- No public mempool fallback, broadcast behavior, signing, private key handling, or secret exposure was added.
+
 ## Phase 49 - Origin metadata import parsing
 
 - Added first-class import format handling for bare extended public keys, origin-wrapped extended public keys, and descriptors.

@@ -118,6 +118,8 @@ For the full Bitcoin Core RPC setup, including `bitcoin.conf`, safe connectivity
 
 After same-origin mode, localhost-only API binding, local mempool, Fulcrum, and camera localhost forwarding are configured, use [hardened-runtime-smoke-test.md](hardened-runtime-smoke-test.md) for the full operational checklist.
 
+If the local mempool block tip works but fee presets are unavailable, use [mempool-fee-estimates.md](mempool-fee-estimates.md). Atlas does not silently fall back to public mempool.space; manual fee entry remains available.
+
 For operator safety planning, review:
 
 - [backup-restore.md](backup-restore.md) for backup, restore, and disaster recovery.

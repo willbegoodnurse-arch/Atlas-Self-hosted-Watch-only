@@ -1,6 +1,12 @@
 
 # Atlas v0.1.0 Release Candidate Notes
 
+## Phase 50 - Self-Hosted Mempool Fee Estimate Root Cause
+
+Atlas now reports sanitized diagnostics when the local self-hosted mempool fee endpoints are unavailable while other mempool endpoints, such as block tip, may still work. The API tries `/api/v1/fees/recommended`, `/api/fees/recommended`, and then local `/api/v1/fees/mempool-blocks` median fee data before falling back to manual fee entry.
+
+This phase documents that block tip availability does not guarantee fee estimate availability. It does not add a public mempool fallback, does not change broadcast behavior, and keeps manual fee entry usable.
+
 ## Phase 49 - Origin Metadata Import Parsing
 
 Atlas now treats bare extended public keys, origin-wrapped extended public keys, and descriptors as distinct import formats. Bare zpub/xpub/ypub imports still work and normally do not include a master fingerprint, so `not provided` is expected and is not an import failure.
