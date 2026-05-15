@@ -643,6 +643,14 @@ code {
   font-family: inherit;
 }
 
+.preview-code {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgb(2 5 8 / 72%);
+  padding: 10px 12px;
+}
+
 .next-address-placeholder dd {
   display: grid;
   gap: 8px;

@@ -51,6 +51,18 @@ type WalletRecord = {
   updatedAt: string;
 };
 
+type WalletImportPreviewResponse = {
+  keyType: ExtendedPublicKeyType | null;
+  network: WalletRecord["network"];
+  scriptType: WalletScriptType;
+  accountPath: string | null;
+  masterFingerprint: string | null;
+  importFormat: ImportFormat;
+  firstReceiveAddress: string;
+  firstReceivePath: string;
+  warnings: string[];
+};
+
 type AddressLabel = {
   chain: "receive" | "change";
   index: number;
@@ -1024,6 +1036,7 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
       setMessage("Wallet saved");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Wallet registration failed");
+      throw error;
     } finally {
       setBusy(false);
     }
@@ -1135,12 +1148,9 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
       </div>
 
       {!status.initialized ? <VaultInitForm busy={busy} onSubmit={handleInit} /> : null}
-      {status.initialized && !status.unlocked ? (
-        <VaultUnlockForm busy={busy} onSubmit={handleUnlock} />
-      ) : null}
-      {status.initialized && status.unlocked ? (
+      {status.initialized ? (
         detailWalletId ? (
-          detailWallet ? (
+          status.unlocked && detailWallet ? (
             <WalletDetailView
               apiUrl={apiUrl}
               fulcrumStatus={fulcrumStatus}
@@ -1152,7 +1162,7 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
               onRefreshConnection={refreshMempoolStatus}
               onWalletChange={handleReplaceWallet}
             />
-          ) : (
+          ) : status.unlocked ? (
             <div className="terminal-panel empty-state">
               <p className="terminal-heading">&gt; WALLET NOT FOUND</p>
               <p className="muted">This vault does not contain the requested wallet.</p>
@@ -1160,20 +1170,30 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
                 Back to dashboard
               </a>
             </div>
+          ) : (
+            <VaultUnlockForm busy={busy} onSubmit={handleUnlock} />
           )
         ) : (
-        <>
-          <WalletCreateForm busy={busy} onSubmit={handleCreateWallet} />
-          <WalletList
-            apiUrl={apiUrl}
-            busy={busy}
-            mempoolBadgeStatus={mempoolBadgeStatus}
-            vaultBadgeStatus={vaultBadgeStatus}
-            wallets={wallets}
-            onDelete={handleDeleteWallet}
-            onUpdate={handleUpdateWallet}
-          />
-        </>
+          <>
+            <WalletCreateForm
+              apiUrl={apiUrl}
+              busy={busy}
+              vaultUnlocked={status.unlocked}
+              onSubmit={handleCreateWallet}
+            />
+            {!status.unlocked ? <VaultUnlockForm busy={busy} onSubmit={handleUnlock} /> : null}
+            {status.unlocked ? (
+              <WalletList
+                apiUrl={apiUrl}
+                busy={busy}
+                mempoolBadgeStatus={mempoolBadgeStatus}
+                vaultBadgeStatus={vaultBadgeStatus}
+                wallets={wallets}
+                onDelete={handleDeleteWallet}
+                onUpdate={handleUpdateWallet}
+              />
+            ) : null}
+          </>
         )
       ) : null}
     </div>
@@ -1274,10 +1294,14 @@ function VaultUnlockForm({
 }
 
 function WalletCreateForm({
+  apiUrl,
   busy,
+  vaultUnlocked,
   onSubmit
 }: {
+  apiUrl: string;
   busy: boolean;
+  vaultUnlocked: boolean;
   onSubmit: (input: {
     name: string;
     importText: string;
@@ -1286,7 +1310,7 @@ function WalletCreateForm({
     scriptType: WalletScriptType;
     notes: string | null;
     gapLimit: number;
-  }) => void;
+  }) => Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [importText, setImportText] = useState("");
@@ -1301,6 +1325,10 @@ function WalletCreateForm({
   const [qrFrames, setQrFrames] = useState<string[]>([]);
   const [qrFrameTotal, setQrFrameTotal] = useState<number | null>(null);
   const [qrFrameFormat, setQrFrameFormat] = useState<string>("");
+  const [saveMessage, setSaveMessage] = useState("");
+  const [preview, setPreview] = useState<WalletImportPreviewResponse | null>(null);
+  const [previewMessage, setPreviewMessage] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
   const scannerControls = useRef<IScannerControls | null>(null);
   const scannerVideo = useRef<HTMLVideoElement | null>(null);
   const detected = useMemo(() => detectImportMetadata(importText, network, sourceDevice), [
@@ -1309,14 +1337,27 @@ function WalletCreateForm({
     sourceDevice
   ]);
   const effectiveScriptType = scriptType !== "unknown" ? scriptType : detected.scriptType;
+  const effectiveAccountPath = detected.accountPath ?? accountPathFor(effectiveScriptType, network);
   const networkMismatch =
     detected.network !== null &&
     !(detected.network === "testnet" && (network === "testnet" || network === "signet")) &&
     detected.network !== network;
-  const canSave =
-    Boolean(detected.extendedPublicKey) &&
-    !detected.privateInput &&
-    effectiveScriptType !== "unknown";
+  const mismatchMessage = networkMismatch ? keyNetworkMismatchMessage(detected.type, network) : "";
+  const saveDisabledReason = getWalletSaveDisabledReason({
+    busy,
+    vaultUnlocked,
+    name,
+    importText,
+    detected,
+    effectiveScriptType,
+    accountPath: effectiveAccountPath,
+    networkMismatchMessage: mismatchMessage,
+    preview,
+    previewLoading,
+    previewMessage,
+    gapLimit
+  });
+  const canSave = !saveDisabledReason;
 
   useEffect(() => {
     return () => {
@@ -1330,23 +1371,111 @@ function WalletCreateForm({
     }
   }, [detected.scriptType]);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    setSaveMessage("");
+  }, [name, importText, network, sourceDevice, scriptType, gapLimit]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const canPreview =
+      Boolean(detected.extendedPublicKey) &&
+      !detected.privateInput &&
+      !detected.unsupportedReason &&
+      !networkMismatch &&
+      effectiveScriptType !== "unknown";
+
+    setPreview(null);
+    setPreviewMessage("");
+
+    if (!canPreview) {
+      setPreviewLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setPreviewLoading(true);
+
+    const timer = window.setTimeout(() => {
+      void apiRequest<WalletImportPreviewResponse>(apiUrl, "/api/wallets/import-preview", {
+        method: "POST",
+        body: JSON.stringify({
+          importText,
+          network,
+          sourceDevice,
+          scriptType: effectiveScriptType
+        })
+      })
+        .then((result) => {
+          if (cancelled) {
+            return;
+          }
+          setPreview(result);
+          setPreviewMessage("");
+        })
+        .catch((error) => {
+          if (cancelled) {
+            return;
+          }
+          setPreview(null);
+          setPreviewMessage(
+            error instanceof Error
+              ? error.message
+              : "First receive address could not be derived. Verify key prefix, network, script type, and account path."
+          );
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setPreviewLoading(false);
+          }
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    apiUrl,
+    detected.extendedPublicKey,
+    detected.privateInput,
+    detected.unsupportedReason,
+    effectiveScriptType,
+    importText,
+    network,
+    networkMismatch,
+    sourceDevice
+  ]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onSubmit({
-      name,
-      importText,
-      network,
-      sourceDevice,
-      scriptType: effectiveScriptType,
-      notes: notes.trim() || null,
-      gapLimit
-    });
-    setName("");
-    setImportText("");
-    setSourceDevice("other");
-    setScriptType("unknown");
-    setNotes("");
-    setGapLimit(20);
+    if (saveDisabledReason) {
+      setSaveMessage(saveDisabledReason);
+      return;
+    }
+
+    setSaveMessage("");
+    try {
+      await onSubmit({
+        name,
+        importText,
+        network,
+        sourceDevice,
+        scriptType: effectiveScriptType,
+        notes: notes.trim() || null,
+        gapLimit
+      });
+      setName("");
+      setImportText("");
+      setSourceDevice("other");
+      setScriptType("unknown");
+      setNotes("");
+      setGapLimit(20);
+      setPreview(null);
+      setPreviewMessage("");
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : "Wallet registration failed");
+    }
   }
 
   async function handleFileImport(file: File | undefined) {
@@ -1483,6 +1612,9 @@ function WalletCreateForm({
           wallet's address history — treat them as sensitive, not as private keys.
         </p>
       </div>
+      {!vaultUnlocked ? (
+        <p className="status-message">Vault is locked. Unlock the vault before saving a wallet.</p>
+      ) : null}
       <div className="form-grid">
         <label>
           <span>Wallet name</span>
@@ -1527,14 +1659,7 @@ function WalletCreateForm({
         </label>
       </div>
       {networkMismatch ? (
-        <p className="status-message">
-          Network mismatch: this looks like a {detected.network} key ({detected.type ?? "unknown prefix"}),
-          but the selected network is {network}.
-          {detected.network === "mainnet"
-            ? " xpub/ypub/zpub are mainnet keys."
-            : " tpub/upub/vpub are testnet keys (also compatible with signet)."}
-          {" "}Verify the network before saving.
-        </p>
+        <p className="status-message">{mismatchMessage}</p>
       ) : null}
 
       <div className="tab-row">
@@ -1610,8 +1735,16 @@ function WalletCreateForm({
           />
         </label>
         <label>
+          <span>Selected network</span>
+          <input readOnly value={network} />
+        </label>
+        <label>
+          <span>Selected script type</span>
+          <input readOnly value={formatScriptType(effectiveScriptType)} />
+        </label>
+        <label>
           <span>Account path</span>
-          <input readOnly value={detected.accountPath ?? ""} />
+          <input readOnly value={effectiveAccountPath ?? ""} />
         </label>
         <label>
           <span>Fingerprint</span>
@@ -1637,6 +1770,7 @@ function WalletCreateForm({
           <input value={notes} onChange={(event) => setNotes(event.target.value)} />
         </label>
       </div>
+      <KeyPrefixGuidance />
       <DeviceGuidance sourceDevice={sourceDevice} />
       {detected.privateInput ? (
         <p className="status-message">{detected.unsupportedReason ?? watchOnlyImportError}</p>
@@ -1649,6 +1783,30 @@ function WalletCreateForm({
         </div>
       ) : null}
       {detected.unsupportedReason ? <p className="status-message">{detected.unsupportedReason}</p> : null}
+      <div className="terminal-panel import-preview">
+        <p className="terminal-heading">&gt; FIRST RECEIVE CHECK</p>
+        {previewLoading ? <p className="muted">Deriving first receive address...</p> : null}
+        {preview ? (
+          <>
+            <p className="muted">First receive address derived. Verify it on your hardware wallet before receiving funds.</p>
+            <code className="preview-code">{preview.firstReceiveAddress}</code>
+            <p className="technical-line">path: {preview.firstReceivePath}</p>
+          </>
+        ) : null}
+        {!previewLoading && previewMessage ? <p className="status-message">{previewMessage}</p> : null}
+        {!previewLoading && !preview && !previewMessage ? (
+          <p className="muted">
+            Paste a supported watch-only import and choose the matching network/script type to preview the first receive address.
+          </p>
+        ) : null}
+      </div>
+      <div className="terminal-panel import-save-status">
+        <p className="terminal-heading">&gt; SAVE CHECK</p>
+        <p className={saveDisabledReason ? "status-message" : "muted"}>
+          {saveDisabledReason ?? "Ready to save. Vault is unlocked and the first receive address was derived."}
+        </p>
+        {saveMessage ? <p className="status-message">{saveMessage}</p> : null}
+      </div>
       <button disabled={busy || !canSave} type="submit">
         Save wallet
       </button>
@@ -2112,6 +2270,112 @@ function PortalModal({
     </div>,
     document.body
   );
+}
+
+function KeyPrefixGuidance() {
+  return (
+    <div className="terminal-panel import-preview">
+      <p className="terminal-heading">&gt; EXTENDED PUBLIC KEY PREFIXES</p>
+      <div className="metadata-grid import-guidance-grid">
+        <div>
+          <dt>xpub</dt>
+          <dd>mainnet legacy / P2PKH, usually m/44'/0'/0'</dd>
+        </div>
+        <div>
+          <dt>ypub</dt>
+          <dd>mainnet nested segwit / P2SH-P2WPKH, usually m/49'/0'/0'</dd>
+        </div>
+        <div>
+          <dt>zpub</dt>
+          <dd>mainnet native segwit / P2WPKH, usually m/84'/0'/0'</dd>
+        </div>
+        <div>
+          <dt>tpub</dt>
+          <dd>testnet/signet legacy-like public key</dd>
+        </div>
+        <div>
+          <dt>upub</dt>
+          <dd>testnet/signet nested segwit public key</dd>
+        </div>
+        <div>
+          <dt>vpub</dt>
+          <dd>testnet/signet native segwit, usually m/84'/1'/0'</dd>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getWalletSaveDisabledReason({
+  busy,
+  vaultUnlocked,
+  name,
+  importText,
+  detected,
+  effectiveScriptType,
+  accountPath,
+  networkMismatchMessage,
+  preview,
+  previewLoading,
+  previewMessage,
+  gapLimit
+}: {
+  busy: boolean;
+  vaultUnlocked: boolean;
+  name: string;
+  importText: string;
+  detected: ReturnType<typeof detectImportMetadata>;
+  effectiveScriptType: WalletScriptType;
+  accountPath: string | null;
+  networkMismatchMessage: string;
+  preview: WalletImportPreviewResponse | null;
+  previewLoading: boolean;
+  previewMessage: string;
+  gapLimit: number;
+}): string | null {
+  if (busy) {
+    return "Atlas is still processing the previous action.";
+  }
+  if (!vaultUnlocked) {
+    return "Vault is locked. Unlock vault first.";
+  }
+  if (!name.trim()) {
+    return "Wallet name is required.";
+  }
+  if (!importText.trim()) {
+    return "Paste a watch-only extended public key.";
+  }
+  if (detected.privateInput) {
+    return "Private keys and seed phrases are rejected.";
+  }
+  if (detected.unsupportedReason) {
+    return detected.unsupportedReason;
+  }
+  if (!detected.extendedPublicKey) {
+    return "Paste a watch-only extended public key.";
+  }
+  if (networkMismatchMessage) {
+    return networkMismatchMessage;
+  }
+  if (effectiveScriptType === "unknown") {
+    return "Network/script type does not match this key prefix, or the script type still needs confirmation.";
+  }
+  if (!accountPath) {
+    return "Account path is required or invalid.";
+  }
+  if (!Number.isInteger(gapLimit) || gapLimit < 1 || gapLimit > 200) {
+    return "Gap limit must be an integer from 1 to 200.";
+  }
+  if (previewLoading) {
+    return "First receive address is still being derived.";
+  }
+  if (previewMessage) {
+    return previewMessage;
+  }
+  if (!preview) {
+    return "First receive address could not be derived.";
+  }
+  return null;
 }
 
 function XpubRevealModal({
@@ -6022,13 +6286,31 @@ function formatScriptType(scriptType: WalletScriptType): string {
 
 function describeKeyType(type: ExtendedPublicKeyType): string {
   switch (type) {
-    case "xpub": return "mainnet — legacy or native segwit";
+    case "xpub": return "mainnet legacy / P2PKH";
     case "ypub": return "mainnet nested segwit (P2SH-P2WPKH)";
     case "zpub": return "mainnet native segwit (P2WPKH)";
-    case "tpub": return "testnet/signet";
+    case "tpub": return "testnet/signet legacy-like";
     case "upub": return "testnet/signet nested segwit";
     case "vpub": return "testnet/signet native segwit";
   }
+}
+
+function keyNetworkMismatchMessage(
+  type: ExtendedPublicKeyType | null,
+  selectedNetwork: WalletRecord["network"]
+): string {
+  if (type === "zpub" && selectedNetwork !== "mainnet") {
+    return "zpub is a mainnet native-segwit key. For testnet/signet native segwit, use vpub or choose mainnet.";
+  }
+  if ((type === "xpub" || type === "ypub") && selectedNetwork !== "mainnet") {
+    return `${type} is a mainnet key. Use ${
+      type === "ypub" ? "upub" : "tpub"
+    } for testnet/signet, or choose mainnet.`;
+  }
+  if ((type === "tpub" || type === "upub" || type === "vpub") && selectedNetwork === "mainnet") {
+    return `${type} is a testnet/signet key. Use xpub/ypub/zpub for mainnet, or choose testnet/signet.`;
+  }
+  return "Network/script type does not match this key prefix.";
 }
 
 function maskRawImport(value: string): string {
@@ -6085,19 +6367,65 @@ async function apiRequest<T = unknown>(
       headers
     });
   } catch (error) {
-    console.error("Atlas API fetch failed", { mode: describeApiConnectionMode(apiUrl), path, error });
-    throw new Error(
-      "Cannot reach Atlas API. Check web/API services, same-origin proxy, or NEXT_PUBLIC_API_URL configuration."
-    );
+    console.error("Atlas API fetch failed", {
+      mode: describeApiConnectionMode(apiUrl),
+      path,
+      error: error instanceof Error ? error.message : "network error"
+    });
+    throw new Error("API unavailable. Check Atlas API service and same-origin /api configuration.");
   }
 
-  const payload = (await response.json().catch(() => ({}))) as { error?: string };
+  const payload = (await response.json().catch(() => ({}))) as { error?: unknown; message?: unknown };
 
   if (!response.ok) {
-    throw new Error(payload.error ?? `Request failed with ${response.status}`);
+    throw new Error(friendlyApiError(response.status, payload));
   }
 
   return payload as T;
+}
+
+function friendlyApiError(status: number, payload: { error?: unknown; message?: unknown }): string {
+  const safeMessage = safeApiMessage(payload.error) ?? safeApiMessage(payload.message);
+
+  if (status === 401) {
+    return "Session expired or not signed in. Sign in again.";
+  }
+  if (status === 403) {
+    return "This action is not allowed.";
+  }
+  if (status === 423) {
+    return "Vault is locked. Unlock the vault and try again.";
+  }
+  if (status === 429) {
+    return "Too many attempts. Wait and try again.";
+  }
+  if (status >= 500) {
+    return "Server error. Check API logs.";
+  }
+  return safeMessage ?? `Request failed with ${status}`;
+}
+
+function safeApiMessage(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const message = value.trim();
+  if (!message || message.length > 300) {
+    return null;
+  }
+  if (/stack trace|at\s+\w+\s+\(|CORE_RPC_PASSWORD|SESSION_SECRET|watch_wallet_session|rpcpassword/i.test(message)) {
+    return null;
+  }
+  if (message === watchOnlyImportError) {
+    return message;
+  }
+  if (looksPrivateImport(message)) {
+    return null;
+  }
+  if (extractExtendedPublicKey(message)) {
+    return null;
+  }
+  return message;
 }
 
 function buildApiUrl(apiUrl: string, path: string): string {

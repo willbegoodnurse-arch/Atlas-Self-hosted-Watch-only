@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { deriveAddresses } from "@watch-wallet/bitcoin";
 import { requireAuthenticatedSession } from "../auth/guard.js";
 import { getMempoolApiConfig } from "../mempool/usage.js";
 import {
@@ -41,6 +42,7 @@ import {
   normalizeUtxoNoteInput
 } from "./labels.js";
 import type { BitcoinNetwork, ScriptType, SourceDevice } from "./types.js";
+import { parseWalletImport } from "./import-parser.js";
 import {
   InsufficientFundsError,
   InvalidPsbtParamsError,
@@ -62,6 +64,14 @@ type WalletCreateBody = {
   network?: string;
   gapLimit?: number;
   notes?: string | null;
+};
+
+type WalletImportPreviewBody = {
+  extendedPublicKey?: string;
+  importText?: string;
+  sourceDevice?: string;
+  scriptType?: string;
+  network?: string;
 };
 
 type WalletPatchBody = {
@@ -229,6 +239,66 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
       return reply.code(201).send({ wallet: serializeWallet(wallet) });
     } catch (error) {
       return handleVaultError(error, reply);
+    }
+  });
+
+  server.post<{ Body: WalletImportPreviewBody }>("/api/wallets/import-preview", async (request, reply) => {
+    if (!ensureAuthenticated(request, reply)) {
+      return;
+    }
+
+    const validation = validateWalletImportPreviewBody(request.body);
+    if (!validation.ok) {
+      return reply.code(400).send({ error: validation.error });
+    }
+
+    try {
+      const parsed = parseWalletImport(validation.value);
+      if (!parsed.extendedPublicKey) {
+        return reply.code(400).send({
+          error: parsed.unsupportedReason ?? "Import text did not contain a supported watch-only extended public key"
+        });
+      }
+
+      const scriptType = derivablePreviewScriptType(parsed.scriptType);
+      const firstReceive = deriveAddresses({
+        extendedPublicKey: parsed.extendedPublicKey,
+        type: parsed.type ?? undefined,
+        scriptType,
+        accountPath: parsed.accountPath,
+        network: parsed.network,
+        chain: "receive",
+        limit: 1
+      }).addresses[0];
+
+      if (!firstReceive) {
+        return reply.code(400).send({
+          error: "First receive address could not be derived. Verify key prefix, network, script type, and account path."
+        });
+      }
+
+      return reply.send({
+        keyType: parsed.type,
+        network: parsed.network,
+        scriptType: parsed.scriptType,
+        accountPath: parsed.accountPath,
+        masterFingerprint: parsed.masterFingerprint,
+        importFormat: parsed.importFormat,
+        firstReceiveAddress: firstReceive.address,
+        firstReceivePath: firstReceive.path,
+        warnings: parsed.warnings
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "This is a watch-only wallet. Private keys or seed phrases must never be imported.") {
+        return reply.code(400).send({ error: error.message });
+      }
+      if (error instanceof InvalidWalletInputError) {
+        return reply.code(400).send({ error: error.message });
+      }
+
+      return reply.code(400).send({
+        error: "First receive address could not be derived. Verify key prefix, network, script type, and account path."
+      });
     }
   });
 
@@ -830,6 +900,52 @@ function validateCreateWalletBody(body: WalletCreateBody | undefined):
       gapLimit
     }
   };
+}
+
+function validateWalletImportPreviewBody(body: WalletImportPreviewBody | undefined):
+  | {
+      ok: true;
+      value: {
+        importText: string;
+        network: BitcoinNetwork;
+        sourceDevice: SourceDevice;
+        scriptType: ScriptType;
+      };
+    }
+  | { ok: false; error: string } {
+  const importText = sanitizeImportText(body?.importText ?? body?.extendedPublicKey);
+  if (!importText) {
+    return { ok: false, error: "Import text must contain an xpub, descriptor, key expression, JSON, or UR payload" };
+  }
+
+  const network = sanitizeNetwork(body?.network);
+  if (!network) {
+    return { ok: false, error: "Network must be mainnet, testnet, or signet" };
+  }
+
+  return {
+    ok: true,
+    value: {
+      importText,
+      network,
+      sourceDevice: sanitizeSourceDevice(body?.sourceDevice),
+      scriptType: sanitizeScriptType(body?.scriptType)
+    }
+  };
+}
+
+function derivablePreviewScriptType(scriptType: ScriptType): "legacy" | "nested-segwit" | "native-segwit" | "taproot" {
+  if (
+    scriptType !== "legacy" &&
+    scriptType !== "nested-segwit" &&
+    scriptType !== "native-segwit" &&
+    scriptType !== "taproot"
+  ) {
+    throw new InvalidWalletInputError(
+      "Script type is unknown; choose legacy, nested SegWit, native SegWit, or taproot before deriving addresses."
+    );
+  }
+  return scriptType;
 }
 
 function validatePatchWalletBody(body: WalletPatchBody | undefined):

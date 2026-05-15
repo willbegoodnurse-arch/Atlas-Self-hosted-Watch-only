@@ -23,6 +23,7 @@
 - Camera QR secure-context guidance and clearer camera fallback messaging.
 - Same-origin `/api/*` proxy support for reducing browser-visible API port exposure.
 - Portal-safe scanner and xpub reveal modals with explicit visible panels above backdrops.
+- Locked-vault wallet import warnings, visible Save Wallet disabled reasons, sanitized API error mapping, and first receive address preview before save.
 - Raspberry Pi, Docker Compose, systemd example, backup/restore, and smoke test documentation.
 
 ### Security
@@ -41,6 +42,7 @@
 - Derived vault key is memory-only and cleared when the vault locks or the process restarts.
 - Explicit xpub reveal endpoint is rate-limited.
 - Receive address QR display is inline, and remaining true modals render through a body portal.
+- Wallet import preview derives only the first receive address and never returns the submitted xpub in its response.
 - Logs redact sensitive material such as wallet keys, private-key-looking values, cookies, and auth headers.
 - Labels and notes do not affect wallet ownership, change, recipient, warning, or PSBT verification decisions.
 
