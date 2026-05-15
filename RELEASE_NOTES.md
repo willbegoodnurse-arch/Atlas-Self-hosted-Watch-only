@@ -1,4 +1,9 @@
+
 # Atlas v0.1.0 Release Candidate Notes
+
+## Phase 42
+
+Phase 42 documents the safe signed PSBT broadcast validation flow. This is documentation-only: no code changes, no signing changes, and no transaction broadcast performed.
 
 ## What This Release Is
 

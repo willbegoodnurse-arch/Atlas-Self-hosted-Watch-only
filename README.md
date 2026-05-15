@@ -269,6 +269,7 @@ This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only
 - [Release and smoke test checklist](docs/release-checklist.md)
 - [Security policy](SECURITY.md)
 - [Development notes](DEVELOPMENT.md)
+- [Tiny/Testnet Signed PSBT Broadcast Validation](docs/tiny-broadcast-validation.md)
 
 ## License
 

@@ -223,3 +223,14 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Back up `wallets.enc` securely.
 - Verify the backup file exists.
 - Record that the vault password is required and cannot be recovered by the app.
+
+## Phase 42 — Broadcast validation
+
+- [ ] Review `docs/tiny-broadcast-validation.md`.
+- [ ] Use testnet/signet first, or tiny mainnet amount only.
+- [ ] Confirm `BROADCAST_BACKEND=core` is intentional.
+- [ ] Confirm API `:3011` is not reachable from PC/LAN.
+- [ ] Confirm signed PSBT verification is `valid`.
+- [ ] Confirm checkbox and typed `BROADCAST` are required.
+- [ ] Do not run manual `bitcoin-cli sendrawtransaction`.
+- [ ] Record and verify txid after broadcast.

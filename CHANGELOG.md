@@ -1,6 +1,13 @@
+
 # Changelog
 
 ## v0.1.0 - Release Candidate
+
+## Phase 42 — Tiny/Testnet signed PSBT broadcast validation docs
+
+- Added/confirmed signed PSBT broadcast validation checklist.
+- Clarified testnet/signet or tiny mainnet validation flow.
+- No code changes, no signing changes, and no transaction broadcast performed.
 
 ### Added
 

@@ -222,3 +222,9 @@ Please include:
 - Impact.
 - Reproduction steps.
 - Whether seed phrases, private keys, xpub/ypub/zpub values, addresses, labels, notes, or transaction data could be exposed.
+
+## Live broadcast validation
+
+For the first signed PSBT broadcast validation, follow `docs/tiny-broadcast-validation.md`.
+
+Atlas remains watch-only. Atlas does not sign transactions and must never receive seed phrases or private keys. Broadcast is irreversible once accepted by Bitcoin Core or the network. Use testnet/signet first, or a tiny mainnet amount only.
