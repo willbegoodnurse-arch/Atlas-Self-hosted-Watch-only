@@ -28,7 +28,7 @@ type VaultStatus = {
   autoLockMinutes: number | null;
 };
 
-type WalletRecord = {
+export type WalletRecord = {
   id: string;
   name: string;
   extendedPublicKey: string;
@@ -109,7 +109,7 @@ type ImportFormat =
   | "psbt-ur"
   | "unknown";
 
-type DerivedAddress = {
+export type DerivedAddress = {
   chain: "receive" | "change";
   index: number;
   path: string;
@@ -267,7 +267,7 @@ type WalletScanSummary = {
   truncated: boolean;
 };
 
-type WalletUtxo = {
+export type WalletUtxo = {
   txid: string;
   vout: number;
   outpoint: string;
@@ -309,7 +309,7 @@ type WalletUtxosResponse = {
   }>;
 };
 
-type CreatePsbtResponse = {
+export type CreatePsbtResponse = {
   psbtBase64: string;
   inputs: Array<{
     txid: string;
@@ -334,7 +334,7 @@ type CreatePsbtResponse = {
   changeSats: number;
 };
 
-type FeeEstimatesResponse = {
+export type FeeEstimatesResponse = {
   status: "online" | "unavailable";
   estimates: {
     fastestFee: number | null;
@@ -347,6 +347,34 @@ type FeeEstimatesResponse = {
   diagnostic?: string | null;
   error?: string;
 };
+
+export function resolveFeeEstimateUiState(response: FeeEstimatesResponse): {
+  estimates: FeeEstimatesResponse["estimates"];
+  message: string;
+} {
+  if (response.status !== "online" || !response.estimates) {
+    return {
+      estimates: null,
+      message: response.error ?? response.diagnostic ?? "Fee estimates unavailable. Enter a custom fee rate."
+    };
+  }
+
+  return {
+    estimates: response.estimates,
+    message:
+      response.source === "mempool-blocks"
+        ? "Fee presets derived from local mempool block medians. Review the sat/vB value before creating the unsigned PSBT."
+        : ""
+  };
+}
+
+export function mapSelectedUtxosForPsbt(
+  selectedUtxos: Array<Pick<WalletUtxo, "txid" | "vout">>
+): Array<{ txid: string; vout: number }> | undefined {
+  return selectedUtxos.length
+    ? selectedUtxos.map((utxo) => ({ txid: utxo.txid, vout: utxo.vout }))
+    : undefined;
+}
 
 type VerifyPsbtResponse = {
   status: "valid" | "warning" | "invalid";
@@ -2104,7 +2132,7 @@ function WalletList({
   );
 }
 
-function WalletCard({
+export function WalletCard({
   apiUrl,
   busy,
   wallet,
@@ -2338,7 +2366,7 @@ function WalletCard({
 
 const XPUB_REVEAL_AUTO_CLOSE_SECONDS = 60;
 
-function FingerprintRevealControl({ fingerprint }: { fingerprint: string | null }) {
+export function FingerprintRevealControl({ fingerprint }: { fingerprint: string | null }) {
   const [revealed, setRevealed] = useState(false);
 
   if (!fingerprint) {
@@ -2359,7 +2387,7 @@ function FingerprintRevealControl({ fingerprint }: { fingerprint: string | null 
   );
 }
 
-function PortalModal({
+export function PortalModal({
   ariaLabel,
   children,
   panelClassName = "",
@@ -2478,7 +2506,7 @@ function getWalletSaveDisabledReason({
   return null;
 }
 
-function XpubRevealModal({
+export function XpubRevealModal({
   apiUrl,
   walletId,
   walletName,
@@ -2577,7 +2605,7 @@ function XpubRevealModal({
   );
 }
 
-function WalletIdentityPanel({
+export function WalletIdentityPanel({
   apiUrl,
   wallet
 }: {
@@ -3227,7 +3255,7 @@ function UtxoPanel({
     </section>
   );
 }
-function CreatePsbtBuilderPanel({
+export function CreatePsbtBuilderPanel({
   apiUrl,
   balanceUnit,
   initialSelectedOutpoints = [],
@@ -3326,17 +3354,9 @@ function CreatePsbtBuilderPanel({
     setFeeEstimateMessage("");
     try {
       const response = await apiRequest<FeeEstimatesResponse>(apiUrl, "/api/fees/recommended");
-      if (response.status !== "online" || !response.estimates) {
-        setFeeEstimates(null);
-        setFeeEstimateMessage(response.error ?? response.diagnostic ?? "Fee estimates unavailable. Enter a custom fee rate.");
-        return;
-      }
-      setFeeEstimates(response.estimates);
-      setFeeEstimateMessage(
-        response.source === "mempool-blocks"
-          ? "Fee presets derived from local mempool block medians. Review the sat/vB value before creating the unsigned PSBT."
-          : ""
-      );
+      const feeUi = resolveFeeEstimateUiState(response);
+      setFeeEstimates(feeUi.estimates);
+      setFeeEstimateMessage(feeUi.message);
     } catch {
       setFeeEstimates(null);
       setFeeEstimateMessage("Fee estimates unavailable. Enter a custom fee rate.");
@@ -3408,9 +3428,7 @@ function CreatePsbtBuilderPanel({
           method: "POST",
           body: JSON.stringify({
             recipients: draftPlan.recipients,
-            selectedUtxos: selectedUtxos.length
-              ? selectedUtxos.map((utxo) => ({ txid: utxo.txid, vout: utxo.vout }))
-              : undefined,
+            selectedUtxos: mapSelectedUtxosForPsbt(selectedUtxos),
             feeRateSatsPerVbyte: draftPlan.feeRate,
             addressLimit
           }),
@@ -3871,7 +3889,7 @@ function CreatePsbtBuilderPanel({
   );
 }
 
-function VerifyPsbtPanel({
+export function VerifyPsbtPanel({
   apiUrl,
   balanceUnit,
   wallet
@@ -5848,7 +5866,7 @@ function AddressTable({
   );
 }
 
-function AddressQrPanel({
+export function AddressQrPanel({
   address,
   dataUrl,
   error,

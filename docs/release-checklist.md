@@ -8,6 +8,7 @@ Use this checklist before tagging, deploying, or handing off a build.
 npm.cmd run typecheck --workspace=apps/web
 npm.cmd run typecheck --workspace=apps/api
 npm.cmd test --workspace=apps/api
+npm.cmd test --workspace=apps/web
 npm.cmd run build --workspace=apps/web
 npm.cmd run build --workspace=apps/api
 git diff --check
@@ -15,7 +16,7 @@ git diff --check
 
 On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 
-`apps/web` currently has no frontend test script.
+The web regression test suite covers auth/session fallback rendering, wallet cards, wallet identity/MFP display, portal modals, inline receive QR behavior, signed PSBT verification UI, selected UTXO payload mapping, and local fee-estimate fallback copy.
 
 ## Startup
 

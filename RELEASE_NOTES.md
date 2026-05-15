@@ -1,6 +1,12 @@
 
 # Atlas v0.1.0 Release Candidate Notes
 
+## Phase 51 - Frontend Regression Tests
+
+The web workspace now has a lightweight Vitest + React Testing Library + jsdom regression suite. The tests cover setup/login fallback behavior, browser storage safety, wallet card readability and actions, masked xpub defaults, wallet identity/MFP display, portal modal rendering, inline receive QR behavior, signed PSBT paste verification, selected UTXO payload mapping, and Phase 50 fee-estimate fallback copy.
+
+This phase is test infrastructure only. It does not add signing, private-key handling, broadcast behavior, public mempool fallbacks, or browser persistence for wallet metadata.
+
 ## Phase 50 - Self-Hosted Mempool Fee Estimate Root Cause
 
 Atlas now reports sanitized diagnostics when the local self-hosted mempool fee endpoints are unavailable while other mempool endpoints, such as block tip, may still work. The API tries `/api/v1/fees/recommended`, `/api/fees/recommended`, and then local `/api/v1/fees/mempool-blocks` median fee data before falling back to manual fee entry.

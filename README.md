@@ -44,6 +44,7 @@ The project is an MVP. It is useful for watch-only coordination, but it is not a
 - sats or BTC amount entry.
 - Decimal sat/vB fee rate input.
 - Fastest, Medium, and Slow fee presets from a configured mempool backend.
+- Frontend regression tests for auth fallback, wallet identity, portal modals, inline receive QR, PSBT UI, and fee fallback behavior.
 - Input -> output spending plan visualization.
 - Unsigned PSBT base64 text export.
 - Single QR export when the PSBT is small enough.

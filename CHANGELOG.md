@@ -3,6 +3,13 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 51 - Frontend regression tests
+
+- Added a lightweight Vitest, React Testing Library, and jsdom setup for the Next.js web workspace.
+- Added frontend regression coverage for auth/session fallback rendering, browser storage safety, wallet card actions, masked xpub display, wallet identity/MFP fallbacks, portal modal behavior, inline receive QR rendering, signed PSBT inline verification, selected UTXO payload mapping, and Phase 50 fee estimate fallback copy.
+- Exported narrow existing UI seams and pure fee/UTXO helpers for deterministic component/unit tests without changing wallet behavior.
+- No signing, private-key handling, broadcast behavior, public mempool fallback, or browser wallet-metadata storage was added.
+
 ## Phase 50 - Self-hosted mempool fee estimate root cause
 
 - Added sanitized fee estimate diagnostics for local mempool fee endpoint failures, including attempted endpoint paths and HTTP status codes.
