@@ -3,6 +3,14 @@
 
 ## v0.1.0 - Release Candidate
 
+## UI refresh - Minimal Atlas wallet interface
+
+- Redesigned the web app toward a restrained black-and-white Bitcoin wallet dashboard with quieter surfaces, calmer status pills, and a large real-data total balance presentation.
+- Reduced the previous cypherpunk/terminal-heavy styling, removed the dominant Atlas background artwork from the app surface, and added a subtle top-right Atlas line-mark/wordmark.
+- Cleaned up dashboard, wallet detail, receive, UTXO, activity, and PSBT visual hierarchy while preserving watch-only and unsigned PSBT safety messaging.
+- Kept xpub masking, explicit xpub reveal, vault lock/unlock behavior, PortalModal behavior, and private-key/seed rejection intact.
+- Improved mobile layout behavior with stacked cards, compact navigation, and safer truncation-friendly surfaces.
+
 ## Phase 43 - Safe Raspberry Pi deploy script
 
 - Added `scripts/deploy-raspberry-pi.sh` for fail-closed direct Node.js/systemd Raspberry Pi updates.

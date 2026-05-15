@@ -1,6 +1,12 @@
 
 # Atlas v0.1.0 Release Candidate Notes
 
+## Minimal Atlas UI Refresh
+
+The web interface now uses a quieter black-and-white wallet dashboard direction: large balance-first dashboard presentation, calmer status pills, flatter near-black cards, and a subtle Atlas line-mark/wordmark in the app header. The previous terminal-heavy/cypherpunk visual treatment and large Atlas background artwork have been reduced.
+
+This is a visual and copy refinement only. Atlas remains watch-only, does not sign transactions, keeps xpubs masked by default, preserves explicit xpub reveal, and keeps the external-signing PSBT workflow intact.
+
 ## Phase 43
 
 Phase 43 adds a safe Raspberry Pi deployment script for direct Node.js/systemd installs. It is deployment safety only: no wallet logic, PSBT logic, broadcast logic, signing, or transaction broadcast changes.

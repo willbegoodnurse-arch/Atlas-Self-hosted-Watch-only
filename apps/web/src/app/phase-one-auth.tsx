@@ -580,9 +580,9 @@ export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
         <div className="brand-row">
           <div>
             <p className="eyebrow">Atlas</p>
-            <h1>{view === "dashboard" ? (initialWalletId ? "Wallet detail" : "Wallets") : "Secure access"}</h1>
+            <h1>{view === "dashboard" ? (initialWalletId ? "Wallet detail" : "Dashboard") : "Secure access"}</h1>
           </div>
-          <span className="phase-pill">{view === "dashboard" ? "ATLAS NODE" : "AUTH NODE"}</span>
+          <AtlasBrandMark compact={view !== "dashboard"} />
         </div>
 
         {message ? <p className="status-message">{message}</p> : null}
@@ -686,13 +686,32 @@ function StatusBadge({
   label: string;
   status: StatusKind;
 }) {
-  return <span className={`status-badge status-${status}`}>[{label}: {status.toUpperCase()}]</span>;
+  const statusText: Record<StatusKind, string> = {
+    degraded: "Degraded",
+    locked: "Locked",
+    offline: "Offline",
+    online: "Online"
+  };
+  return <span className={`status-badge status-${status}`}>{label} {statusText[status]}</span>;
+}
+
+function AtlasBrandMark({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={compact ? "atlas-brand compact" : "atlas-brand"} aria-label="Atlas watch-only wallet">
+      <svg className="atlas-brand-mark" viewBox="0 0 48 48" role="img" aria-hidden="true">
+        <circle cx="24" cy="17" r="11" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M14 17h20M24 6v22M16.5 11.5c4 2.4 11 2.4 15 0M16.5 22.5c4-2.4 11-2.4 15 0" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+        <path d="M13 42h22M17 40l7-14 7 14M20.5 34h7" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span>Atlas</span>
+    </div>
+  );
 }
 
 function TerminalSkeleton({ label, rows }: { label: string; rows: number }) {
   return (
     <div className="terminal-panel skeleton-panel" aria-busy="true">
-      <p className="terminal-heading">&gt; {label}</p>
+      <p className="terminal-heading">{label}</p>
       {Array.from({ length: rows }, (_, index) => (
         <span className="skeleton-line" key={index} />
       ))}
@@ -878,21 +897,50 @@ function DashboardShell({
 }) {
   return (
     <div className="dashboard-shell">
-      <div className="toolbar-row">
-        <p className="muted">Signed in as {session?.user?.username ?? "admin"}</p>
-        <div className="button-row">
-          {initialWalletId ? (
-            <a className="secondary-button compact-button" href="/">
-              Back to dashboard
-            </a>
-          ) : null}
-          <button className="secondary-button compact-button" disabled={busy} type="button" onClick={onLogout}>
-            Log out
-          </button>
+      <AppSidebar initialWalletId={initialWalletId} />
+      <div className="dashboard-main">
+        <div className="toolbar-row">
+          <p className="muted">Signed in as {session?.user?.username ?? "admin"}</p>
+          <div className="button-row">
+            {initialWalletId ? (
+              <a className="secondary-button compact-button" href="/">
+                Back to dashboard
+              </a>
+            ) : null}
+            <button className="secondary-button compact-button" disabled={busy} type="button" onClick={onLogout}>
+              Log out
+            </button>
+          </div>
         </div>
+        <VaultWorkspace apiUrl={apiUrl} initialWalletId={initialWalletId} />
       </div>
-      <VaultWorkspace apiUrl={apiUrl} initialWalletId={initialWalletId} />
     </div>
+  );
+}
+
+function AppSidebar({ initialWalletId }: { initialWalletId?: string | null }) {
+  const walletHref = initialWalletId ? `/wallets/${encodeURIComponent(initialWalletId)}` : "/";
+  return (
+    <aside className="app-sidebar" aria-label="Atlas navigation">
+      <div className="sidebar-brand">
+        <AtlasBrandMark compact />
+        <p className="muted">Watch-only Bitcoin</p>
+      </div>
+      <nav className="sidebar-nav">
+        <a href="/">Dashboard</a>
+        <a href="/#wallets">Wallets</a>
+        <a href={`${walletHref}#receive`}>Receive</a>
+        <a href={`${walletHref}#create-psbt`}>Create PSBT</a>
+        <a href={`${walletHref}#activity`}>Activity</a>
+        <a href={`${walletHref}#utxo`}>UTXO</a>
+        <a href={`${walletHref}#settings`}>Settings</a>
+      </nav>
+      <div className="sidebar-security">
+        <span>Watch-only</span>
+        <span>No private keys</span>
+        <span>External signing</span>
+      </div>
+    </aside>
   );
 }
 
@@ -1164,7 +1212,7 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
             />
           ) : status.unlocked ? (
             <div className="terminal-panel empty-state">
-              <p className="terminal-heading">&gt; WALLET NOT FOUND</p>
+              <p className="terminal-heading">Wallet not found</p>
               <p className="muted">This vault does not contain the requested wallet.</p>
               <a className="secondary-button compact-button" href="/">
                 Back to dashboard
@@ -1175,6 +1223,14 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
           )
         ) : (
           <>
+            {status.unlocked ? (
+              <DashboardBalanceHero
+                apiUrl={apiUrl}
+                mempoolBadgeStatus={mempoolBadgeStatus}
+                vaultBadgeStatus={vaultBadgeStatus}
+                wallets={wallets}
+              />
+            ) : null}
             <WalletCreateForm
               apiUrl={apiUrl}
               busy={busy}
@@ -1197,6 +1253,117 @@ function VaultWorkspace({ apiUrl, initialWalletId = null }: { apiUrl: string; in
         )
       ) : null}
     </div>
+  );
+}
+
+function DashboardBalanceHero({
+  apiUrl,
+  mempoolBadgeStatus,
+  vaultBadgeStatus,
+  wallets
+}: {
+  apiUrl: string;
+  mempoolBadgeStatus: StatusKind;
+  vaultBadgeStatus: StatusKind;
+  wallets: WalletRecord[];
+}) {
+  const [totalBalanceSats, setTotalBalanceSats] = useState<number | null>(null);
+  const [balanceState, setBalanceState] = useState<"loading" | "ready" | "partial" | "offline">("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (wallets.length === 0) {
+      setTotalBalanceSats(0);
+      setBalanceState("ready");
+      return;
+    }
+
+    setBalanceState("loading");
+    void Promise.allSettled(
+      wallets.map((wallet) =>
+        apiRequest<WalletBalanceResponse>(
+          apiUrl,
+          `/api/wallets/${wallet.id}/balance?chain=both&limit=${wallet.gapLimit}`
+        )
+      )
+    ).then((results) => {
+      if (cancelled) {
+        return;
+      }
+      const fulfilled = results.filter(
+        (result): result is PromiseFulfilledResult<WalletBalanceResponse> => result.status === "fulfilled"
+      );
+      setTotalBalanceSats(fulfilled.reduce((sum, result) => sum + result.value.totalBalance, 0));
+      setBalanceState(
+        fulfilled.length === results.length
+          ? "ready"
+          : fulfilled.length > 0
+            ? "partial"
+            : "offline"
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, wallets]);
+
+  const firstWalletHref = wallets[0] ? `/wallets/${encodeURIComponent(wallets[0].id)}` : "";
+  const statusText =
+    balanceState === "loading"
+      ? "Syncing balances"
+      : balanceState === "partial"
+        ? "Partial balance data"
+        : balanceState === "offline"
+          ? "Balance unavailable"
+          : wallets.length === 0
+            ? "No wallets yet"
+            : `${wallets.length} wallet${wallets.length === 1 ? "" : "s"} tracked`;
+
+  return (
+    <section className="dashboard-hero" aria-label="Wallet balance overview">
+      <div className="dashboard-hero-content">
+        <div>
+          <p className="eyebrow">Total Balance</p>
+          <p className="hero-balance">
+            {balanceState === "loading" ? "Syncing..." : formatBalance(totalBalanceSats ?? 0, "btc")}
+          </p>
+          <p className="muted">{statusText}</p>
+        </div>
+        <div className="hero-status-row">
+          <StatusBadge label="Watch-only" status="online" />
+          <StatusBadge label="Vault" status={vaultBadgeStatus} />
+          <StatusBadge label="Mempool" status={mempoolBadgeStatus} />
+        </div>
+      </div>
+      <div className="hero-actions">
+        {firstWalletHref ? (
+          <>
+            <a className="primary-link-button" href={`${firstWalletHref}#receive`}>
+              Receive
+            </a>
+            <a className="secondary-button" href={`${firstWalletHref}#create-psbt`}>
+              Create PSBT
+            </a>
+          </>
+        ) : (
+          <>
+            <button disabled type="button">
+              Receive
+            </button>
+            <button className="secondary-button" disabled type="button">
+              Create PSBT
+            </button>
+          </>
+        )}
+      </div>
+      <div className="security-strip">
+        <span>Watch-only mode active</span>
+        <span>Private keys never stored</span>
+        <span>Unsigned PSBTs only</span>
+      </div>
+    </section>
   );
 }
 
@@ -1601,7 +1768,7 @@ function WalletCreateForm({
     <form className="form-stack vault-section" onSubmit={handleSubmit}>
       <h2>Register watch-only wallet</h2>
       <div className="terminal-panel import-notice">
-        <p className="terminal-heading">&gt; WATCH-ONLY IMPORT ONLY</p>
+        <p className="terminal-heading">Watch-only import only</p>
         <p className="muted">
           Enter only <strong>xpub, ypub, zpub, tpub, upub, or vpub</strong> extended public keys,
           output descriptors, or compatible JSON exports from your hardware wallet.
@@ -1784,7 +1951,7 @@ function WalletCreateForm({
       ) : null}
       {detected.unsupportedReason ? <p className="status-message">{detected.unsupportedReason}</p> : null}
       <div className="terminal-panel import-preview">
-        <p className="terminal-heading">&gt; FIRST RECEIVE CHECK</p>
+        <p className="terminal-heading">First receive check</p>
         {previewLoading ? <p className="muted">Deriving first receive address...</p> : null}
         {preview ? (
           <>
@@ -1801,7 +1968,7 @@ function WalletCreateForm({
         ) : null}
       </div>
       <div className="terminal-panel import-save-status">
-        <p className="terminal-heading">&gt; SAVE CHECK</p>
+        <p className="terminal-heading">Save check</p>
         <p className={saveDisabledReason ? "status-message" : "muted"}>
           {saveDisabledReason ?? "Ready to save. Vault is unlocked and the first receive address was derived."}
         </p>
@@ -1927,7 +2094,7 @@ function DeviceGuidance({ sourceDevice }: { sourceDevice: SourceDevice }) {
 
   return (
     <div className="terminal-panel import-preview">
-      <p className="terminal-heading">&gt; IMPORT GUIDANCE</p>
+      <p className="terminal-heading">Import guidance</p>
       <p className="muted">{guidance[sourceDevice]}</p>
     </div>
   );
@@ -1952,8 +2119,8 @@ function WalletList({
 }) {
   if (wallets.length === 0) {
     return (
-      <div className="terminal-panel empty-state">
-        <p className="terminal-heading">&gt; WALLET SET EMPTY</p>
+      <div id="wallets" className="terminal-panel empty-state">
+        <p className="terminal-heading">No wallets yet</p>
         <p className="muted">Register an xpub, ypub, or zpub to begin watch-only monitoring.</p>
         <p className="terminal-mantra">Self-hosted Bitcoin watch-only wallet for your own node.</p>
       </div>
@@ -1961,7 +2128,7 @@ function WalletList({
   }
 
   return (
-    <div className="wallet-list">
+    <div id="wallets" className="wallet-list">
       <p className="muted storage-notice">
         {wallets.length} watch-only wallet{wallets.length !== 1 ? "s" : ""} stored in this server's encrypted vault.
         Extended public keys are privacy-sensitive — they are not private keys and cannot spend funds,
@@ -2275,7 +2442,7 @@ function PortalModal({
 function KeyPrefixGuidance() {
   return (
     <div className="terminal-panel import-preview">
-      <p className="terminal-heading">&gt; EXTENDED PUBLIC KEY PREFIXES</p>
+      <p className="terminal-heading">Extended public key prefixes</p>
       <div className="metadata-grid import-guidance-grid">
         <div>
           <dt>xpub</dt>
@@ -2545,8 +2712,16 @@ function WalletDetailView({
           <p className="wallet-identity-meta">
             {deviceLabel(wallet.sourceDevice)} / {wallet.network} / {formatScriptType(wallet.scriptType)} / {accountPath} / fpr {wallet.masterFingerprint ?? "not provided"}
           </p>
+          <div className="hero-actions wallet-detail-actions">
+            <a className="primary-link-button" href="#receive">
+              Receive
+            </a>
+            <a className="secondary-button" href="#create-psbt">
+              Create PSBT
+            </a>
+          </div>
           <div className="terminal-statusline detail-status-rail">
-            <span className="status-badge status-online">[VAULT: UNLOCKED]</span>
+            <span className="status-badge status-online">Vault unlocked</span>
             <StatusBadge label="MEMPOOL" status={mempoolBadgeStatus} />
             <StatusBadge label="BALANCE" status={balanceBadgeStatus} />
             <StatusBadge label="TXS" status={txBadgeStatus} />
@@ -2564,7 +2739,7 @@ function WalletDetailView({
             onRefreshAll={() => void refreshAll()}
           />
           <WalletNotesEditor apiUrl={apiUrl} wallet={wallet} onWalletChange={onWalletChange} />
-          <details className="metadata-details">
+          <details id="settings" className="metadata-details">
             <summary>Import details</summary>
             <div className="metadata-grid">
               <div>
@@ -2751,9 +2926,9 @@ function UtxoPanel({
   const utxos = utxoResponse?.utxos ?? [];
 
   return (
-    <section className="tx-history-panel wallet-address-panel">
+    <section id="utxo" className="tx-history-panel wallet-address-panel">
       <div className="wallet-card-header">
-        <p className="terminal-heading">&gt; TRACKED UTXOs</p>
+        <p className="terminal-heading">Tracked UTXOs</p>
         <button
           className="secondary-button compact-button"
           disabled={utxoStatus === "loading"}
@@ -2823,7 +2998,7 @@ function UtxoPanel({
               "status-badge status-degraded"
             }
           >
-            [UTXO: {utxoResponse.status.toUpperCase()}]
+            UTXO {utxoResponse.status}
           </span>
           {utxoResponse.status !== "online" ? (
             <span className="muted">
@@ -2839,7 +3014,7 @@ function UtxoPanel({
 
       {summary && utxoStatus === "loaded" ? (
         <div className="terminal-panel utxo-summary">
-          <p className="terminal-heading">&gt; SUMMARY</p>
+          <p className="terminal-heading">Summary</p>
           <dl className="utxo-summary-grid">
             <div>
               <dt>tracked UTXOs</dt>
@@ -3251,9 +3426,9 @@ function CreatePsbtBuilderPanel({
   }
 
   return (
-    <details className="tx-history-panel wallet-address-panel create-psbt-details">
+    <details id="create-psbt" className="tx-history-panel wallet-address-panel create-psbt-details">
       <summary className="wallet-card-header">
-        <p className="terminal-heading">&gt; UNSIGNED PSBT BUILDER</p>
+        <p className="terminal-heading">Create unsigned PSBT</p>
       </summary>
 
       <div className="psbt-safety-notice muted">
@@ -3263,7 +3438,7 @@ function CreatePsbtBuilderPanel({
 
       <div className="wallet-card-header">
         <div>
-          <p className="terminal-heading">&gt; SELECTED TRACKED UTXOs</p>
+          <p className="terminal-heading">Selected tracked UTXOs</p>
           <p className="muted technical-line">
             {selectedUtxos.length} selected / {formatBalance(selectedInputSats, "sats")} ({formatBalance(selectedInputSats, "btc")})
             {selectedHasUnconfirmed ? " / includes unconfirmed" : ""}
@@ -3320,7 +3495,7 @@ function CreatePsbtBuilderPanel({
 
       <div className="psbt-form">
         <div className="wallet-card-header">
-          <p className="terminal-heading">&gt; RECIPIENT OUTPUTS</p>
+          <p className="terminal-heading">Recipient outputs</p>
           <button className="secondary-button compact-button" type="button" onClick={addRecipient}>
             Add recipient
           </button>
@@ -3421,7 +3596,7 @@ function CreatePsbtBuilderPanel({
       </div>
 
       <div className="spending-plan terminal-panel">
-        <p className="terminal-heading">&gt; SPENDING PLAN</p>
+        <p className="terminal-heading">Review unsigned PSBT</p>
         <div className="spending-plan-flow">
           <div>
             <p className="terminal-meta">Input UTXOs</p>
@@ -3479,7 +3654,7 @@ function CreatePsbtBuilderPanel({
 
       {psbtResult && psbtStatus === "done" ? (
         <div className="psbt-result terminal-panel">
-          <p className="terminal-heading">&gt; UNSIGNED PSBT READY</p>
+          <p className="terminal-heading">Unsigned PSBT ready</p>
 
           <dl className="utxo-summary-grid">
             <div>
@@ -3507,7 +3682,7 @@ function CreatePsbtBuilderPanel({
           )}
 
           <div className="psbt-base64-block">
-            <p className="terminal-heading">&gt; EXPORT UNSIGNED PSBT</p>
+            <p className="terminal-heading">Export unsigned PSBT</p>
             <label className="psbt-field">
               <span>Export format</span>
               <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "text" | "qr" | "animated" | "bbqr")}>
@@ -3884,7 +4059,7 @@ function VerifyPsbtPanel({
   return (
     <details id="signed-psbt-verification" className="tx-history-panel wallet-address-panel create-psbt-details">
       <summary className="wallet-card-header">
-        <p className="terminal-heading">&gt; VERIFY SIGNED PSBT</p>
+        <p className="terminal-heading">Import signed PSBT</p>
       </summary>
 
       <div className="psbt-safety-notice muted">
@@ -3992,7 +4167,7 @@ function VerifyPsbtPanel({
 
           {/* Status + Risk level */}
           <p className="terminal-heading">
-            &gt; VERIFICATION RESULT:{" "}
+            Verification result:{" "}
             <span className={statusClass}>{statusLabel}</span>
             {"   "}
             <span className={riskClass}>[{riskLevel} RISK]</span>
@@ -4062,7 +4237,7 @@ function VerifyPsbtPanel({
           {/* Errors */}
           {verifyResult.errors.length > 0 ? (
             <div className="psbt-verify-section">
-              <p className="terminal-heading psbt-status-invalid">&gt; ERRORS</p>
+              <p className="terminal-heading psbt-status-invalid">Errors</p>
               {verifyResult.errors.map((e, i) => (
                 <p key={i} className="psbt-status-invalid muted">{e}</p>
               ))}
@@ -4072,7 +4247,7 @@ function VerifyPsbtPanel({
           {/* Warnings */}
           {verifyResult.warnings.length > 0 ? (
             <div className="psbt-verify-section">
-              <p className="terminal-heading psbt-status-warning">&gt; WARNINGS</p>
+              <p className="terminal-heading psbt-status-warning">Warnings</p>
               {verifyResult.warnings.map((w, i) => (
                 <p key={i} className="psbt-status-warning muted">{w}</p>
               ))}
@@ -4081,7 +4256,7 @@ function VerifyPsbtPanel({
 
           {/* Outputs table */}
           <div className="psbt-verify-section">
-            <p className="terminal-heading">&gt; OUTPUTS</p>
+            <p className="terminal-heading">Outputs</p>
             {verifyResult.outputs.map((out, i) => {
               const outputLabel = out.address ? getAddressLabelByAddress(wallet, out.address) : null;
               const typeLabel =
@@ -4126,7 +4301,7 @@ function VerifyPsbtPanel({
 
           {/* Inputs table */}
           <div className="psbt-verify-section">
-            <p className="terminal-heading">&gt; INPUTS</p>
+            <p className="terminal-heading">Inputs</p>
             {verifyResult.inputs.map((inp, i) => (
               <div key={i} className="muted psbt-input-row">
                 #{i} {truncateMiddle(`${inp.txid}:${inp.vout}`, 24)}
@@ -4141,7 +4316,7 @@ function VerifyPsbtPanel({
           {/* Transaction hex and optional Bitcoin Core broadcast */}
           {verifyResult.extractable && verifyResult.txHex ? (
             <div className="psbt-base64-block">
-              <p className="terminal-heading">&gt; TRANSACTION HEX</p>
+              <p className="terminal-heading">Transaction hex</p>
               {verifyResult.status !== "valid" ? (
                 <p className="psbt-status-warning muted">
                   Warning: this transaction has unresolved issues. Review carefully before
@@ -4174,7 +4349,7 @@ function VerifyPsbtPanel({
           ) : null}
 
           <div className="psbt-base64-block">
-            <p className="terminal-heading">&gt; BROADCAST SIGNED TRANSACTION</p>
+            <p className="terminal-heading">Broadcast signed transaction</p>
             <p className="muted psbt-change-addr">
               This app does not sign transactions. Broadcasting sends an already-signed
               transaction to Bitcoin Core and cannot be undone.
@@ -4254,7 +4429,7 @@ function VerifyPsbtPanel({
 
             {broadcastResult ? (
               <div className="psbt-verify-section">
-                <p className="terminal-heading psbt-status-valid">&gt; BROADCAST SUBMITTED</p>
+                <p className="terminal-heading psbt-status-valid">Broadcast submitted</p>
                 <p className="muted">Backend: Bitcoin Core</p>
                 <p className="muted psbt-change-addr">txid: {broadcastResult.txid}</p>
                 <button className="compact-button" type="button" onClick={() => void copyTxid()}>
@@ -4322,7 +4497,7 @@ function ConnectionPanel({
     <div className="connection-panel">
       <div className="connection-summary">
         <div>
-          <p className="terminal-heading">&gt; CONNECTION</p>
+          <p className="terminal-heading">Connection</p>
           <p className="muted technical-line">{helper}</p>
         </div>
         <button
@@ -4689,7 +4864,7 @@ function WalletAddressPanel({
   const nextReceiveQrPanelKey = nextReceiveAddress ? addressQrPanelKey("next-receive", nextReceiveAddress) : "";
 
   return (
-    <section className="wallet-address-panel">
+    <section id="receive" className="wallet-address-panel">
       {message ? <p className="status-message">{message}</p> : null}
       {copyMessage ? <p className="status-message">{copyMessage}</p> : null}
       {usageLookupNote ? (
@@ -4703,7 +4878,7 @@ function WalletAddressPanel({
       <div className="balance-summary">
         <div className="wallet-card-header">
           <div>
-            <p className="terminal-heading">&gt; BALANCE</p>
+            <p className="terminal-heading">Balance</p>
             <h2 className="balance-total">
               {loading ? "syncing…" : balance != null ? formatBalance(balance.totalBalance, "sats") : "—"}
             </h2>
@@ -4762,7 +4937,7 @@ function WalletAddressPanel({
       ) : null}
 
       <div className="next-address-placeholder">
-        <dt>&gt; NEXT RECEIVE</dt>
+        <dt>Next receive</dt>
         {nextReceiveAddress ? (
           <dd>
             <span className="terminal-meta">receive #{nextReceiveAddress.index}</span>
@@ -4833,7 +5008,7 @@ function WalletAddressPanel({
 
       <div className="wallet-card-header compact-section-header">
         <div>
-          <p className="terminal-heading">&gt; ADDRESSES</p>
+          <p className="terminal-heading">Addresses</p>
           <p className="muted technical-line">unknown balances are excluded from totals</p>
         </div>
         <button
@@ -5078,10 +5253,10 @@ function TransactionHistoryPanel({
   const failedCount = scanSummary?.failedLookups ?? 0;
 
   return (
-    <section className="tx-history-panel wallet-address-panel">
+    <section id="activity" className="tx-history-panel wallet-address-panel">
       <div className="wallet-card-header">
         <div>
-          <p className="terminal-heading">&gt; TRANSACTIONS</p>
+          <p className="terminal-heading">Transactions</p>
           <p className="muted technical-line">unit: {balanceUnit}</p>
         </div>
         <button
@@ -5529,7 +5704,7 @@ function AddressTable({
 }) {
   return (
     <div className="address-section">
-      <h2>&gt; {title}</h2>
+      <h2>{title}</h2>
       <div className="address-table">
         <div className="address-row address-row-header" aria-hidden="true">
           <span>Chain</span>
@@ -5654,7 +5829,7 @@ function AddressQrPanel({
     <div className="address-qr-panel" role="region" aria-label={`${address.chain} address QR`}>
       <div className="wallet-card-header">
         <div>
-          <p className="terminal-heading">&gt; ADDRESS QR</p>
+          <p className="terminal-heading">Address QR</p>
           <p className="muted">
             {address.chain} #{address.index}
           </p>
