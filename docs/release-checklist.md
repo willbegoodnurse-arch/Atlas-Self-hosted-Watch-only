@@ -46,6 +46,21 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - If broadcast is configured, confirm `CORE_RPC_URL` uses `http://` or `https://` and does not embed credentials.
 - If broadcast is configured, confirm `.env` is ignored by Git and RPC credentials are not visible in docs, UI, or logs.
 
+## Raspberry Pi Safe Deploy
+
+- Prefer `./scripts/deploy-raspberry-pi.sh` for direct Node.js/systemd Raspberry Pi updates.
+- Confirm the script stops when `git status --short` is dirty.
+- Confirm the script uses `git pull --ff-only` and prints previous/new commit hashes.
+- Confirm dependency install and all builds pass before `atlas-api` or `atlas-web` restart.
+- Confirm `packages/bitcoin`, `apps/api`, and `apps/web` are built in that order.
+- Confirm stale `apps/web/.next` is removed only after API/package builds pass.
+- Confirm `atlas-api` and `atlas-web` are restarted together after successful builds.
+- Confirm local non-secret checks pass for `127.0.0.1:3011/api/auth/session` and `127.0.0.1:3000/`.
+- Confirm local mempool tip check is warning-only.
+- Confirm the deploy output does not print `.env`, `SESSION_SECRET`, `CORE_RPC_PASSWORD`, vault passwords, cookies, full xpubs, or transaction hex.
+- Confirm the script does not delete `.env`, delete `wallets.enc`, change firewall rules, open ports, touch Bitcoin Core config, or broadcast transactions.
+- Confirm rollback guidance prints the previous commit and remains manual.
+
 ## Bitcoin Core Broadcast Readiness
 
 - Confirm `bitcoin-cli getblockchaininfo` works on the Bitcoin Core host.

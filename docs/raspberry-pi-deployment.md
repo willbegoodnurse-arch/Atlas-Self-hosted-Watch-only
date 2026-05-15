@@ -383,6 +383,31 @@ cp ~/atlas-wallets-YYYYMMDD.enc apps/api/data/wallets.enc
 sudo systemctl start atlas-api atlas-web
 ```
 
+## Safe deployment script
+
+For direct Raspberry Pi/systemd deployments, prefer the fail-closed deploy script instead of running each deploy command by hand:
+
+```bash
+cd ~/watch-wallet
+chmod +x scripts/deploy-raspberry-pi.sh
+./scripts/deploy-raspberry-pi.sh
+```
+
+The script refuses to continue if the Git worktree is dirty, pulls only with `git pull --ff-only`, installs dependencies with `npm install`, builds `packages/bitcoin`, `apps/api`, clears the stale `apps/web/.next` cache, then builds `apps/web`. It restarts `atlas-api` and `atlas-web` only after all builds pass.
+
+After restart it checks local service status and non-secret health endpoints:
+
+```bash
+sudo systemctl status atlas-api --no-pager
+sudo systemctl status atlas-web --no-pager
+curl --fail --max-time 10 http://127.0.0.1:3011/api/auth/session
+curl --fail --max-time 10 http://127.0.0.1:3000/
+```
+
+The local mempool tip check at `http://127.0.0.1:8080/api/blocks/tip/height` is warning-only so a mempool outage does not hide whether the Atlas deploy itself succeeded.
+
+The script does not print `.env`, modify `.env`, delete `wallets.enc`, touch Bitcoin Core config, change firewall rules, open ports, or broadcast transactions. If rollback is needed, review the failure and use the previous commit printed by the script.
+
 ## Update Process
 
 ```bash
@@ -400,10 +425,14 @@ On Windows PowerShell, use `npm.cmd` if `npm.ps1` is blocked by Execution Policy
 If you run direct Node.js/systemd instead of Docker, rebuild both workspaces and restart the services:
 
 ```bash
+npm run build --workspace=packages/bitcoin
 npm run build --workspace=apps/api
+rm -rf apps/web/.next
 npm run build --workspace=apps/web
 sudo systemctl restart atlas-api atlas-web
 ```
+
+The safe deployment script above is preferred because it stops before service restart if any install or build step fails.
 
 ## Logging
 

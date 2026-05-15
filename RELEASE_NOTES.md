@@ -1,6 +1,10 @@
 
 # Atlas v0.1.0 Release Candidate Notes
 
+## Phase 43
+
+Phase 43 adds a safe Raspberry Pi deployment script for direct Node.js/systemd installs. It is deployment safety only: no wallet logic, PSBT logic, broadcast logic, signing, or transaction broadcast changes.
+
 ## Phase 42
 
 Phase 42 documents the safe signed PSBT broadcast validation flow. This is documentation-only: no code changes, no signing changes, and no transaction broadcast performed.

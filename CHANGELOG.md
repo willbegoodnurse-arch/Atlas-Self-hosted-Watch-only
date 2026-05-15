@@ -3,6 +3,12 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 43 - Safe Raspberry Pi deploy script
+
+- Added `scripts/deploy-raspberry-pi.sh` for fail-closed direct Node.js/systemd Raspberry Pi updates.
+- Script refuses dirty worktrees, pulls with `--ff-only`, builds packages/API/web in safe order, clears stale `.next`, restarts `atlas-api` and `atlas-web` only after successful builds, and runs local non-secret health checks.
+- Documented safe deploy usage, rollback guidance, and security boundaries.
+
 ## Phase 42 — Tiny/Testnet signed PSBT broadcast validation docs
 
 - Added/confirmed signed PSBT broadcast validation checklist.
