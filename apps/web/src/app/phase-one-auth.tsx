@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import QRCode from "qrcode";
 import type { IScannerControls } from "@zxing/browser";
@@ -4162,6 +4162,7 @@ function WalletAddressPanel({
   const [discovery, setDiscovery] = useState<WalletBalanceResponse["discovery"]>(null);
   const [loading, setLoading] = useState(false);
   const [qrAddress, setQrAddress] = useState<DerivedAddress | null>(null);
+  const [qrPanelKey, setQrPanelKey] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [qrError, setQrError] = useState("");
   const [editingAddressLabelKey, setEditingAddressLabelKey] = useState("");
@@ -4174,10 +4175,18 @@ function WalletAddressPanel({
     void refreshAddresses();
   }, [wallet.id, chain, refreshToken]);
 
-  function openAddressQr(address: DerivedAddress) {
+  function openAddressQr(address: DerivedAddress, panelKey: string) {
     setQrDataUrl("");
     setQrError("");
+    setQrPanelKey(panelKey);
     setQrAddress({ ...address });
+  }
+
+  function closeAddressQr() {
+    setQrAddress(null);
+    setQrPanelKey("");
+    setQrDataUrl("");
+    setQrError("");
   }
 
   useEffect(() => {
@@ -4339,12 +4348,12 @@ function WalletAddressPanel({
     usageLookupFailed,
     unknownAddressCount
   });
-  const qrLabel = qrAddress ? getAddressLabel(wallet, qrAddress.chain, qrAddress.index) : null;
   const nextReceiveMessage = getNextReceiveMessage({
     loading,
     mempoolBadgeStatus,
     usageLookupFailed: usageLookupFailed || Boolean(nextReceiveLookupNote)
   });
+  const nextReceiveQrPanelKey = nextReceiveAddress ? addressQrPanelKey("next-receive", nextReceiveAddress) : "";
 
   return (
     <section className="wallet-address-panel">
@@ -4444,10 +4453,10 @@ function WalletAddressPanel({
                 type="button"
                 onPointerDown={(event) => {
                   if (event.button === 0) {
-                    openAddressQr(nextReceiveAddress);
+                    openAddressQr(nextReceiveAddress, nextReceiveQrPanelKey);
                   }
                 }}
-                onClick={() => openAddressQr(nextReceiveAddress)}
+                onClick={() => openAddressQr(nextReceiveAddress, nextReceiveQrPanelKey)}
               >
                 QR
               </button>
@@ -4470,6 +4479,15 @@ function WalletAddressPanel({
                 onLabelChange={setAddressLabelDraft}
                 onNotesChange={setAddressNotesDraft}
                 onSave={() => void saveAddressLabel(nextReceiveAddress)}
+              />
+            ) : null}
+            {qrAddress && qrPanelKey === nextReceiveQrPanelKey ? (
+              <AddressQrPanel
+                address={qrAddress}
+                dataUrl={qrDataUrl}
+                error={qrError}
+                onClose={closeAddressQr}
+                onCopy={() => void copyAddress(qrAddress)}
               />
             ) : null}
           </dd>
@@ -4564,15 +4582,20 @@ function WalletAddressPanel({
           labelError={labelError}
           labelSaving={labelSaving}
           notesDraft={addressNotesDraft}
+          activeQrKey={qrPanelKey}
+          qrAddress={qrAddress}
+          qrDataUrl={qrDataUrl}
+          qrError={qrError}
           title="Receive"
           onBeginEditLabel={beginEditAddressLabel}
           onCancelEditLabel={cancelEditAddressLabel}
           onClearLabel={clearAddressLabel}
+          onCloseQr={closeAddressQr}
           onCopy={copyAddress}
           onLabelDraftChange={setAddressLabelDraft}
           onNotesDraftChange={setAddressNotesDraft}
           onSaveLabel={saveAddressLabel}
-          onShowQr={openAddressQr}
+          onShowQr={(address) => openAddressQr(address, addressQrPanelKey("table", address))}
         />
       ) : null}
       {changeAddresses.length ? (
@@ -4585,76 +4608,23 @@ function WalletAddressPanel({
           labelError={labelError}
           labelSaving={labelSaving}
           notesDraft={addressNotesDraft}
+          activeQrKey={qrPanelKey}
+          qrAddress={qrAddress}
+          qrDataUrl={qrDataUrl}
+          qrError={qrError}
           title="Change"
           onBeginEditLabel={beginEditAddressLabel}
           onCancelEditLabel={cancelEditAddressLabel}
           onClearLabel={clearAddressLabel}
+          onCloseQr={closeAddressQr}
           onCopy={copyAddress}
           onLabelDraftChange={setAddressLabelDraft}
           onNotesDraftChange={setAddressNotesDraft}
           onSaveLabel={saveAddressLabel}
-          onShowQr={openAddressQr}
+          onShowQr={(address) => openAddressQr(address, addressQrPanelKey("table", address))}
         />
       ) : null}
 
-      {qrAddress ? createPortal(
-        <div className="qr-modal" role="dialog" aria-modal="true" aria-label="Receive address QR">
-          <div className="qr-dialog">
-            <div className="wallet-card-header">
-              <h2>Address QR</h2>
-              <button className="secondary-button compact-button" type="button" onClick={() => setQrAddress(null)}>
-                Close
-              </button>
-            </div>
-            <div className="qr-box">
-              {qrDataUrl ? <img alt="Address QR code" src={qrDataUrl} width={240} height={240} /> : null}
-              {!qrDataUrl && !qrError ? <span className="muted">Rendering address QR...</span> : null}
-              {qrError ? <span className="muted">{qrError}</span> : null}
-            </div>
-            <code>{qrAddress.address}</code>
-            <div className="button-row">
-              <button
-                className="secondary-button compact-button"
-                type="button"
-                onClick={() => void copyAddress(qrAddress)}
-              >
-                Copy address
-              </button>
-            </div>
-            <dl className="qr-context">
-              <div>
-                <dt>Wallet</dt>
-                <dd>{wallet.name}</dd>
-              </div>
-              <div>
-                <dt>Source</dt>
-                <dd>{deviceLabel(wallet.sourceDevice)}</dd>
-              </div>
-              <div>
-                <dt>Network</dt>
-                <dd>{wallet.network}</dd>
-              </div>
-              <div>
-                <dt>Chain / index</dt>
-                <dd>
-                  {qrAddress.chain} / {qrAddress.index}
-                </dd>
-              </div>
-              {qrLabel ? (
-                <div>
-                  <dt>Label</dt>
-                  <dd>{qrLabel.label}</dd>
-                </div>
-              ) : null}
-              <div>
-                <dt>Path</dt>
-                <dd>{qrAddress.path}</dd>
-              </div>
-            </dl>
-          </div>
-        </div>,
-        document.body
-      ) : null}
     </section>
   );
 }
@@ -5186,10 +5156,15 @@ function AddressTable({
   labelError,
   labelSaving,
   notesDraft,
+  activeQrKey,
+  qrAddress,
+  qrDataUrl,
+  qrError,
   title,
   onBeginEditLabel,
   onCancelEditLabel,
   onClearLabel,
+  onCloseQr,
   onCopy,
   onLabelDraftChange,
   onNotesDraftChange,
@@ -5204,10 +5179,15 @@ function AddressTable({
   labelError: string;
   labelSaving: boolean;
   notesDraft: string;
+  activeQrKey: string;
+  qrAddress: DerivedAddress | null;
+  qrDataUrl: string;
+  qrError: string;
   title: string;
   onBeginEditLabel: (address: DerivedAddress) => void;
   onCancelEditLabel: () => void;
   onClearLabel: (address: DerivedAddress) => Promise<void>;
+  onCloseQr: () => void;
   onCopy: (address: DerivedAddress) => void;
   onLabelDraftChange: (value: string) => void;
   onNotesDraftChange: (value: string) => void;
@@ -5230,8 +5210,11 @@ function AddressTable({
         {addresses.map((address) => {
           const label = getLabel(address);
           const isEditing = editingKey === addressLabelKey(address);
+          const qrKey = addressQrPanelKey("table", address);
+          const isQrOpen = activeQrKey === qrKey && qrAddress?.address === address.address;
           return (
-            <div className="address-row" key={`${address.chain}-${address.index}`}>
+            <Fragment key={`${address.chain}-${address.index}`}>
+            <div className="address-row">
               <div className="address-cell">
                 <dt>Chain</dt>
                 <dd>{address.chain}</dd>
@@ -5304,8 +5287,59 @@ function AddressTable({
                 </div>
               ) : null}
             </div>
+            {isQrOpen && qrAddress ? (
+              <AddressQrPanel
+                address={qrAddress}
+                dataUrl={qrDataUrl}
+                error={qrError}
+                onClose={onCloseQr}
+                onCopy={() => void onCopy(qrAddress)}
+              />
+            ) : null}
+            </Fragment>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function AddressQrPanel({
+  address,
+  dataUrl,
+  error,
+  onClose,
+  onCopy
+}: {
+  address: DerivedAddress;
+  dataUrl: string;
+  error: string;
+  onClose: () => void;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="address-qr-panel" role="region" aria-label={`${address.chain} address QR`}>
+      <div className="wallet-card-header">
+        <div>
+          <p className="terminal-heading">&gt; ADDRESS QR</p>
+          <p className="muted">
+            {address.chain} #{address.index}
+          </p>
+        </div>
+        <button className="secondary-button compact-button" type="button" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      <div className="qr-box">
+        {dataUrl ? <img alt="Address QR code" src={dataUrl} width={240} height={240} /> : null}
+        {!dataUrl && !error ? <span className="muted">Rendering address QR...</span> : null}
+        {error ? <span className="status-message">{error}</span> : null}
+      </div>
+      <code className="address-qr-text">{address.address}</code>
+      <div className="button-row">
+        <button className="secondary-button compact-button" type="button" onClick={onCopy}>
+          Copy address
+        </button>
       </div>
     </div>
   );
@@ -5430,6 +5464,10 @@ function getUtxoNote(wallet: WalletRecord, txid: string, vout: number): UtxoNote
 
 function addressLabelKey(address: Pick<DerivedAddress, "chain" | "index">): string {
   return `${address.chain}-${address.index}`;
+}
+
+function addressQrPanelKey(scope: "next-receive" | "table", address: Pick<DerivedAddress, "chain" | "index">): string {
+  return `${scope}-${addressLabelKey(address)}`;
 }
 
 function formatNullableBalance(value: number | null | undefined, unit: "sats" | "btc"): string {

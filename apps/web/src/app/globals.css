@@ -320,6 +320,7 @@ button:disabled {
 .wallet-address-panel,
 .address-section,
 .address-table,
+.address-qr-panel,
 .usage-stack,
 .empty-state,
 .skeleton-panel {
@@ -344,6 +345,7 @@ button:disabled {
 .wallet-card,
 .next-address-placeholder,
 .balance-summary,
+.address-qr-panel,
 .address-row,
 .terminal-statusline {
   border: 1px solid var(--line);
@@ -360,6 +362,7 @@ button:disabled {
 .wallet-card,
 .next-address-placeholder,
 .balance-summary,
+.address-qr-panel,
 .address-row {
   padding: 16px;
 }
@@ -700,6 +703,28 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.address-qr-panel {
+  gap: 14px;
+  background:
+    linear-gradient(90deg, rgb(216 155 69 / 7%), transparent 58%),
+    var(--panel);
+}
+
+.address-qr-panel .qr-box {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.address-qr-text {
+  display: block;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgb(3 6 9 / 48%);
+  padding: 10px;
+  overflow-wrap: anywhere;
 }
 
 .usage-pill {
