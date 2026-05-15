@@ -49,7 +49,7 @@ import {
   UnsupportedScriptTypeError
 } from "../psbt/build.js";
 import { InvalidPsbtError } from "../psbt/verify.js";
-import { serializeWallet } from "./redact.js";
+import { redactSensitive, serializeWallet } from "./redact.js";
 
 type VaultPasswordBody = {
   vaultPassword?: string;
@@ -293,7 +293,7 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
         return reply.code(400).send({ error: error.message });
       }
       if (error instanceof InvalidWalletInputError) {
-        return reply.code(400).send({ error: error.message });
+        return reply.code(400).send({ error: redactSensitive(error.message) });
       }
 
       return reply.code(400).send({
@@ -1264,23 +1264,23 @@ function handleVaultError(error: unknown, reply: FastifyReply) {
   }
 
   if (error instanceof InvalidWalletInputError) {
-    return reply.code(400).send({ error: error.message });
+    return reply.code(400).send({ error: redactSensitive(error.message) });
   }
 
   if (error instanceof LabelValidationError) {
-    return reply.code(400).send({ error: error.message });
+    return reply.code(400).send({ error: redactSensitive(error.message) });
   }
 
   if (error instanceof InvalidPsbtParamsError || error instanceof UnsupportedScriptTypeError) {
-    return reply.code(400).send({ error: error.message });
+    return reply.code(400).send({ error: redactSensitive(error.message) });
   }
 
   if (error instanceof InsufficientFundsError) {
-    return reply.code(422).send({ error: error.message });
+    return reply.code(422).send({ error: redactSensitive(error.message) });
   }
 
   if (error instanceof InvalidPsbtError) {
-    return reply.code(400).send({ error: error.message });
+    return reply.code(400).send({ error: redactSensitive(error.message) });
   }
 
   if (error instanceof Error && /Unsupported state|authenticate|bad decrypt|Invalid vault/.test(error.message)) {

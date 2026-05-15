@@ -3,6 +3,14 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 44 - Security threat model hardening
+
+- Added API and web security headers for content sniffing, referrer policy, frame denial, limited CSP frame ancestry, and scoped camera/clipboard permissions.
+- Added runtime warnings for risky Raspberry Pi production configuration such as weak session secrets, insecure cookies, wildcard web origins, all-interface API binding, and public mempool backends.
+- Expanded sensitive log/error redaction for PSBT-like payloads, named secrets, session cookies, vault passwords, TOTP values, WIFs, and extended keys.
+- Tightened CORS origin parsing to ignore wildcard/null origins and keep credentials limited to explicit trusted web origins.
+- Added UI and docs copy explaining compromised-browser limits, receive address verification, PSBT output verification, backup sensitivity, and realistic Raspberry Pi threat boundaries.
+
 ## UI refresh - Minimal Atlas wallet interface
 
 - Redesigned the web app toward a restrained black-and-white Bitcoin wallet dashboard with quieter surfaces, calmer status pills, and a large real-data total balance presentation.

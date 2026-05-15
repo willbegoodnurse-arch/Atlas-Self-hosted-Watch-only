@@ -51,9 +51,13 @@ Recommended security basics:
 - Use SSH key authentication.
 - Disable SSH password login if you are comfortable doing so.
 - Keep the Raspberry Pi updated.
+- Prefer reliable SSD storage over SD card for long-running operation.
 - Use a strong vault password.
+- Use a strong Atlas admin password and TOTP.
 - Restrict inbound ports with a firewall.
 - Prefer local network or Tailscale access.
+- Do not port-forward Atlas, the Atlas API, or Bitcoin Core RPC to the public internet.
+- Treat `wallets.enc`, `.env`, logs, and backups as sensitive.
 
 ## Clone The Repo
 

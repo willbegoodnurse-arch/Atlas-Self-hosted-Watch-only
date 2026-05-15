@@ -22,6 +22,7 @@ const YPRV =
 const ZPRV =
   "zprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqhuCo73sNSMSH8E5p4jy2eQDsz4yoqU8A4HMsNm5ZuMfzS5n4F8tV";
 const WIF = "5KYZdUEo39z3FPrtuX2QbbwGnNP5zTd7yyr2SC1j299sBCnWjss";
+const PSBT = "cHNidP8BAHECAAAAAf//////////////////////////////////////////AAAAAAD/////";
 
 const now = new Date().toISOString();
 function makeWallet(overrides: Partial<WalletRecord> = {}): WalletRecord {
@@ -158,6 +159,22 @@ test("redactSensitive: redacts multiple keys in same string", () => {
   const result = redactSensitive(s);
   assert.ok(!result.includes(XPUB));
   assert.ok(!result.includes(ZPUB));
+});
+
+test("redactSensitive: redacts PSBT-like payloads", () => {
+  const result = redactSensitive(`psbt=${PSBT}`);
+  assert.ok(!result.includes(PSBT));
+  assert.ok(result.includes("[PSBT-REDACTED]"));
+});
+
+test("redactSensitive: redacts named secrets and auth material", () => {
+  const result = redactSensitive("SESSION_SECRET=super-secret watch_wallet_session=signed-cookie vaultPassword: hunter2");
+  assert.ok(!result.includes("super-secret"));
+  assert.ok(!result.includes("signed-cookie"));
+  assert.ok(!result.includes("hunter2"));
+  assert.ok(result.includes("SESSION_SECRET=[REDACTED]"));
+  assert.ok(result.includes("watch_wallet_session=[REDACTED]"));
+  assert.ok(result.includes("vaultPassword=[REDACTED]"));
 });
 
 // ---------------------------------------------------------------------------

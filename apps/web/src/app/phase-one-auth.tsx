@@ -3434,6 +3434,8 @@ function CreatePsbtBuilderPanel({
       <div className="psbt-safety-notice muted">
         Creates an unsigned PSBT only. Sign it with an external wallet that holds the private keys.
         Nothing is broadcast from this step. Never enter seed phrases or private keys here.
+        Verify every recipient, change output, amount, and fee on the signing device before signing.
+        A compromised browser can change what you see; the cold signing device is the final authority.
       </div>
 
       <div className="wallet-card-header">
@@ -4065,6 +4067,8 @@ function VerifyPsbtPanel({
       <div className="psbt-safety-notice muted">
         Paste the signed PSBT returned by your cold wallet. This verifies the transaction details
         without broadcasting. Never enter seed phrases or private keys here.
+        Atlas cannot protect you from a compromised browser display, clipboard, or QR code.
+        Compare outputs against your signer before any broadcast.
       </div>
 
       <div className="psbt-form">
@@ -5005,6 +5009,11 @@ function WalletAddressPanel({
           </dd>
         )}
       </div>
+
+      <p className="psbt-safety-notice muted">
+        A compromised browser can visually change addresses, QR codes, or clipboard contents.
+        Treat Atlas as a watch-only view and verify receive addresses on your trusted signing device when possible.
+      </p>
 
       <div className="wallet-card-header compact-section-header">
         <div>

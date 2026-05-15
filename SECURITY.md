@@ -164,6 +164,7 @@ Mitigations:
 
 Protected against by design:
 
+- Keeps wallet metadata primarily on the self-hosted node instead of browser local storage on a daily-use PC.
 - Atlas cannot spend funds because it does not store seed phrases or private keys.
 - Atlas cannot sign transactions because it has no signing material.
 - Normal API responses do not expose full xpub, ypub, or zpub values.
@@ -174,14 +175,39 @@ Protected against by design:
 
 Not fully protected against:
 
-- A compromised browser session.
-- A compromised Raspberry Pi or server while the vault is unlocked.
+- A fully compromised Raspberry Pi or server. If the node is compromised while the vault is unlocked, wallet metadata, xpubs, labels, notes, addresses, and PSBT material may be exposed.
+- A compromised browser session visually changing receive addresses, PSBT outputs, QR codes, clipboard contents, balances, or warnings.
 - Offline attacks against `wallets.enc` if the vault password is weak.
 - Malware on the operator's computer or signing workflow.
 - Public internet exposure or reverse proxy misconfiguration.
+- Leaked backups or copied `wallets.enc` files.
 - Exposed Bitcoin Core RPC credentials or RPC port.
 - A user signing or broadcasting a bad transaction elsewhere.
 - Bugs in pre-release, unaudited software.
+
+Operational requirements:
+
+- Verify receive addresses and PSBT outputs on a trusted signing device whenever possible.
+- Treat the cold signing device as the final authority for recipient, amount, change, and fee.
+- Use strong Atlas account and vault passwords plus TOTP.
+- Keep the Raspberry Pi operating system, Node.js, Docker, Bitcoin Core, and mempool stack updated.
+- Prefer SSD storage over SD card for long-running Raspberry Pi deployments.
+- Disable SSH password login where practical and keep SSH access private.
+- Restrict access to LAN, Tailscale, or carefully configured Tor. Do not port-forward Atlas or Bitcoin Core RPC to the public internet.
+- Protect `.env`, `wallets.enc`, service logs, exported PSBTs, txHex, and backups.
+- Treat xpub, ypub, zpub, labels, notes, transaction history, and addresses as privacy-sensitive metadata.
+
+## Browser Storage And Client Trust
+
+Atlas should not persist wallet metadata, xpubs, raw imports, labels, notes, PSBTs, or reveal state in `localStorage`, `sessionStorage`, IndexedDB, `window.name`, or other browser storage. UI state should remain in memory unless a future harmless preference is documented explicitly.
+
+The browser is a convenience display, not the trusted wallet database. A compromised browser can change text, QR codes, clipboard contents, and form values before the user sees them. Atlas reduces server-side exposure, but it cannot make an untrusted browser safe.
+
+## Backups And Exports
+
+`wallets.enc` is encrypted, but it is still sensitive. It may contain xpub, ypub, zpub, addresses, labels, UTXO notes, transaction notes, and other privacy-sensitive wallet metadata. Backups must be protected like wallet-history metadata.
+
+Future metadata export features must be encrypted or clearly marked sensitive. Plaintext exports must not be presented as safe to share.
 
 ## Recommended Access Model
 

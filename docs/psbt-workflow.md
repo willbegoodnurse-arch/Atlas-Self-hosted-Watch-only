@@ -4,6 +4,8 @@ Atlas creates unsigned PSBTs and verifies signed PSBTs. It does not sign or fina
 
 Treat the unsigned PSBT builder as a spending plan for an external cold wallet.
 
+Atlas is not the final authority for signing decisions. A compromised browser can visually alter recipients, amounts, QR codes, clipboard contents, and warnings. Always verify recipient, amount, change output, and fee on the external signing device before signing.
+
 ## Unsigned PSBT Creation
 
 1. Log in.
@@ -70,6 +72,8 @@ For a first live broadcast validation, use testnet/signet where possible. If mai
 - Whether the PSBT is signed and extractable.
 
 Labels and notes are helpful context only. They do not make an output safe, wallet-owned, or expected.
+
+If Atlas and the signing device disagree, stop. The signing device controls the keys and is the final authority.
 
 ## Common Warnings
 

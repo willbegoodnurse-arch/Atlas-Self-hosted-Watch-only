@@ -1,6 +1,12 @@
 
 # Atlas v0.1.0 Release Candidate Notes
 
+## Phase 44
+
+Phase 44 hardens the watch-only metadata threat model for Raspberry Pi deployments. It adds web/API security headers, runtime warnings for risky production configuration, broader sensitive log redaction, stricter trusted-origin parsing, and clearer UI/docs warnings about compromised browsers, PSBT verification, backups, and xpub/metadata privacy.
+
+This phase does not add signing, private-key handling, public broadcast backends, telemetry, or hosted dependencies.
+
 ## Minimal Atlas UI Refresh
 
 The web interface now uses a quieter black-and-white wallet dashboard direction: large balance-first dashboard presentation, calmer status pills, flatter near-black cards, and a subtle Atlas line-mark/wordmark in the app header. The previous terminal-heavy/cypherpunk visual treatment and large Atlas background artwork have been reduced.

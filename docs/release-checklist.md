@@ -34,6 +34,9 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Confirm `npm install` has completed for direct Node.js deployments.
 - Confirm `.env` is configured and is not committed.
 - Confirm `WEB_ORIGIN` matches the frontend origin.
+- Confirm `WEB_ORIGIN` is not `*` or `null`.
+- Confirm production `SESSION_SECRET` is long, random, and not the default.
+- Confirm `COOKIE_SECURE=true` when Atlas is served over HTTPS.
 - Confirm `NEXT_PUBLIC_API_URL=/api` for hardened same-origin mode, or a direct API URL only for legacy testing.
 - Confirm `INTERNAL_API_URL` points from the web server to Atlas API.
 - Confirm `COOKIE_SECURE=false` for local HTTP or `COOKIE_SECURE=true` behind HTTPS.
@@ -152,6 +155,8 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Confirm the xpub/ypub/zpub is masked in normal UI.
 - Confirm full xpub reveal requires explicit action.
 - Confirm normal API responses do not expose full xpub/ypub/zpub.
+- Confirm the browser does not persist xpubs, raw imports, PSBTs, labels, notes, or reveal state in localStorage/sessionStorage/IndexedDB.
+- Confirm security headers are present on web and API responses.
 
 ## Dashboard And Activity
 
@@ -238,6 +243,7 @@ On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 - Back up `wallets.enc` securely.
 - Verify the backup file exists.
 - Record that the vault password is required and cannot be recovered by the app.
+- Record that backups may contain xpubs, labels, notes, addresses, and wallet-history metadata, and must not be shared publicly.
 
 ## Phase 42 — Broadcast validation
 

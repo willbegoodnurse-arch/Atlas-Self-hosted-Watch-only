@@ -13,6 +13,7 @@ import { registerVaultRoutes } from "./vault/routes.js";
 import { registerFulcrumStatusRoute } from "./fulcrum/diagnostics.js";
 import { registerBroadcastRoutes } from "./broadcast/routes.js";
 import { redactSensitive } from "./vault/redact.js";
+import { collectRuntimeSecurityWarnings } from "./security/runtime-warnings.js";
 
 const port = Number(process.env.API_PORT ?? 3011);
 const host = process.env.API_HOST ?? "0.0.0.0";
@@ -21,7 +22,18 @@ const appName = process.env.APP_NAME ?? "Atlas";
 const server = Fastify({
   logger: {
     redact: {
-      paths: ["req.headers.authorization", "req.headers.cookie", 'req.headers["x-api-key"]'],
+      paths: [
+        "req.headers.authorization",
+        "req.headers.cookie",
+        'req.headers["x-api-key"]',
+        "req.body.password",
+        "req.body.passwordConfirm",
+        "req.body.vaultPassword",
+        "req.body.totpCode",
+        "req.body.importText",
+        "req.body.extendedPublicKey",
+        "req.body.psbtBase64"
+      ],
       censor: "[REDACTED]"
     },
     serializers: {
@@ -29,12 +41,24 @@ const server = Fastify({
         return {
           type: error?.constructor?.name ?? "Error",
           message: redactSensitive(error?.message ?? String(error)),
-          stack: error?.stack ?? ""
+          stack: redactSensitive(error?.stack ?? "")
         };
       }
     }
   }
 });
+
+server.addHook("onRequest", async (_request, reply) => {
+  reply.header("X-Content-Type-Options", "nosniff");
+  reply.header("Referrer-Policy", "no-referrer");
+  reply.header("X-Frame-Options", "DENY");
+  reply.header("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
+  reply.header("Permissions-Policy", "camera=(self), clipboard-read=(self), clipboard-write=(self)");
+});
+
+for (const warning of collectRuntimeSecurityWarnings()) {
+  server.log.warn({ event: "runtime_security_warning" }, warning);
+}
 
 await server.register(cors, {
   credentials: true,

@@ -75,6 +75,14 @@ Atlas is watch-only by design.
 
 Labels and notes are user metadata only. They do not affect ownership classification, change detection, recipient detection, PSBT verification, warnings, transaction direction, UTXO validity, or any wallet security decision.
 
+Threat model limits:
+
+- A compromised Raspberry Pi can expose unlocked watch-only metadata, xpubs, labels, notes, addresses, PSBTs, and configured RPC access.
+- A compromised browser can visually alter receive addresses, PSBT outputs, QR codes, clipboard contents, and warnings.
+- Atlas cannot protect users who sign a malicious PSBT without checking the signing device.
+- Leaked backups can reveal wallet-history metadata. Treat `wallets.enc` and any future exports as sensitive.
+- The cold signing device is the final authority for recipient, amount, change output, and fee.
+
 ## Repository Layout
 
 ```text
