@@ -32,14 +32,14 @@ export function parseFeeEstimates(raw: unknown): FeeEstimatePreset | null {
     return null;
   }
   const value = raw as Record<string, unknown>;
-  const estimates = normalizeFeePresetOrder({
+  const estimates = {
     fastestFee: readFee(value.fastestFee),
     halfHourFee: readFee(value.halfHourFee),
     hourFee: readFee(value.hourFee),
     economyFee: readFee(value.economyFee),
     minimumFee: readFee(value.minimumFee)
-  });
-  return hasAnyFee(estimates) ? estimates : null;
+  };
+  return hasAnyFee(estimates) && isRecommendedFeePresetConsistent(estimates) ? estimates : null;
 }
 
 export function parseMempoolBlockFeeEstimates(raw: unknown): FeeEstimatePreset | null {
@@ -111,8 +111,7 @@ export async function lookupFeeEstimateResult(
   const fetchJson = options.fetchJson ?? fetchMempoolJson;
   const candidates = [
     { path: "/v1/fees/recommended", parser: parseFeeEstimates, source: "recommended" as const },
-    { path: "/fees/recommended", parser: parseFeeEstimates, source: "recommended" as const },
-    { path: "/v1/fees/mempool-blocks", parser: parseMempoolBlockFeeEstimates, source: "mempool-blocks" as const }
+    { path: "/fees/recommended", parser: parseFeeEstimates, source: "recommended" as const }
   ];
   const attempts: FeeEstimateLookupAttempt[] = [];
 
@@ -175,25 +174,24 @@ function quantileFee(sortedAsc: number[], quantile: number): number | null {
   return sortedAsc[index] ?? null;
 }
 
-function normalizeFeePresetOrder(estimates: FeeEstimatePreset): FeeEstimatePreset {
-  const values = [
+function isRecommendedFeePresetConsistent(estimates: FeeEstimatePreset): boolean {
+  let previous: number | null = null;
+  for (const fee of [
     estimates.fastestFee,
     estimates.halfHourFee,
     estimates.hourFee,
     estimates.economyFee,
     estimates.minimumFee
-  ].filter((fee): fee is number => fee !== null);
-
-  if (values.length < 2) {
-    return estimates;
+  ]) {
+    if (fee === null) {
+      continue;
+    }
+    if (previous !== null && fee > previous) {
+      return false;
+    }
+    previous = fee;
   }
-
-  const monotonic = values.every((fee, index) => index === 0 || values[index - 1]! >= fee);
-  if (monotonic) {
-    return estimates;
-  }
-
-  return derivePresetsFromFeeRange(values) ?? estimates;
+  return true;
 }
 
 function hasAnyFee(estimates: FeeEstimatePreset): boolean {
@@ -213,7 +211,7 @@ function onlineResult(
     checkedAt,
     attempts,
     message: source === "mempool-blocks"
-      ? "Fee estimates derived from local mempool block medians because recommended fee endpoint was unavailable."
+      ? "Historical block-derived fee estimates are not current mempool recommendations. Review values manually before use."
       : null
   };
 }

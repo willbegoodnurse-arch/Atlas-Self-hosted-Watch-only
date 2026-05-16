@@ -580,10 +580,7 @@ function debugMempoolLookup(event: string, details: Record<string, unknown>): vo
 export function isMempoolDebugEnabled(): boolean {
   return (
     process.env.MEMPOOL_DEBUG === "true" ||
-    process.env.API_DEBUG === "true" ||
-    process.env.NODE_ENV === "development" ||
-    process.env.npm_lifecycle_event === "dev" ||
-    process.env.npm_lifecycle_event === "dev:api"
+    process.env.API_DEBUG === "true"
   );
 }
 

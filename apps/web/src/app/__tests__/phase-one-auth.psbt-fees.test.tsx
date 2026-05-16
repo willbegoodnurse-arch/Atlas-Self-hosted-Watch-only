@@ -45,7 +45,7 @@ describe("PSBT and fee UI regression", () => {
       status: "online"
     });
 
-    expect(feeUi.message).toMatch(/local mempool block medians/i);
+    expect(feeUi.message).toMatch(/historical block-derived/i);
     expect(feeUi.message).not.toMatch(/mempool\.space/i);
   });
 
@@ -81,7 +81,7 @@ describe("PSBT and fee UI regression", () => {
 
   it("labels fee estimate sources without implying public fallback", () => {
     expect(feeEstimateSourceLabel("recommended")).toBe("recommended mempool estimate");
-    expect(feeEstimateSourceLabel("mempool-blocks")).toBe("local mempool block estimate");
+    expect(feeEstimateSourceLabel("mempool-blocks")).toBe("historical block-derived estimate");
   });
 
   it("formats fee rates without leaking raw float precision", () => {

@@ -363,7 +363,7 @@ export function resolveFeeEstimateUiState(response: FeeEstimatesResponse): {
     estimates: response.estimates,
     message:
       response.source === "mempool-blocks"
-        ? "Fee presets derived from local mempool block medians. Review the sat/vB value before creating the unsigned PSBT."
+        ? "Fee presets are historical block-derived estimates, not current mempool recommendations. Review the sat/vB value manually before creating the unsigned PSBT."
         : ""
   };
 }
@@ -406,7 +406,7 @@ export function formatFeeRate(value: number | null | undefined): string {
 
 export function feeEstimateSourceLabel(source: FeeEstimatesResponse["source"]): string {
   if (source === "mempool-blocks") {
-    return "local mempool block estimate";
+    return "historical block-derived estimate";
   }
   if (source === "recommended") {
     return "recommended mempool estimate";

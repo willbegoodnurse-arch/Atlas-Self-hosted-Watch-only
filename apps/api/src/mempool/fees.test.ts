@@ -25,7 +25,25 @@ test("parseFeeEstimates reads mempool recommended fee payload", () => {
   });
 });
 
-test("parseFeeEstimates corrects out-of-order recommended fee payloads", () => {
+test("parseFeeEstimates preserves authoritative recommended fee fields", () => {
+  const parsed = parseFeeEstimates({
+    fastestFee: 73.2,
+    halfHourFee: 3,
+    hourFee: 2,
+    economyFee: 0.9,
+    minimumFee: 0.4
+  });
+
+  assert.deepEqual(parsed, {
+    fastestFee: 73.2,
+    halfHourFee: 3,
+    hourFee: 2,
+    economyFee: 0.9,
+    minimumFee: 0.4
+  });
+});
+
+test("parseFeeEstimates rejects out-of-order recommended fee payloads instead of promoting stale values", () => {
   const parsed = parseFeeEstimates({
     fastestFee: 0.4,
     halfHourFee: 2,
@@ -34,13 +52,17 @@ test("parseFeeEstimates corrects out-of-order recommended fee payloads", () => {
     minimumFee: 0.4
   });
 
-  assert.deepEqual(parsed, {
-    fastestFee: 3,
-    halfHourFee: 2,
-    hourFee: 2,
-    economyFee: 0.9,
-    minimumFee: 0.4
-  });
+  assert.equal(parsed, null);
+});
+
+test("parseFeeEstimates treats empty near-zero recommendations as unavailable", () => {
+  assert.equal(parseFeeEstimates({
+    fastestFee: 0,
+    halfHourFee: 0,
+    hourFee: 0,
+    economyFee: 0,
+    minimumFee: 0
+  }), null);
 });
 
 test("lookupFeeEstimates returns null when backend is unavailable", async () => {
@@ -95,8 +117,7 @@ test("lookupFeeEstimateResult reports sanitized 503 diagnostics", async () => {
     error: attempt.error
   })), [
     { path: "/v1/fees/recommended", status: "failed", httpStatus: 503, error: "HTTP 503" },
-    { path: "/fees/recommended", status: "failed", httpStatus: 503, error: "HTTP 503" },
-    { path: "/v1/fees/mempool-blocks", status: "failed", httpStatus: 503, error: "HTTP 503" }
+    { path: "/fees/recommended", status: "failed", httpStatus: 503, error: "HTTP 503" }
   ]);
 });
 
@@ -149,26 +170,53 @@ test("parseMempoolBlockFeeEstimates sorts block medians before assigning presets
   });
 });
 
-test("lookupFeeEstimateResult falls back to local mempool block medians", async () => {
+test("lookupFeeEstimateResult does not use stale block medians as current fee presets", async () => {
   const requested: string[] = [];
   const result = await lookupFeeEstimateResult({
     fetchJson: async (url) => {
       requested.push(url);
-      if (!url.endsWith("/v1/fees/mempool-blocks")) {
-        throw new Error("Service Unavailable");
+      if (url.endsWith("/v1/fees/mempool-blocks")) {
+        return [{ medianFee: 73.2 }, { medianFee: 58 }, { medianFee: 41 }];
       }
-      return [{ medianFee: 11 }, { medianFee: 7 }, { medianFee: 4 }];
+      throw new Error("Service Unavailable");
+    }
+  });
+
+  assert.equal(result.status, "unavailable");
+  assert.equal(result.source, null);
+  assert.equal(result.estimates, null);
+  assert.deepEqual(requested.map((url) => url.replace(/^.*\/api/, "/api")), [
+    "/api/v1/fees/recommended",
+    "/api/fees/recommended"
+  ]);
+});
+
+test("lookupFeeEstimateResult uses alternate recommended endpoint before falling back to manual fees", async () => {
+  const result = await lookupFeeEstimateResult({
+    fetchJson: async (url) => {
+      if (url.endsWith("/v1/fees/recommended")) {
+        return {
+          fastestFee: 0,
+          halfHourFee: 0,
+          hourFee: 0,
+          economyFee: 0,
+          minimumFee: 0
+        };
+      }
+      return {
+        fastestFee: 3,
+        halfHourFee: 2,
+        hourFee: 1,
+        economyFee: 0.5,
+        minimumFee: 0.25
+      };
     }
   });
 
   assert.equal(result.status, "online");
-  assert.equal(result.source, "mempool-blocks");
-  assert.equal(result.estimates?.fastestFee, 11);
-  assert.deepEqual(requested.map((url) => url.replace(/^.*\/api/, "/api")), [
-    "/api/v1/fees/recommended",
-    "/api/fees/recommended",
-    "/api/v1/fees/mempool-blocks"
-  ]);
+  assert.equal(result.source, "recommended");
+  assert.equal(result.estimates?.fastestFee, 3);
+  assert.equal(result.estimates?.economyFee, 0.5);
 });
 
 test("parseFeeEstimates returns null when payload has no usable fees", () => {

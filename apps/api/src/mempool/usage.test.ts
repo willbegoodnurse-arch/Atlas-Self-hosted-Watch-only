@@ -6,6 +6,7 @@ import {
   classifyMempoolAddressStats,
   discoverNextUnusedReceiveAddress,
   isMempoolDebugEnabled,
+  lookupAddressStats,
   lookupAddressBalanceRecords,
   lookupAddressUsageRecords,
   selectNextUnusedReceiveAddress,
@@ -175,9 +176,55 @@ test("mempool lookup debug logging is disabled by default outside explicit debug
 
   try {
     assert.equal(isMempoolDebugEnabled(), false);
+    process.env.NODE_ENV = "development";
+    process.env.npm_lifecycle_event = "dev";
+    assert.equal(isMempoolDebugEnabled(), false);
     process.env.MEMPOOL_DEBUG = "true";
     assert.equal(isMempoolDebugEnabled(), true);
   } finally {
+    restoreEnv(previous);
+  }
+});
+
+test("cache-hit address lookup logs are suppressed unless mempool debug is explicit", async () => {
+  const previous = {
+    API_DEBUG: process.env.API_DEBUG,
+    MEMPOOL_API_URL: process.env.MEMPOOL_API_URL,
+    MEMPOOL_DEBUG: process.env.MEMPOOL_DEBUG,
+    NODE_ENV: process.env.NODE_ENV,
+    npm_lifecycle_event: process.env.npm_lifecycle_event
+  };
+  const previousFetch = globalThis.fetch;
+  delete process.env.API_DEBUG;
+  delete process.env.MEMPOOL_DEBUG;
+  process.env.NODE_ENV = "development";
+  process.env.npm_lifecycle_event = "dev";
+  process.env.MEMPOOL_API_URL = "http://127.0.0.1:8080/api";
+
+  let fetchCount = 0;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return new Response(JSON.stringify({
+      chain_stats: { tx_count: 0, funded_txo_sum: 0, spent_txo_sum: 0 },
+      mempool_stats: { tx_count: 0, funded_txo_sum: 0, spent_txo_sum: 0 }
+    }), { status: 200 });
+  };
+  const debugCalls: unknown[] = [];
+  const previousDebug = console.debug;
+  console.debug = (...args: unknown[]) => {
+    debugCalls.push(args);
+  };
+
+  try {
+    const address = `bc1qcachequiet${Date.now()}`;
+    await lookupAddressStats(address);
+    await lookupAddressStats(address);
+
+    assert.equal(fetchCount, 1);
+    assert.equal(debugCalls.length, 0);
+  } finally {
+    console.debug = previousDebug;
+    globalThis.fetch = previousFetch;
     restoreEnv(previous);
   }
 });
