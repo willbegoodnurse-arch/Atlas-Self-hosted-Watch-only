@@ -38,14 +38,14 @@ describe("PSBT and fee UI regression", () => {
     expect(feeUi.message).toBe("");
   });
 
-  it("shows local mempool-block diagnostic copy without any public mempool.space fallback", () => {
+  it("shows projected-block diagnostic copy without any public mempool.space fallback", () => {
     const feeUi = resolveFeeEstimateUiState({
       estimates: feeEstimates,
-      source: "mempool-blocks",
+      source: "projected-blocks",
       status: "online"
     });
 
-    expect(feeUi.message).toMatch(/historical block-derived/i);
+    expect(feeUi.message).toMatch(/current projected mempool blocks/i);
     expect(feeUi.message).not.toMatch(/mempool\.space/i);
   });
 
@@ -80,8 +80,10 @@ describe("PSBT and fee UI regression", () => {
   });
 
   it("labels fee estimate sources without implying public fallback", () => {
-    expect(feeEstimateSourceLabel("recommended")).toBe("recommended mempool estimate");
-    expect(feeEstimateSourceLabel("mempool-blocks")).toBe("historical block-derived estimate");
+    expect(feeEstimateSourceLabel("recommended")).toBe("Local mempool estimate");
+    expect(feeEstimateSourceLabel("precise")).toBe("Local mempool estimate");
+    expect(feeEstimateSourceLabel("projected-blocks")).toBe("Local mempool estimate");
+    expect(feeEstimateSourceLabel(null)).toBe("Local mempool unavailable - manual entry required");
   });
 
   it("formats fee rates without leaking raw float precision", () => {

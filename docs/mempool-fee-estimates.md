@@ -18,28 +18,34 @@ Run these on the Raspberry Pi:
 cd ~/watch-wallet
 
 curl --max-time 10 http://127.0.0.1:8080/api/blocks/tip/height
+curl --max-time 10 http://127.0.0.1:8080/api/fees/precise
+curl --max-time 10 http://127.0.0.1:8080/api/v1/fees/precise
 curl --max-time 10 http://127.0.0.1:8080/api/fees/recommended
 curl --max-time 10 http://127.0.0.1:8080/api/v1/fees/recommended
 curl --max-time 10 http://127.0.0.1:8080/api/v1/fees/mempool-blocks
+curl --max-time 10 http://127.0.0.1:8080/api/mempool
 curl --max-time 10 http://127.0.0.1:3011/api/status/mempool
 ```
 
 Expected:
 
 - `/api/blocks/tip/height` returns a block height.
-- At least one fee endpoint returns JSON with fee data.
-- If both recommended endpoints return `Service Unavailable`, the local mempool backend fee estimator is unavailable even though the tip endpoint works.
-- `/api/v1/fees/mempool-blocks` may still provide local mempool block median fees. Atlas can derive conservative presets from those medians.
+- At least one mempool-based fee source returns JSON with fee data.
+- If precise/recommended endpoints return `Service Unavailable`, Atlas can derive presets from current projected mempool blocks plus current mempool minimum fee.
+- `/api/v1/fees/mempool-blocks` is current projected mempool data. Atlas must not treat its medians as direct presets; sparse blocks are adjusted down.
 
 ## Atlas Behavior
 
 Atlas tries these local paths in order:
 
-1. `/api/v1/fees/recommended`
-2. `/api/fees/recommended`
-3. `/api/v1/fees/mempool-blocks`
+1. `/api/v1/fees/precise`
+2. `/api/fees/precise`
+3. `/api/v1/fees/recommended`
+4. `/api/fees/recommended`
+5. `/api/v1/fees/mempool-blocks` plus `/api/mempool`
+6. `/api/fees/mempool-blocks` plus `/api/v1/mempool`
 
-If the first two fail but mempool-blocks works, Atlas marks the source as `mempool-blocks` and shows a warning that presets are derived from local mempool block medians.
+If precise/recommended endpoints fail but projected mempool blocks work, Atlas marks the source as `projected-blocks` and labels it as a local mempool estimate. The calculation adjusts down when projected blocks are not full so old high medians do not become misleading Fastest presets.
 
 If all local fee sources fail, Atlas returns:
 

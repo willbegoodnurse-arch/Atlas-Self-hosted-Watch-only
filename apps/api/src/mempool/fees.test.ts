@@ -4,7 +4,8 @@ import {
   lookupFeeEstimateResult,
   lookupFeeEstimates,
   parseFeeEstimates,
-  parseMempoolBlockFeeEstimates
+  parseMempoolBlockFeeEstimates,
+  parseProjectedMempoolFeeEstimates
 } from "./fees.js";
 
 test("parseFeeEstimates reads mempool recommended fee payload", () => {
@@ -80,6 +81,9 @@ test("lookupFeeEstimates falls back to alternate mempool fee path", async () => 
   const parsed = await lookupFeeEstimates({
     fetchJson: async (url) => {
       requested.push(url);
+      if (url.endsWith("/v1/fees/precise") || url.endsWith("/fees/precise")) {
+        throw new Error("unavailable");
+      }
       if (url.endsWith("/v1/fees/recommended")) {
         throw new Error("unavailable");
       }
@@ -94,6 +98,8 @@ test("lookupFeeEstimates falls back to alternate mempool fee path", async () => 
   });
 
   assert.deepEqual(requested.map((url) => url.replace(/^.*\/api/, "/api")), [
+    "/api/v1/fees/precise",
+    "/api/fees/precise",
     "/api/v1/fees/recommended",
     "/api/fees/recommended"
   ]);
@@ -116,8 +122,12 @@ test("lookupFeeEstimateResult reports sanitized 503 diagnostics", async () => {
     httpStatus: attempt.httpStatus,
     error: attempt.error
   })), [
+    { path: "/v1/fees/precise", status: "failed", httpStatus: 503, error: "HTTP 503" },
+    { path: "/fees/precise", status: "failed", httpStatus: 503, error: "HTTP 503" },
     { path: "/v1/fees/recommended", status: "failed", httpStatus: 503, error: "HTTP 503" },
-    { path: "/fees/recommended", status: "failed", httpStatus: 503, error: "HTTP 503" }
+    { path: "/fees/recommended", status: "failed", httpStatus: 503, error: "HTTP 503" },
+    { path: "/v1/fees/mempool-blocks", status: "failed", httpStatus: 503, error: "HTTP 503" },
+    { path: "/fees/mempool-blocks", status: "failed", httpStatus: 503, error: "HTTP 503" }
   ]);
 });
 
@@ -170,30 +180,137 @@ test("parseMempoolBlockFeeEstimates sorts block medians before assigning presets
   });
 });
 
-test("lookupFeeEstimateResult does not use stale block medians as current fee presets", async () => {
+test("parseProjectedMempoolFeeEstimates reproduces live local mempool priority calculation", () => {
+  const parsed = parseProjectedMempoolFeeEstimates([
+    { blockVSize: 1_000_000, medianFee: 3, feeRange: [0.45, 1, 2, 3, 4, 5, 6] },
+    { blockVSize: 1_000_000, medianFee: 1, feeRange: [0.9, 1, 1, 1, 1, 1, 1] },
+    { blockVSize: 1_000_000, medianFee: 0.7, feeRange: [0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9] }
+  ], { mempoolminfee: 0.0000045 });
+
+  assert.deepEqual(parsed, {
+    fastestFee: 3,
+    halfHourFee: 2,
+    hourFee: 1.35,
+    economyFee: 0.9,
+    minimumFee: 0.45
+  });
+});
+
+test("parseProjectedMempoolFeeEstimates keeps sub-1 sat/vB values from current mempool data", () => {
+  const parsed = parseProjectedMempoolFeeEstimates([
+    { blockVSize: 1_000_000, medianFee: 0.8, feeRange: [0.2, 0.3, 0.5, 0.8, 1, 1.2, 1.5] }
+  ], { mempoolminfee: 0.000002 });
+
+  assert.deepEqual(parsed, {
+    fastestFee: 0.8,
+    halfHourFee: 0.2,
+    hourFee: 0.2,
+    economyFee: 0.2,
+    minimumFee: 0.2
+  });
+});
+
+test("parseProjectedMempoolFeeEstimates adjusts stale high median down when current mempool block is not full", () => {
+  const parsed = parseProjectedMempoolFeeEstimates([
+    { blockVSize: 120_000, medianFee: 73.2, feeRange: [0.4, 12, 18, 73.2] }
+  ], { mempoolminfee: 0.000004 });
+
+  assert.deepEqual(parsed, {
+    fastestFee: 0.4,
+    halfHourFee: 0.4,
+    hourFee: 0.4,
+    economyFee: 0.4,
+    minimumFee: 0.4
+  });
+});
+
+test("parseProjectedMempoolFeeEstimates returns null when no mempool-based fee source is usable", () => {
+  assert.equal(parseProjectedMempoolFeeEstimates([], null), null);
+  assert.equal(parseProjectedMempoolFeeEstimates([
+    { blockVSize: 0, medianFee: 0, feeRange: [0, 0, 0] }
+  ], { mempoolminfee: 0 }), null);
+});
+
+test("lookupFeeEstimateResult uses precise live local mempool endpoint first", async () => {
+  const result = await lookupFeeEstimateResult({
+    fetchJson: async (url) => {
+      if (url.endsWith("/v1/fees/precise")) {
+        return {
+          fastestFee: 3,
+          halfHourFee: 2,
+          hourFee: 1.35,
+          economyFee: 0.9,
+          minimumFee: 0.45
+        };
+      }
+      throw new Error("unexpected endpoint");
+    }
+  });
+
+  assert.equal(result.status, "online");
+  assert.equal(result.source, "precise");
+  assert.equal(result.estimates?.fastestFee, 3);
+  assert.equal(result.estimates?.economyFee, 0.9);
+});
+
+test("lookupFeeEstimateResult derives from live projected mempool blocks when fee endpoints are unavailable", async () => {
   const requested: string[] = [];
   const result = await lookupFeeEstimateResult({
     fetchJson: async (url) => {
       requested.push(url);
       if (url.endsWith("/v1/fees/mempool-blocks")) {
-        return [{ medianFee: 73.2 }, { medianFee: 58 }, { medianFee: 41 }];
+        return [
+          { blockVSize: 1_000_000, medianFee: 3, feeRange: [0.45, 1, 2, 3, 4, 5, 6] },
+          { blockVSize: 1_000_000, medianFee: 1, feeRange: [0.9, 1, 1, 1, 1, 1, 1] },
+          { blockVSize: 1_000_000, medianFee: 0.7, feeRange: [0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9] }
+        ];
+      }
+      if (url.endsWith("/mempool")) {
+        return { mempoolminfee: 0.0000045 };
       }
       throw new Error("Service Unavailable");
     }
   });
 
-  assert.equal(result.status, "unavailable");
-  assert.equal(result.source, null);
-  assert.equal(result.estimates, null);
+  assert.equal(result.status, "online");
+  assert.equal(result.source, "projected-blocks");
+  assert.equal(result.estimates?.fastestFee, 3);
+  assert.equal(result.estimates?.halfHourFee, 2);
+  assert.equal(result.estimates?.economyFee, 0.9);
   assert.deepEqual(requested.map((url) => url.replace(/^.*\/api/, "/api")), [
+    "/api/v1/fees/precise",
+    "/api/fees/precise",
     "/api/v1/fees/recommended",
-    "/api/fees/recommended"
+    "/api/fees/recommended",
+    "/api/v1/fees/mempool-blocks",
+    "/api/mempool"
   ]);
+});
+
+test("lookupFeeEstimateResult does not promote stale high medians from sparse projected blocks", async () => {
+  const result = await lookupFeeEstimateResult({
+    fetchJson: async (url) => {
+      if (url.endsWith("/v1/fees/mempool-blocks")) {
+        return [{ blockVSize: 120_000, medianFee: 73.2, feeRange: [0.4, 73.2] }];
+      }
+      if (url.endsWith("/mempool")) {
+        return { mempoolminfee: 0.000004 };
+      }
+      throw new Error("Service Unavailable");
+    }
+  });
+
+  assert.equal(result.status, "online");
+  assert.equal(result.source, "projected-blocks");
+  assert.equal(result.estimates?.fastestFee, 0.4);
 });
 
 test("lookupFeeEstimateResult uses alternate recommended endpoint before falling back to manual fees", async () => {
   const result = await lookupFeeEstimateResult({
     fetchJson: async (url) => {
+      if (url.endsWith("/v1/fees/precise") || url.endsWith("/fees/precise")) {
+        throw new Error("Service Unavailable");
+      }
       if (url.endsWith("/v1/fees/recommended")) {
         return {
           fastestFee: 0,
@@ -202,6 +319,9 @@ test("lookupFeeEstimateResult uses alternate recommended endpoint before falling
           economyFee: 0,
           minimumFee: 0
         };
+      }
+      if (!url.endsWith("/fees/recommended")) {
+        throw new Error("unexpected endpoint");
       }
       return {
         fastestFee: 3,

@@ -193,7 +193,7 @@ The web regression test suite covers auth/session fallback rendering, wallet car
 - Enter decimal sat/vB fee rate.
 - Select Fastest, Medium, and Slow fee presets when fee estimates are available.
 - Confirm manual fee still works when fee estimates are unavailable.
-- If local fee estimates are unavailable while block tip works, follow `docs/mempool-fee-estimates.md` and check `/api/v1/fees/recommended`, `/api/fees/recommended`, and `/api/v1/fees/mempool-blocks`.
+- If local fee estimates are unavailable while block tip works, follow `docs/mempool-fee-estimates.md` and check precise/recommended fee endpoints plus projected mempool blocks and `/api/mempool`.
 - Review selected input total.
 - Review recipient outputs, change output, and fee.
 - Review the input -> output spending plan.

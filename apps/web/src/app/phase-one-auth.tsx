@@ -343,7 +343,7 @@ export type FeeEstimatesResponse = {
     economyFee: number | null;
     minimumFee: number | null;
   } | null;
-  source?: "recommended" | "mempool-blocks" | null;
+  source?: "recommended" | "precise" | "projected-blocks" | null;
   diagnostic?: string | null;
   error?: string;
 };
@@ -362,8 +362,8 @@ export function resolveFeeEstimateUiState(response: FeeEstimatesResponse): {
   return {
     estimates: response.estimates,
     message:
-      response.source === "mempool-blocks"
-        ? "Fee presets are historical block-derived estimates, not current mempool recommendations. Review the sat/vB value manually before creating the unsigned PSBT."
+      response.source === "projected-blocks"
+        ? "Local mempool estimate derived from current projected mempool blocks."
         : ""
   };
 }
@@ -405,13 +405,10 @@ export function formatFeeRate(value: number | null | undefined): string {
 }
 
 export function feeEstimateSourceLabel(source: FeeEstimatesResponse["source"]): string {
-  if (source === "mempool-blocks") {
-    return "historical block-derived estimate";
+  if (source === "recommended" || source === "precise" || source === "projected-blocks") {
+    return "Local mempool estimate";
   }
-  if (source === "recommended") {
-    return "recommended mempool estimate";
-  }
-  return "live mempool estimate";
+  return "Local mempool unavailable - manual entry required";
 }
 
 export async function copyTextToClipboard(text: string): Promise<"clipboard" | "fallback"> {
@@ -3785,7 +3782,7 @@ export function CreatePsbtBuilderPanel({
             <span className="muted psbt-field-hint">Low fee rate may not confirm quickly.</span>
           ) : null}
           <span className="muted psbt-field-hint">
-            Source: {feePresetSource === "Custom" ? "manual entry" : `${feePresetSource} ${feeEstimateSourceLabel(feeEstimateSourceKind)}`}
+            Source: {feePresetSource === "Custom" ? "manual entry" : `${feeEstimateSourceLabel(feeEstimateSourceKind)} (${feePresetSource})`}
           </span>
         </label>
 
