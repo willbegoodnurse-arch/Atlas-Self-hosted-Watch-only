@@ -262,6 +262,7 @@ export type PsbtAnalysisResult = {
   extractable: boolean;
   txHex: string | null;
   txid: string | null;
+  vsize: number | null;
   inputs: PsbtRawInput[];
   outputs: PsbtRawOutput[];
 };
@@ -279,6 +280,7 @@ export function analyzePsbt(psbtBase64: string, network: BitcoinNetwork): PsbtAn
 
   let txHex: string | null = null;
   let txid: string | null = null;
+  let vsize: number | null = null;
   let finalizable = false;
   let extractable = false;
 
@@ -289,6 +291,7 @@ export function analyzePsbt(psbtBase64: string, network: BitcoinNetwork): PsbtAn
     extractable = true;
     txHex = tx.toHex();
     txid = tx.getId();
+    vsize = tx.virtualSize();
   } catch {
     try {
       const p2 = bitcoin.Psbt.fromBase64(psbtBase64);
@@ -299,6 +302,7 @@ export function analyzePsbt(psbtBase64: string, network: BitcoinNetwork): PsbtAn
         extractable = true;
         txHex = tx.toHex();
         txid = tx.getId();
+        vsize = tx.virtualSize();
       } catch {}
     } catch {}
   }
@@ -328,7 +332,7 @@ export function analyzePsbt(psbtBase64: string, network: BitcoinNetwork): PsbtAn
     return { address, valueSats: Number(out.value) };
   });
 
-  return { signed, finalizable, extractable, txHex, txid, inputs, outputs };
+  return { signed, finalizable, extractable, txHex, txid, vsize, inputs, outputs };
 }
 
 function isPsbtSigned(psbt: bitcoin.Psbt): boolean {

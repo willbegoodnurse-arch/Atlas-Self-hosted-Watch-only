@@ -46,7 +46,9 @@ export type VerifyPsbtResult = {
   extractable: boolean;
   txHex: string | null;
   txid: string | null;
+  vsize: number | null;
   feeSats: number | null;
+  feeRateSatsPerVbyte: number | null;
   inputs: VerifyPsbtInputSummary[];
   outputs: VerifyPsbtOutputSummary[];
   checks: VerifyPsbtChecks;
@@ -134,6 +136,10 @@ export async function verifySignedPsbt(
   const totalOut = outputs.reduce((sum, o) => sum + o.valueSats, 0);
   const allInputsHaveValues = inputs.every((i) => i.valueSats !== null);
   const feeSats = allInputsHaveValues && inputs.length > 0 ? totalIn - totalOut : null;
+  const feeRateSatsPerVbyte =
+    feeSats !== null && analysis.vsize !== null && analysis.vsize > 0
+      ? Math.round((feeSats / analysis.vsize) * 100) / 100
+      : null;
 
   const checks: VerifyPsbtChecks = {
     recipientMatches: null,
@@ -192,7 +198,7 @@ export async function verifySignedPsbt(
   }
 
   if (!analysis.signed) {
-    warnings.push("PSBT inputs are not fully signed");
+    errors.push("Unsigned PSBT submitted to signed PSBT import flow");
   }
 
   if (inputs.length > 0 && inputs.some((i) => !i.belongsToWallet)) {
@@ -201,6 +207,12 @@ export async function verifySignedPsbt(
 
   if (feeSats !== null && feeSats < 0) {
     errors.push("Invalid PSBT: outputs exceed inputs (negative fee)");
+  }
+  if (feeSats !== null && feeSats > 100_000) {
+    warnings.push("High absolute fee: review before broadcast");
+  }
+  if (feeRateSatsPerVbyte !== null && feeRateSatsPerVbyte > 100) {
+    warnings.push("High fee rate: review sat/vB before broadcast");
   }
 
   if (checks.hasUnexpectedExternalOutputs) {
@@ -217,7 +229,9 @@ export async function verifySignedPsbt(
     extractable: analysis.extractable,
     txHex: analysis.txHex,
     txid: analysis.txid,
+    vsize: analysis.vsize,
     feeSats,
+    feeRateSatsPerVbyte,
     inputs,
     outputs,
     checks,

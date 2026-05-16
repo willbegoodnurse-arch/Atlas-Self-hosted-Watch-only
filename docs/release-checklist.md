@@ -206,8 +206,14 @@ The web regression test suite covers auth/session fallback rendering, wallet car
 ## Signed PSBT Verification
 
 - Paste a signed PSBT.
+- Upload a signed PSBT file.
+- Scan a signed PSBT QR on HTTPS, localhost, or trusted tunnel access.
+- Confirm LAN HTTP shows camera fallback with Paste and File alternatives.
 - Provide optional expected recipient, amount, change, and fee checks.
 - Review output classifications.
+- Confirm unsigned PSBTs are rejected in the signed import flow.
+- Confirm broadcast requires verification, checkbox confirmation, and typed `BROADCAST`.
+- Review `docs/hardware-signer-roundtrip-validation.md` before hardware signer validation.
 - Review warnings and errors.
 - Copy txHex only when signed/finalized/extractable.
 - If broadcast is disabled, confirm the UI says broadcast backend is disabled.

@@ -121,6 +121,7 @@ test("verifySignedPsbt: unsigned PSBT has signed=false, finalizable=false", asyn
   assert.equal(result.extractable, false);
   assert.equal(result.txHex, null);
   assert.equal(result.txid, null);
+  assert.equal(result.vsize, null);
 });
 
 test("verifySignedPsbt: signed PSBT has signed=true and is finalizable", async () => {
@@ -134,6 +135,8 @@ test("verifySignedPsbt: signed PSBT has signed=true and is finalizable", async (
   assert.equal(result.extractable, true);
   assert.ok(result.txHex !== null && result.txHex.length > 0);
   assert.ok(result.txid !== null && result.txid.length === 64);
+  assert.ok(result.vsize !== null && result.vsize > 0);
+  assert.ok(result.feeRateSatsPerVbyte !== null && result.feeRateSatsPerVbyte > 0);
 });
 
 test("verifySignedPsbt: finalized PSBT has extractable=true and txHex present", async () => {
@@ -231,6 +234,7 @@ test("verifySignedPsbt: recipientMatches=true when expected recipient is in outp
   const psbt = makeP2wpkhPsbt(TEST_RECV_ADDR, 100_000, [
     { addr: EXTERNAL_ADDR, value: 90_000 }
   ]);
+  signAllInputs(psbt, recvNode);
   const result = await verifySignedPsbt(testWallet, {
     psbtBase64: psbt.toBase64(),
     expected: { recipientAddress: EXTERNAL_ADDR }
@@ -243,6 +247,7 @@ test("verifySignedPsbt: recipientMatches=false and error when expected recipient
   const psbt = makeP2wpkhPsbt(TEST_RECV_ADDR, 100_000, [
     { addr: EXTERNAL_ADDR, value: 90_000 }
   ]);
+  signAllInputs(psbt, recvNode);
   const result = await verifySignedPsbt(testWallet, {
     psbtBase64: psbt.toBase64(),
     expected: { recipientAddress: TEST_CHNG_ADDR }
@@ -256,6 +261,7 @@ test("verifySignedPsbt: amountMatches=true when output value equals expected", a
   const psbt = makeP2wpkhPsbt(TEST_RECV_ADDR, 100_000, [
     { addr: EXTERNAL_ADDR, value: 90_000 }
   ]);
+  signAllInputs(psbt, recvNode);
   const result = await verifySignedPsbt(testWallet, {
     psbtBase64: psbt.toBase64(),
     expected: { recipientAddress: EXTERNAL_ADDR, amountSats: 90_000 }
@@ -267,6 +273,7 @@ test("verifySignedPsbt: amountMatches=false and error when output value differs"
   const psbt = makeP2wpkhPsbt(TEST_RECV_ADDR, 100_000, [
     { addr: EXTERNAL_ADDR, value: 90_000 }
   ]);
+  signAllInputs(psbt, recvNode);
   const result = await verifySignedPsbt(testWallet, {
     psbtBase64: psbt.toBase64(),
     expected: { recipientAddress: EXTERNAL_ADDR, amountSats: 80_000 }
@@ -280,6 +287,7 @@ test("verifySignedPsbt: changeAddressMatches=true when change address is wallet-
     { addr: EXTERNAL_ADDR, value: 80_000 },
     { addr: TEST_CHNG_ADDR, value: 15_000 }
   ]);
+  signAllInputs(psbt, recvNode);
   const result = await verifySignedPsbt(testWallet, {
     psbtBase64: psbt.toBase64(),
     expected: { recipientAddress: EXTERNAL_ADDR, changeAddress: TEST_CHNG_ADDR }
@@ -291,6 +299,7 @@ test("verifySignedPsbt: feeMatches=false and warning when fee differs from expec
   const psbt = makeP2wpkhPsbt(TEST_RECV_ADDR, 100_000, [
     { addr: EXTERNAL_ADDR, value: 90_000 }
   ]);
+  signAllInputs(psbt, recvNode);
   const result = await verifySignedPsbt(testWallet, {
     psbtBase64: psbt.toBase64(),
     expected: { feeSats: 5_000 }
@@ -303,6 +312,7 @@ test("verifySignedPsbt: feeMatches=true when fee equals expected", async () => {
   const psbt = makeP2wpkhPsbt(TEST_RECV_ADDR, 100_000, [
     { addr: EXTERNAL_ADDR, value: 90_000 }
   ]);
+  signAllInputs(psbt, recvNode);
   const result = await verifySignedPsbt(testWallet, {
     psbtBase64: psbt.toBase64(),
     expected: { feeSats: 10_000 }
@@ -325,13 +335,13 @@ test("verifySignedPsbt: status is valid for signed PSBT with wallet inputs, no m
   assert.equal(result.errors.length, 0);
 });
 
-test("verifySignedPsbt: status is warning for unsigned PSBT", async () => {
+test("verifySignedPsbt: status is invalid for unsigned PSBT in signed import flow", async () => {
   const psbt = makeP2wpkhPsbt(TEST_RECV_ADDR, 100_000, [
     { addr: EXTERNAL_ADDR, value: 90_000 }
   ]);
   const result = await verifySignedPsbt(testWallet, { psbtBase64: psbt.toBase64() });
-  assert.equal(result.status, "warning");
-  assert.ok(result.warnings.some((w) => w.includes("not fully signed")));
+  assert.equal(result.status, "invalid");
+  assert.ok(result.errors.some((w) => w.includes("Unsigned PSBT")));
 });
 
 test("verifySignedPsbt: status is invalid when expected recipient not found", async () => {

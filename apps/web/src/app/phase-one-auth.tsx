@@ -438,6 +438,16 @@ export async function copyTextToClipboard(text: string): Promise<"clipboard" | "
   }
 }
 
+export const SIGNED_PSBT_SINGLE_QR_MAX_CHARS = 2950;
+export const SIGNED_PSBT_QR_TOO_LARGE_MESSAGE =
+  "This signed PSBT may be too large for single-frame QR. Use file upload or paste for now.";
+export const SIGNED_PSBT_CAMERA_FALLBACK_MESSAGE =
+  "Camera scanning requires HTTPS, localhost, or a trusted tunnel such as Tailscale Serve. You can still paste or upload a signed PSBT manually.";
+
+export function isSignedPsbtSingleQrCandidate(payload: string): boolean {
+  return payload.trim().length > 0 && payload.trim().length <= SIGNED_PSBT_SINGLE_QR_MAX_CHARS;
+}
+
 type VerifyPsbtResponse = {
   status: "valid" | "warning" | "invalid";
   signed: boolean;
@@ -445,7 +455,9 @@ type VerifyPsbtResponse = {
   extractable: boolean;
   txHex: string | null;
   txid: string | null;
+  vsize: number | null;
   feeSats: number | null;
+  feeRateSatsPerVbyte: number | null;
   inputs: Array<{
     txid: string;
     vout: number;
@@ -3984,6 +3996,12 @@ export function VerifyPsbtPanel({
   const [broadcastConfirmText, setBroadcastConfirmText] = useState("");
   const [broadcastResult, setBroadcastResult] = useState<BroadcastResponse | null>(null);
   const [copiedTxid, setCopiedTxid] = useState(false);
+  const [signedImportMethod, setSignedImportMethod] = useState<"paste" | "file" | "qr">("paste");
+  const [signedScannerOpen, setSignedScannerOpen] = useState(false);
+  const [signedScannerMessage, setSignedScannerMessage] = useState("");
+  const signedScannerControls = useRef<IScannerControls | null>(null);
+  const signedScannerVideo = useRef<HTMLVideoElement | null>(null);
+  const signedFileInput = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -4008,6 +4026,50 @@ export function VerifyPsbtPanel({
       cancelled = true;
     };
   }, [apiUrl]);
+
+  useEffect(() => {
+    if (!signedScannerOpen) {
+      stopSignedScanner();
+      return;
+    }
+
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      setSignedScannerMessage(SIGNED_PSBT_CAMERA_FALLBACK_MESSAGE);
+      return;
+    }
+
+    let cancelled = false;
+    async function startScanner() {
+      try {
+        const { BrowserQRCodeReader } = await import("@zxing/browser");
+        if (cancelled) return;
+        const reader = new BrowserQRCodeReader();
+        signedScannerControls.current = await reader.decodeFromVideoDevice(
+          undefined,
+          signedScannerVideo.current ?? undefined,
+          (result) => {
+            if (!result) return;
+            const scannedValue = result.getText().trim();
+            if (!isSignedPsbtSingleQrCandidate(scannedValue)) {
+              setSignedScannerMessage(SIGNED_PSBT_QR_TOO_LARGE_MESSAGE);
+              return;
+            }
+            setSignedPsbtInput(scannedValue, "Signed PSBT QR scanned. Review and verify before broadcast.");
+            closeSignedScanner();
+          }
+        );
+        setSignedScannerMessage("Point the camera at a single-frame signed PSBT QR.");
+      } catch (error) {
+        setSignedScannerMessage(error instanceof Error ? error.message : "Unable to start signed PSBT QR scanner. Use paste or file upload.");
+      }
+    }
+
+    void startScanner();
+    return () => {
+      cancelled = true;
+      stopSignedScanner();
+    };
+  }, [signedScannerOpen]);
 
   async function handleVerify() {
     const trimmed = psbtInput.trim();
@@ -4043,6 +4105,63 @@ export function VerifyPsbtPanel({
     } catch (error) {
       setVerifyMessage(error instanceof Error ? error.message : "Failed to verify PSBT");
       setVerifyStatus("error");
+    }
+  }
+
+  function setSignedPsbtInput(value: string, message = "") {
+    setPsbtInput(value);
+    setVerifyResult(null);
+    setVerifyStatus("idle");
+    setVerifyMessage(message);
+    resetBroadcastConfirmation();
+  }
+
+  function openSignedScanner() {
+    setSignedImportMethod("qr");
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      setSignedScannerOpen(false);
+      setSignedScannerMessage(SIGNED_PSBT_CAMERA_FALLBACK_MESSAGE);
+      return;
+    }
+    setSignedScannerMessage("");
+    setSignedScannerOpen(true);
+  }
+
+  function closeSignedScanner() {
+    setSignedScannerOpen(false);
+    stopSignedScanner();
+  }
+
+  function stopSignedScanner() {
+    signedScannerControls.current?.stop();
+    signedScannerControls.current = null;
+    const stream = signedScannerVideo.current?.srcObject;
+    if (typeof MediaStream !== "undefined" && stream instanceof MediaStream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    if (signedScannerVideo.current) {
+      signedScannerVideo.current.srcObject = null;
+    }
+  }
+
+  async function importSignedPsbtFile(file: File | null) {
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      setVerifyMessage("Signed PSBT file is too large. Export a smaller PSBT text file.");
+      setVerifyStatus("error");
+      return;
+    }
+    try {
+      const text = await file.text();
+      setSignedPsbtInput(text.trim(), "Signed PSBT file loaded. Review and verify before broadcast.");
+      setSignedImportMethod("file");
+    } catch {
+      setVerifyMessage("Unable to read signed PSBT file. Use paste instead.");
+      setVerifyStatus("error");
+    } finally {
+      if (signedFileInput.current) {
+        signedFileInput.current.value = "";
+      }
     }
   }
 
@@ -4276,13 +4395,59 @@ export function VerifyPsbtPanel({
       </div>
 
       <div className="psbt-safety-notice muted">
-        Paste the signed PSBT returned by your cold wallet. This verifies the transaction details
+        Import the signed PSBT returned by your cold wallet. This verifies the transaction details
         without broadcasting. Never enter seed phrases or private keys here.
         Atlas cannot protect you from a compromised browser display, clipboard, or QR code.
         Compare outputs against your signer before any broadcast.
       </div>
 
       <div className="psbt-form">
+        <div className="button-row">
+          <button
+            className={signedImportMethod === "paste" ? "compact-button" : "secondary-button compact-button"}
+            type="button"
+            onClick={() => setSignedImportMethod("paste")}
+          >
+            Paste signed PSBT
+          </button>
+          <button
+            className={signedImportMethod === "file" ? "compact-button" : "secondary-button compact-button"}
+            type="button"
+            onClick={() => {
+              setSignedImportMethod("file");
+              signedFileInput.current?.click();
+            }}
+          >
+            Upload signed PSBT file
+          </button>
+          <button
+            className={signedImportMethod === "qr" ? "compact-button" : "secondary-button compact-button"}
+            type="button"
+            onClick={openSignedScanner}
+          >
+            Scan signed PSBT QR
+          </button>
+        </div>
+        <input
+          ref={signedFileInput}
+          type="file"
+          accept=".psbt,.txt,text/plain,application/octet-stream"
+          style={{ display: "none" }}
+          onChange={(event) => void importSignedPsbtFile(event.target.files?.[0] ?? null)}
+        />
+        {signedScannerMessage && !signedScannerOpen ? (
+          <div className="psbt-safety-notice muted">
+            <p>{signedScannerMessage}</p>
+            <div className="scanner-fallback-row">
+              <button className="secondary-button compact-button" type="button" onClick={() => setSignedImportMethod("paste")}>
+                Paste signed PSBT
+              </button>
+              <button className="secondary-button compact-button" type="button" onClick={() => signedFileInput.current?.click()}>
+                Upload signed PSBT file
+              </button>
+            </div>
+          </div>
+        ) : null}
         <label className="psbt-field">
           <span>Signed PSBT (base64)</span>
           <textarea
@@ -4290,7 +4455,7 @@ export function VerifyPsbtPanel({
             value={psbtInput}
             placeholder="cHNidP8B…"
             rows={4}
-            onChange={(e) => setPsbtInput(e.target.value)}
+            onChange={(e) => setSignedPsbtInput(e.target.value)}
             autoComplete="off"
             spellCheck={false}
           />
@@ -4360,12 +4525,40 @@ export function VerifyPsbtPanel({
           disabled={verifyStatus === "loading"}
           onClick={() => void handleVerify()}
         >
-                Cancel
-              </button>
+          {verifyStatus === "loading" ? "Verifying..." : "Verify signed PSBT"}
+        </button>
       </div>
 
       {verifyMessage ? (
         <p className="status-message">{verifyMessage}</p>
+      ) : null}
+
+      {signedScannerOpen ? (
+        <PortalModal ariaLabel="Scan signed PSBT QR" panelClassName="scanner-dialog" onClose={closeSignedScanner}>
+          <div className="wallet-card-header">
+            <h2>Scan signed PSBT QR</h2>
+          </div>
+          <p className="muted">
+            Scan a normal single-frame signed PSBT QR. Atlas will import it for verification only and will not broadcast automatically.
+          </p>
+          <video ref={signedScannerVideo} className="scanner-video" muted playsInline />
+          <div className="scanner-fallback-row">
+            <button className="secondary-button compact-button" type="button" onClick={closeSignedScanner}>
+              Use Paste fallback
+            </button>
+            <button
+              className="secondary-button compact-button"
+              type="button"
+              onClick={() => {
+                closeSignedScanner();
+                signedFileInput.current?.click();
+              }}
+            >
+              Use File fallback
+            </button>
+          </div>
+          {signedScannerMessage ? <p className="status-message">{signedScannerMessage}</p> : null}
+        </PortalModal>
       ) : null}
 
       {verifyResult && verifyStatus === "done" ? (
@@ -4381,6 +4574,18 @@ export function VerifyPsbtPanel({
 
           {/* Summary card */}
           <dl className="utxo-summary-grid">
+            <div>
+              <dt>wallet</dt>
+              <dd>{wallet.name}</dd>
+            </div>
+            <div>
+              <dt>wallet id</dt>
+              <dd>{wallet.id}</dd>
+            </div>
+            <div>
+              <dt>network</dt>
+              <dd>{wallet.network}</dd>
+            </div>
             <div>
               <dt>signing state</dt>
               <dd>{signingState}</dd>
@@ -4401,7 +4606,11 @@ export function VerifyPsbtPanel({
             ) : null}
             <div>
               <dt>fee rate</dt>
-              <dd className="muted">unavailable (vsize not calculated)</dd>
+              <dd>
+                {verifyResult.feeRateSatsPerVbyte !== null
+                  ? `${formatFeeRate(verifyResult.feeRateSatsPerVbyte)} sat/vB`
+                  : "unavailable"}
+              </dd>
             </div>
             <div>
               <dt>wallet inputs</dt>
@@ -4548,8 +4757,8 @@ export function VerifyPsbtPanel({
                   type="button"
                   onClick={() => void copyTxHex()}
                 >
-                Cancel
-              </button>
+                  {copiedTxHex ? "Copied txHex" : "Copy txHex"}
+                </button>
               </div>
             </div>
           ) : null}
@@ -4614,8 +4823,8 @@ export function VerifyPsbtPanel({
                     disabled={broadcastButtonDisabled}
                     onClick={() => void handleBroadcast()}
                   >
-                Cancel
-              </button>
+                    {broadcastLoading ? "Broadcasting..." : "Broadcast transaction"}
+                  </button>
                 </div>
               </>
             )}
@@ -4639,8 +4848,8 @@ export function VerifyPsbtPanel({
                 <p className="muted">Backend: Bitcoin Core</p>
                 <p className="muted psbt-change-addr">txid: {broadcastResult.txid}</p>
                 <button className="compact-button" type="button" onClick={() => void copyTxid()}>
-                Cancel
-              </button>
+                  {copiedTxid ? "Copied txid" : "Copy txid"}
+                </button>
               </div>
             ) : null}
           </div>
@@ -6139,6 +6348,7 @@ export function parseFeeRate(value: string): number | null {
   if (!/^\d+(\.\d+)?$/.test(trimmed)) {
     return null;
   }
+
   const feeRate = Number(trimmed);
   return Number.isFinite(feeRate) && feeRate > 0 && feeRate <= 1000 ? feeRate : null;
 }

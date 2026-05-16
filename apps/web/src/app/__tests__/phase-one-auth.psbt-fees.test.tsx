@@ -1,12 +1,16 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   copyTextToClipboard,
   feeEstimateSourceLabel,
   formatFeeRate,
+  isSignedPsbtSingleQrCandidate,
   mapSelectedUtxosForPsbt,
   parseFeeRate,
   resolveFeeEstimateUiState,
+  SIGNED_PSBT_CAMERA_FALLBACK_MESSAGE,
+  SIGNED_PSBT_QR_TOO_LARGE_MESSAGE,
   selectFeePresetRate,
   VerifyPsbtPanel
 } from "../phase-one-auth";
@@ -19,6 +23,89 @@ const feeEstimates = {
   hourFee: 8,
   minimumFee: 2
 };
+
+const signedVerifyResponse = {
+  checks: {
+    amountMatches: null,
+    changeAddressMatches: null,
+    feeMatches: null,
+    hasUnexpectedExternalOutputs: false,
+    hasWalletChange: true,
+    recipientMatches: null
+  },
+  errors: [],
+  extractable: true,
+  feeRateSatsPerVbyte: 5,
+  feeSats: 700,
+  finalizable: true,
+  inputs: [
+    {
+      address: "bc1qatlasutxo00000000000000000000000000000",
+      belongsToWallet: true,
+      txid: "1".repeat(64),
+      valueSats: 100000,
+      vout: 0
+    }
+  ],
+  outputs: [
+    {
+      address: "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+      belongsToWallet: false,
+      type: "recipient",
+      valueSats: 90000
+    },
+    {
+      address: "bc1qatlaschange000000000000000000000000000",
+      belongsToWallet: true,
+      type: "change",
+      valueSats: 9300
+    }
+  ],
+  signed: true,
+  status: "valid",
+  txHex: "02000000000100",
+  txid: "2".repeat(64),
+  vsize: 140,
+  warnings: []
+};
+
+function installVerifyFetch() {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/broadcast/core/status")) {
+      return jsonResponse({
+        backend: "core",
+        configured: true,
+        enabled: true,
+        message: "Bitcoin Core RPC broadcast is enabled.",
+        reachable: true
+      });
+    }
+    if (url.includes("/api/wallets/wallet-1/psbt/verify")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (body.psbtBase64 === "unsigned-psbt") {
+        return jsonResponse({
+          ...signedVerifyResponse,
+          errors: ["Unsigned PSBT submitted to signed PSBT import flow"],
+          extractable: false,
+          signed: false,
+          status: "invalid",
+          txHex: null
+        });
+      }
+      if (body.psbtBase64 === "invalid-psbt") {
+        return jsonResponse({ error: "Could not parse PSBT" }, 400);
+      }
+      return jsonResponse(signedVerifyResponse);
+    }
+    if (url.includes("/api/wallets/wallet-1/psbt/broadcast")) {
+      return jsonResponse({ backend: "core", status: "broadcasted", txid: "3".repeat(64) });
+    }
+    return jsonResponse({ error: "unexpected request" }, 500);
+  });
+  globalThis.fetch = fetchMock;
+  return fetchMock;
+}
 
 describe("PSBT and fee UI regression", () => {
   beforeEach(() => {
@@ -131,5 +218,94 @@ describe("PSBT and fee UI regression", () => {
     expect(screen.getByLabelText(/Signed PSBT/i)).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(document.body.querySelector(".portal-modal-root")).not.toBeInTheDocument();
+  });
+
+  it("verifies signed PSBT pasted text without broadcasting automatically", async () => {
+    const fetchMock = installVerifyFetch();
+    const user = userEvent.setup();
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+
+    await user.type(screen.getByLabelText(/Signed PSBT/i), "signed-psbt");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+
+    expect(await screen.findByText(/Verification result/i)).toBeInTheDocument();
+    expect(screen.getByText(/Coldcard Vault/)).toBeInTheDocument();
+    expect(screen.getByText(/5 sat\/vB/)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/psbt/broadcast"), expect.anything());
+  });
+
+  it("loads a signed PSBT file into the verification textarea", async () => {
+    installVerifyFetch();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["signed-file-psbt"], "signed.psbt", { type: "text/plain" });
+    await fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(screen.getByLabelText(/Signed PSBT/i)).toHaveValue("signed-file-psbt"));
+    expect(screen.getByText(/Signed PSBT file loaded/i)).toBeInTheDocument();
+  });
+
+  it("shows signed PSBT QR fallback on insecure LAN HTTP contexts", async () => {
+    installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+
+    expect(screen.getByText(SIGNED_PSBT_CAMERA_FALLBACK_MESSAGE)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Paste signed PSBT/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Upload signed PSBT file/i }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("dialog", { name: /Scan signed PSBT QR/i })).not.toBeInTheDocument();
+  });
+
+  it("opens and closes signed PSBT scanner modal in secure contexts", async () => {
+    installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+
+    expect(await screen.findByRole("dialog", { name: /Scan signed PSBT QR/i })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Close Scan signed PSBT QR/i }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Scan signed PSBT QR/i })).not.toBeInTheDocument());
+  });
+
+  it("rejects invalid and unsigned PSBTs in signed import flow", async () => {
+    installVerifyFetch();
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+
+    await user.type(screen.getByLabelText(/Signed PSBT/i), "invalid-psbt");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    expect(await screen.findByText(/Could not parse PSBT/i)).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText(/Signed PSBT/i));
+    await user.type(screen.getByLabelText(/Signed PSBT/i), "unsigned-psbt");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    expect(await screen.findByText(/Unsigned PSBT submitted/i)).toBeInTheDocument();
+  });
+
+  it("broadcast gate requires checkbox and typed BROADCAST", async () => {
+    installVerifyFetch();
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+
+    await user.type(screen.getByLabelText(/Signed PSBT/i), "signed-psbt");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    const broadcastButton = await screen.findByRole("button", { name: /Broadcast transaction/i });
+
+    expect(broadcastButton).toBeDisabled();
+    await user.click(screen.getByLabelText(/I verified the recipient/i));
+    expect(broadcastButton).toBeDisabled();
+    await user.type(screen.getByLabelText(/Type BROADCAST/i), "BROADCAST");
+    expect(broadcastButton).toBeEnabled();
+  });
+
+  it("detects oversized single-frame signed PSBT QR payloads", () => {
+    expect(isSignedPsbtSingleQrCandidate("cHNidP8B")).toBe(true);
+    expect(isSignedPsbtSingleQrCandidate("x".repeat(4000))).toBe(false);
+    expect(SIGNED_PSBT_QR_TOO_LARGE_MESSAGE).toMatch(/too large/i);
   });
 });

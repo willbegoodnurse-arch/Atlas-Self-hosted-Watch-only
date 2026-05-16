@@ -318,8 +318,8 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       headers,
       payload: { psbtBase64: unsignedPsbt }
     });
-    assert.equal(unsignedBroadcast.statusCode, 409);
-    assert.match(unsignedBroadcast.json().error, /warnings/i);
+    assert.equal(unsignedBroadcast.statusCode, 400);
+    assert.match(unsignedBroadcast.json().error, /invalid/i);
     assert.equal(rpcCalls.length, fetchCountAfterValid);
 
     const warningBroadcast = await server.inject({
