@@ -9,7 +9,7 @@ export type FeeEstimatePreset = {
   minimumFee: number | null;
 };
 
-export type FeeEstimateSource = "recommended" | "precise" | "projected-blocks";
+export type FeeEstimateSource = "recommended" | "precise" | "init-data" | "projected-blocks";
 
 export type FeeEstimateLookupAttempt = {
   path: string;
@@ -42,41 +42,11 @@ export function parseFeeEstimates(raw: unknown): FeeEstimatePreset | null {
   return hasAnyFee(estimates) && isRecommendedFeePresetConsistent(estimates) ? estimates : null;
 }
 
-export function parseMempoolBlockFeeEstimates(raw: unknown): FeeEstimatePreset | null {
-  if (!Array.isArray(raw)) {
+export function parseInitDataFeeEstimates(raw: unknown): FeeEstimatePreset | null {
+  if (typeof raw !== "object" || raw === null) {
     return null;
   }
-  const firstFeeRange = raw
-    .map(readFeeRange)
-    .find((range) => range.length > 0);
-
-  if (firstFeeRange) {
-    return derivePresetsFromFeeRange(firstFeeRange);
-  }
-
-  const medians = raw
-    .map((block) => {
-      if (typeof block !== "object" || block === null) {
-        return null;
-      }
-      return readFee((block as Record<string, unknown>).medianFee);
-    })
-    .filter((fee): fee is number => fee !== null);
-
-  if (medians.length === 0) {
-    return null;
-  }
-
-  const sortedDesc = [...medians].sort((a, b) => b - a);
-  const slowest = sortedDesc[sortedDesc.length - 1] ?? null;
-  const estimate = {
-    fastestFee: sortedDesc[0] ?? null,
-    halfHourFee: sortedDesc[1] ?? sortedDesc[0] ?? null,
-    hourFee: sortedDesc[2] ?? sortedDesc[1] ?? sortedDesc[0] ?? null,
-    economyFee: slowest,
-    minimumFee: slowest
-  };
-  return hasAnyFee(estimate) ? estimate : null;
+  return parseFeeEstimates((raw as Record<string, unknown>).fees);
 }
 
 export function parseProjectedMempoolFeeEstimates(
@@ -94,34 +64,8 @@ export function parseProjectedMempoolFeeEstimates(
   if (minimumFee === null) {
     return null;
   }
-  if (blocks.length === 0) {
-    return fillPreset(minimumFee);
-  }
 
-  const firstMedianFee = optimizeProjectedBlockMedianFee(blocks[0], blocks[1], null, minimumFee);
-  const secondMedianFee = blocks[1]
-    ? optimizeProjectedBlockMedianFee(blocks[1], blocks[2], firstMedianFee, minimumFee)
-    : minimumFee;
-  const thirdMedianFee = blocks[2]
-    ? optimizeProjectedBlockMedianFee(blocks[2], blocks[3], secondMedianFee, minimumFee)
-    : minimumFee;
-
-  let fastestFee = Math.max(minimumFee, firstMedianFee);
-  let halfHourFee = Math.max(minimumFee, secondMedianFee);
-  let hourFee = Math.max(minimumFee, thirdMedianFee);
-  const economyFee = Math.max(minimumFee, Math.min(2 * minimumFee, thirdMedianFee));
-
-  fastestFee = Math.max(fastestFee, halfHourFee, hourFee, economyFee);
-  halfHourFee = Math.max(halfHourFee, hourFee, economyFee);
-  hourFee = Math.max(hourFee, economyFee);
-
-  return {
-    fastestFee: roundFee(fastestFee),
-    halfHourFee: roundFee(halfHourFee),
-    hourFee: roundFee(hourFee),
-    economyFee: roundFee(economyFee),
-    minimumFee: roundFee(minimumFee)
-  };
+  return calculateMempoolUiFeeBuckets(blocks, minimumFee);
 }
 
 export async function lookupFeeEstimates(
@@ -158,7 +102,9 @@ export async function lookupFeeEstimateResult(
     { path: "/v1/fees/precise", parser: parseFeeEstimates, source: "precise" as const },
     { path: "/fees/precise", parser: parseFeeEstimates, source: "precise" as const },
     { path: "/v1/fees/recommended", parser: parseFeeEstimates, source: "recommended" as const },
-    { path: "/fees/recommended", parser: parseFeeEstimates, source: "recommended" as const }
+    { path: "/fees/recommended", parser: parseFeeEstimates, source: "recommended" as const },
+    { path: "/v1/init-data", parser: parseInitDataFeeEstimates, source: "init-data" as const },
+    { path: "/init-data", parser: parseInitDataFeeEstimates, source: "init-data" as const }
   ];
   const attempts: FeeEstimateLookupAttempt[] = [];
 
@@ -189,6 +135,19 @@ type ProjectedMempoolBlock = {
   medianFee: number;
   feeRange: number[];
 };
+
+type CompleteFeeEstimatePreset = {
+  fastestFee: number;
+  halfHourFee: number;
+  hourFee: number;
+  economyFee: number;
+  minimumFee: number;
+};
+
+const PRECISE_MIN_INCREMENT = 0.001;
+const PRECISE_PRIORITY_FACTOR = 0.5;
+const PRECISE_MIN_FASTEST_FEE = 1;
+const PRECISE_MIN_HALF_HOUR_FEE = 0.5;
 
 function readFee(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
@@ -225,30 +184,6 @@ function parseProjectedMempoolBlock(block: unknown): ProjectedMempoolBlock | nul
   };
 }
 
-function derivePresetsFromFeeRange(feeRange: number[]): FeeEstimatePreset | null {
-  const unique = [...new Set(feeRange)].sort((a, b) => a - b);
-  if (unique.length === 0) {
-    return null;
-  }
-
-  const estimates = {
-    fastestFee: unique[unique.length - 1] ?? null,
-    halfHourFee: quantileFee(unique, 0.66),
-    hourFee: quantileFee(unique, 0.5),
-    economyFee: quantileFee(unique, 0.25),
-    minimumFee: unique[0] ?? null
-  };
-  return hasAnyFee(estimates) ? estimates : null;
-}
-
-function quantileFee(sortedAsc: number[], quantile: number): number | null {
-  if (sortedAsc.length === 0) {
-    return null;
-  }
-  const index = Math.min(sortedAsc.length - 1, Math.max(0, Math.round((sortedAsc.length - 1) * quantile)));
-  return sortedAsc[index] ?? null;
-}
-
 function readNonNegativeNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
@@ -259,10 +194,10 @@ function readMempoolMinimumFee(raw: unknown): number | null {
   }
   const value = raw as Record<string, unknown>;
   const minimumBtcPerKvbyte = readNonNegativeNumber(value.mempoolminfee);
-  if (minimumBtcPerKvbyte === null || minimumBtcPerKvbyte <= 0) {
+  if (minimumBtcPerKvbyte === null) {
     return null;
   }
-  return roundFee(minimumBtcPerKvbyte * 100_000);
+  return Math.max(roundUpToNearest(minimumBtcPerKvbyte * 100_000, PRECISE_MIN_INCREMENT), PRECISE_MIN_INCREMENT);
 }
 
 function readMinimumFeeFromBlocks(blocks: ProjectedMempoolBlock[]): number | null {
@@ -270,16 +205,56 @@ function readMinimumFeeFromBlocks(blocks: ProjectedMempoolBlock[]): number | nul
     .flatMap((block) => block.feeRange)
     .filter((fee) => fee > 0)
     .sort((a, b) => a - b);
-  return fees[0] ?? null;
+  const minimumFee = fees[0] ?? null;
+  return minimumFee === null ? null : Math.max(roundUpToNearest(minimumFee, PRECISE_MIN_INCREMENT), PRECISE_MIN_INCREMENT);
 }
 
-function fillPreset(fee: number): FeeEstimatePreset {
+function calculateMempoolUiFeeBuckets(blocks: ProjectedMempoolBlock[], minimumFee: number): CompleteFeeEstimatePreset {
+  const recommendations = calculateMempoolRecommendedFees(blocks, minimumFee);
+
   return {
-    fastestFee: fee,
-    halfHourFee: fee,
-    hourFee: fee,
-    economyFee: fee,
-    minimumFee: fee
+    fastestFee: roundFee(Math.max(recommendations.fastestFee + PRECISE_PRIORITY_FACTOR, PRECISE_MIN_FASTEST_FEE)),
+    halfHourFee: roundFee(Math.max(recommendations.halfHourFee + (PRECISE_PRIORITY_FACTOR / 2), PRECISE_MIN_HALF_HOUR_FEE)),
+    hourFee: roundFee(recommendations.hourFee),
+    economyFee: roundFee(recommendations.economyFee),
+    minimumFee: roundFee(recommendations.minimumFee)
+  };
+}
+
+function calculateMempoolRecommendedFees(blocks: ProjectedMempoolBlock[], minimumFee: number): CompleteFeeEstimatePreset {
+  if (blocks.length === 0) {
+    return {
+      fastestFee: minimumFee,
+      halfHourFee: minimumFee,
+      hourFee: minimumFee,
+      economyFee: minimumFee,
+      minimumFee
+    };
+  }
+
+  const firstMedianFee = optimizeProjectedBlockMedianFee(blocks[0], blocks[1], null, minimumFee);
+  const secondMedianFee = blocks[1]
+    ? optimizeProjectedBlockMedianFee(blocks[1], blocks[2], firstMedianFee, minimumFee)
+    : minimumFee;
+  const thirdMedianFee = blocks[2]
+    ? optimizeProjectedBlockMedianFee(blocks[2], blocks[3], secondMedianFee, minimumFee)
+    : minimumFee;
+
+  let fastestFee = Math.max(minimumFee, firstMedianFee);
+  let halfHourFee = Math.max(minimumFee, secondMedianFee);
+  let hourFee = Math.max(minimumFee, thirdMedianFee);
+  const economyFee = Math.max(minimumFee, Math.min(2 * minimumFee, thirdMedianFee));
+
+  fastestFee = Math.max(fastestFee, halfHourFee, hourFee, economyFee);
+  halfHourFee = Math.max(halfHourFee, hourFee, economyFee);
+  hourFee = Math.max(hourFee, economyFee);
+
+  return {
+    fastestFee: roundToNearest(fastestFee, PRECISE_MIN_INCREMENT),
+    halfHourFee: roundToNearest(halfHourFee, PRECISE_MIN_INCREMENT),
+    hourFee: roundToNearest(hourFee, PRECISE_MIN_INCREMENT),
+    economyFee: roundToNearest(economyFee, PRECISE_MIN_INCREMENT),
+    minimumFee: roundToNearest(minimumFee, PRECISE_MIN_INCREMENT)
   };
 }
 
@@ -298,13 +273,27 @@ function optimizeProjectedBlockMedianFee(
   }
   if (block.blockVSize <= 950_000 && !nextBlock) {
     const multiplier = (block.blockVSize - 500_000) / 500_000;
-    return Math.max(roundFee(useFee * multiplier), minimumFee);
+    return Math.max(roundToNearest(useFee * multiplier, PRECISE_MIN_INCREMENT), minimumFee);
   }
-  return Math.max(roundFee(useFee), minimumFee);
+  return Math.max(roundUpToNearest(useFee, PRECISE_MIN_INCREMENT), minimumFee);
 }
 
 function roundFee(value: number): number {
   return Math.round((value + Number.EPSILON) * 1000) / 1000;
+}
+
+function roundUpToNearest(value: number, nearest: number): number {
+  if (nearest === 0) {
+    return value;
+  }
+  return Math.ceil(value / nearest) * nearest;
+}
+
+function roundToNearest(value: number, nearest: number): number {
+  if (nearest === 0) {
+    return value;
+  }
+  return Math.round(value / nearest) * nearest;
 }
 
 function isRecommendedFeePresetConsistent(estimates: FeeEstimatePreset): boolean {

@@ -343,7 +343,7 @@ export type FeeEstimatesResponse = {
     economyFee: number | null;
     minimumFee: number | null;
   } | null;
-  source?: "recommended" | "precise" | "projected-blocks" | null;
+  source?: "recommended" | "precise" | "init-data" | "projected-blocks" | null;
   diagnostic?: string | null;
   error?: string;
 };
@@ -389,7 +389,7 @@ export function selectFeePresetRate(
   if (kind === "medium") {
     return estimates.halfHourFee ?? estimates.hourFee;
   }
-  return estimates.economyFee ?? estimates.minimumFee ?? estimates.hourFee;
+  return estimates.hourFee ?? estimates.economyFee ?? estimates.minimumFee;
 }
 
 export function formatFeeRate(value: number | null | undefined): string {
@@ -405,7 +405,7 @@ export function formatFeeRate(value: number | null | undefined): string {
 }
 
 export function feeEstimateSourceLabel(source: FeeEstimatesResponse["source"]): string {
-  if (source === "recommended" || source === "precise" || source === "projected-blocks") {
+  if (source === "recommended" || source === "precise" || source === "init-data" || source === "projected-blocks") {
     return "Local mempool estimate";
   }
   return "Local mempool unavailable - manual entry required";

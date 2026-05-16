@@ -75,13 +75,15 @@ describe("PSBT and fee UI regression", () => {
   it("maps fee presets to high medium and low priorities", () => {
     expect(selectFeePresetRate(feeEstimates, "fastest")).toBe(18);
     expect(selectFeePresetRate(feeEstimates, "medium")).toBe(12);
-    expect(selectFeePresetRate(feeEstimates, "slow")).toBe(4);
-    expect(selectFeePresetRate({ ...feeEstimates, economyFee: null }, "slow")).toBe(2);
+    expect(selectFeePresetRate(feeEstimates, "slow")).toBe(8);
+    expect(selectFeePresetRate({ ...feeEstimates, hourFee: null }, "slow")).toBe(4);
+    expect(selectFeePresetRate({ ...feeEstimates, hourFee: null, economyFee: null }, "slow")).toBe(2);
   });
 
   it("labels fee estimate sources without implying public fallback", () => {
     expect(feeEstimateSourceLabel("recommended")).toBe("Local mempool estimate");
     expect(feeEstimateSourceLabel("precise")).toBe("Local mempool estimate");
+    expect(feeEstimateSourceLabel("init-data")).toBe("Local mempool estimate");
     expect(feeEstimateSourceLabel("projected-blocks")).toBe("Local mempool estimate");
     expect(feeEstimateSourceLabel(null)).toBe("Local mempool unavailable - manual entry required");
   });

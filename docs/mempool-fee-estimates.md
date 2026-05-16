@@ -22,6 +22,8 @@ curl --max-time 10 http://127.0.0.1:8080/api/fees/precise
 curl --max-time 10 http://127.0.0.1:8080/api/v1/fees/precise
 curl --max-time 10 http://127.0.0.1:8080/api/fees/recommended
 curl --max-time 10 http://127.0.0.1:8080/api/v1/fees/recommended
+curl --max-time 10 http://127.0.0.1:8080/api/init-data
+curl --max-time 10 http://127.0.0.1:8080/api/v1/init-data
 curl --max-time 10 http://127.0.0.1:8080/api/v1/fees/mempool-blocks
 curl --max-time 10 http://127.0.0.1:8080/api/mempool
 curl --max-time 10 http://127.0.0.1:3011/api/status/mempool
@@ -31,8 +33,9 @@ Expected:
 
 - `/api/blocks/tip/height` returns a block height.
 - At least one mempool-based fee source returns JSON with fee data.
-- If precise/recommended endpoints return `Service Unavailable`, Atlas can derive presets from current projected mempool blocks plus current mempool minimum fee.
-- `/api/v1/fees/mempool-blocks` is current projected mempool data. Atlas must not treat its medians as direct presets; sparse blocks are adjusted down.
+- If precise/recommended endpoints return `Service Unavailable`, Atlas first checks `init-data` for the same `fees` object the mempool frontend receives.
+- If only projected data is available, Atlas derives presets from current projected mempool blocks plus current mempool minimum fee using mempool's precise bucket calculation.
+- `/api/v1/fees/mempool-blocks` is current projected mempool data. Atlas must not treat its medians or fee ranges as direct presets; sparse blocks are adjusted down before High/Fastest, Medium, Low, and No Priority buckets are assigned.
 
 ## Atlas Behavior
 
@@ -42,10 +45,12 @@ Atlas tries these local paths in order:
 2. `/api/fees/precise`
 3. `/api/v1/fees/recommended`
 4. `/api/fees/recommended`
-5. `/api/v1/fees/mempool-blocks` plus `/api/mempool`
-6. `/api/fees/mempool-blocks` plus `/api/v1/mempool`
+5. `/api/v1/init-data`
+6. `/api/init-data`
+7. `/api/v1/fees/mempool-blocks` plus `/api/mempool`
+8. `/api/fees/mempool-blocks` plus `/api/v1/mempool`
 
-If precise/recommended endpoints fail but projected mempool blocks work, Atlas marks the source as `projected-blocks` and labels it as a local mempool estimate. The calculation adjusts down when projected blocks are not full so old high medians do not become misleading Fastest presets.
+If `init-data` works, Atlas marks the source as `init-data` and uses the frontend fee buckets directly. If precise/recommended/init-data fail but projected mempool blocks work, Atlas marks the source as `projected-blocks` and labels it as a local mempool estimate. The calculation mirrors mempool's precise fee buckets: High/Fastest from `fastestFee`, Medium from `halfHourFee`, Low/Slow from `hourFee`, and No Priority from `economyFee`. Sparse projected blocks are adjusted down so old high medians do not become misleading Fastest presets.
 
 If all local fee sources fail, Atlas returns:
 
