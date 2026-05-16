@@ -567,7 +567,7 @@ function pruneExpiredCache(): void {
 }
 
 function debugMempoolLookup(event: string, details: Record<string, unknown>): void {
-  if (!isDevelopmentMode()) {
+  if (!isMempoolDebugEnabled()) {
     return;
   }
 
@@ -577,12 +577,13 @@ function debugMempoolLookup(event: string, details: Record<string, unknown>): vo
   });
 }
 
-function isDevelopmentMode(): boolean {
+export function isMempoolDebugEnabled(): boolean {
   return (
     process.env.MEMPOOL_DEBUG === "true" ||
     process.env.API_DEBUG === "true" ||
+    process.env.NODE_ENV === "development" ||
     process.env.npm_lifecycle_event === "dev" ||
-    process.env.NODE_ENV !== "production"
+    process.env.npm_lifecycle_event === "dev:api"
   );
 }
 

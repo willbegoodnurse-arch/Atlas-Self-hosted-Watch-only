@@ -25,6 +25,24 @@ test("parseFeeEstimates reads mempool recommended fee payload", () => {
   });
 });
 
+test("parseFeeEstimates corrects out-of-order recommended fee payloads", () => {
+  const parsed = parseFeeEstimates({
+    fastestFee: 0.4,
+    halfHourFee: 2,
+    hourFee: 3,
+    economyFee: 0.9,
+    minimumFee: 0.4
+  });
+
+  assert.deepEqual(parsed, {
+    fastestFee: 3,
+    halfHourFee: 2,
+    hourFee: 2,
+    economyFee: 0.9,
+    minimumFee: 0.4
+  });
+});
+
 test("lookupFeeEstimates returns null when backend is unavailable", async () => {
   const parsed = await lookupFeeEstimates({
     fetchFeesFn: async () => {
@@ -96,6 +114,38 @@ test("parseMempoolBlockFeeEstimates derives conservative presets from block medi
     hourFee: 3,
     economyFee: 1.5,
     minimumFee: 1.5
+  });
+});
+
+test("parseMempoolBlockFeeEstimates maps feeRange to high medium and slow priorities", () => {
+  const parsed = parseMempoolBlockFeeEstimates([
+    { feeRange: [0.3872355683040517, 0.9, 2, 3], medianFee: 0.3872355683040517 },
+    { feeRange: [0.3, 0.7, 1.2], medianFee: 0.3 }
+  ]);
+
+  assert.deepEqual(parsed, {
+    fastestFee: 3,
+    halfHourFee: 2,
+    hourFee: 2,
+    economyFee: 0.9,
+    minimumFee: 0.3872355683040517
+  });
+});
+
+test("parseMempoolBlockFeeEstimates sorts block medians before assigning presets", () => {
+  const parsed = parseMempoolBlockFeeEstimates([
+    { medianFee: 0.3872355683040517 },
+    { medianFee: 0.9 },
+    { medianFee: 2 },
+    { medianFee: 3 }
+  ]);
+
+  assert.deepEqual(parsed, {
+    fastestFee: 3,
+    halfHourFee: 2,
+    hourFee: 0.9,
+    economyFee: 0.3872355683040517,
+    minimumFee: 0.3872355683040517
   });
 });
 

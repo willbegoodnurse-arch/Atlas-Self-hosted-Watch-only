@@ -65,11 +65,22 @@ assert_repo_shape() {
 }
 
 assert_clean_worktree() {
+  local context="${1:-before deployment}"
   git update-index -q --refresh
   if ! git diff --quiet || ! git diff --cached --quiet || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
-    printf '\nGit worktree is dirty. Refusing to pull, build, or restart services.\n' >&2
+    printf '\nGit worktree is dirty %s. Refusing to continue or restart services.\n' "${context}" >&2
     printf 'Changed files:\n' >&2
     git status --short >&2
+    if ! git diff --quiet -- package-lock.json || ! git diff --cached --quiet -- package-lock.json; then
+      cat >&2 <<'EOF'
+
+package-lock.json changed during deploy. Atlas does not auto-reset lockfile drift because
+that could discard real user or release changes. This usually means the dependency install
+step exposed npm/package-lock drift, or package.json and
+package-lock.json are not in sync. Review the lockfile diff, restore or commit it manually,
+then rerun deploy.
+EOF
+    fi
     exit 1
   fi
 }
@@ -80,7 +91,7 @@ log "Atlas Raspberry Pi deploy"
 printf 'Repository: %s\n' "${REPO_ROOT}"
 
 assert_repo_shape
-assert_clean_worktree
+assert_clean_worktree "before deployment"
 
 PREVIOUS_COMMIT="$(git rev-parse HEAD)"
 run_step "Pull latest commits with fast-forward only" git pull --ff-only
@@ -89,8 +100,8 @@ NEW_COMMIT="$(git rev-parse HEAD)"
 printf '\nPrevious commit: %s\n' "${PREVIOUS_COMMIT}"
 printf 'New commit:      %s\n' "${NEW_COMMIT}"
 
-run_step "Install dependencies without deleting node_modules" npm install
-assert_clean_worktree
+run_step "Install locked dependencies" npm ci --include=dev
+assert_clean_worktree "after dependency install"
 
 run_step "Build Bitcoin package" npm run build --workspace=packages/bitcoin
 run_step "Build Atlas API" npm run build --workspace=apps/api

@@ -1,8 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  copyTextToClipboard,
+  feeEstimateSourceLabel,
+  formatFeeRate,
   mapSelectedUtxosForPsbt,
+  parseFeeRate,
   resolveFeeEstimateUiState,
+  selectFeePresetRate,
   VerifyPsbtPanel
 } from "../phase-one-auth";
 import { jsonResponse, makeUtxo, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
@@ -65,6 +70,44 @@ describe("PSBT and fee UI regression", () => {
       { txid: "1".repeat(64), vout: 0 },
       { txid: "2".repeat(64), vout: 1 }
     ]);
+  });
+
+  it("maps fee presets to high medium and low priorities", () => {
+    expect(selectFeePresetRate(feeEstimates, "fastest")).toBe(18);
+    expect(selectFeePresetRate(feeEstimates, "medium")).toBe(12);
+    expect(selectFeePresetRate(feeEstimates, "slow")).toBe(4);
+    expect(selectFeePresetRate({ ...feeEstimates, economyFee: null }, "slow")).toBe(2);
+  });
+
+  it("labels fee estimate sources without implying public fallback", () => {
+    expect(feeEstimateSourceLabel("recommended")).toBe("recommended mempool estimate");
+    expect(feeEstimateSourceLabel("mempool-blocks")).toBe("local mempool block estimate");
+  });
+
+  it("formats fee rates without leaking raw float precision", () => {
+    expect(formatFeeRate(0.3872355683040517)).toBe("0.39");
+    expect(formatFeeRate(0.4)).toBe("0.4");
+    expect(formatFeeRate(1)).toBe("1");
+    expect(formatFeeRate(1.5)).toBe("1.5");
+    expect(formatFeeRate(2.25)).toBe("2.25");
+  });
+
+  it("keeps sub-1 sat/vB fee input valid", () => {
+    expect(parseFeeRate("0.39")).toBe(0.39);
+    expect(parseFeeRate("0")).toBeNull();
+    expect(parseFeeRate("1001")).toBeNull();
+  });
+
+  it("falls back to textarea copy when Clipboard API is unavailable on LAN HTTP", async () => {
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(document, "execCommand", { configurable: true, value: execCommand });
+
+    await expect(copyTextToClipboard("bc1qatlasreceive000000000000000000000000000")).resolves.toBe("fallback");
+
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(document.querySelector("textarea")).toBeNull();
   });
 
   it("keeps signed PSBT paste verification inline", () => {

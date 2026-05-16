@@ -393,6 +393,19 @@ test("createWalletPsbt: accepts decimal sat/vB fee rates", async () => {
   assert.equal(result.feeSats, Math.ceil(result.estimatedVbytes * 1.5));
 });
 
+test("createWalletPsbt: accepts sub-1 sat/vB fee rates", async () => {
+  const fetchFn = makeFetchFn({ [receiveAddr0]: [confirmedUtxo50k] });
+
+  const result = await createWalletPsbt(
+    baseWallet,
+    { recipientAddress: externalRecipient, amountSats: 10000, feeRateSatsPerVbyte: 0.39 },
+    { fetchUtxosFn: fetchFn, fetchAddressStatsFn: allUnusedStatsFn }
+  );
+
+  assert.equal(result.feeRateSatsPerVbyte, 0.39);
+  assert.equal(result.feeSats, Math.ceil(result.estimatedVbytes * 0.39));
+});
+
 test("createWalletPsbt: throws InvalidPsbtParamsError for fee rate > 1000", async () => {
   await assert.rejects(
     () =>

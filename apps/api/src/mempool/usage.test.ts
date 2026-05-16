@@ -5,6 +5,7 @@ import {
   checkMempoolHealth,
   classifyMempoolAddressStats,
   discoverNextUnusedReceiveAddress,
+  isMempoolDebugEnabled,
   lookupAddressBalanceRecords,
   lookupAddressUsageRecords,
   selectNextUnusedReceiveAddress,
@@ -159,6 +160,37 @@ test("mempool health includes checkedAt and latencyMs", async () => {
   assert.equal(typeof result.latencyMs, "number");
   assert.ok(result.latencyMs >= 0);
 });
+
+test("mempool lookup debug logging is disabled by default outside explicit debug mode", () => {
+  const previous = {
+    API_DEBUG: process.env.API_DEBUG,
+    MEMPOOL_DEBUG: process.env.MEMPOOL_DEBUG,
+    NODE_ENV: process.env.NODE_ENV,
+    npm_lifecycle_event: process.env.npm_lifecycle_event
+  };
+  delete process.env.API_DEBUG;
+  delete process.env.MEMPOOL_DEBUG;
+  delete process.env.NODE_ENV;
+  delete process.env.npm_lifecycle_event;
+
+  try {
+    assert.equal(isMempoolDebugEnabled(), false);
+    process.env.MEMPOOL_DEBUG = "true";
+    assert.equal(isMempoolDebugEnabled(), true);
+  } finally {
+    restoreEnv(previous);
+  }
+});
+
+function restoreEnv(values: Record<string, string | undefined>): void {
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
 
 test("marks individual address lookup failures as unknown without throwing", async () => {
   const result = await lookupAddressUsageRecords(

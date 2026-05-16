@@ -32,13 +32,13 @@ export function parseFeeEstimates(raw: unknown): FeeEstimatePreset | null {
     return null;
   }
   const value = raw as Record<string, unknown>;
-  const estimates = {
+  const estimates = normalizeFeePresetOrder({
     fastestFee: readFee(value.fastestFee),
     halfHourFee: readFee(value.halfHourFee),
     hourFee: readFee(value.hourFee),
     economyFee: readFee(value.economyFee),
     minimumFee: readFee(value.minimumFee)
-  };
+  });
   return hasAnyFee(estimates) ? estimates : null;
 }
 
@@ -46,6 +46,14 @@ export function parseMempoolBlockFeeEstimates(raw: unknown): FeeEstimatePreset |
   if (!Array.isArray(raw)) {
     return null;
   }
+  const firstFeeRange = raw
+    .map(readFeeRange)
+    .find((range) => range.length > 0);
+
+  if (firstFeeRange) {
+    return derivePresetsFromFeeRange(firstFeeRange);
+  }
+
   const medians = raw
     .map((block) => {
       if (typeof block !== "object" || block === null) {
@@ -59,13 +67,14 @@ export function parseMempoolBlockFeeEstimates(raw: unknown): FeeEstimatePreset |
     return null;
   }
 
-  const sorted = [...medians].sort((a, b) => a - b);
+  const sortedDesc = [...medians].sort((a, b) => b - a);
+  const slowest = sortedDesc[sortedDesc.length - 1] ?? null;
   const estimate = {
-    fastestFee: medians[0] ?? null,
-    halfHourFee: medians[1] ?? medians[0] ?? null,
-    hourFee: medians[2] ?? medians[medians.length - 1] ?? null,
-    economyFee: medians[medians.length - 1] ?? null,
-    minimumFee: sorted[0] ?? null
+    fastestFee: sortedDesc[0] ?? null,
+    halfHourFee: sortedDesc[1] ?? sortedDesc[0] ?? null,
+    hourFee: sortedDesc[2] ?? sortedDesc[1] ?? sortedDesc[0] ?? null,
+    economyFee: slowest,
+    minimumFee: slowest
   };
   return hasAnyFee(estimate) ? estimate : null;
 }
@@ -126,6 +135,65 @@ export async function lookupFeeEstimateResult(
 
 function readFee(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function readFeeRange(block: unknown): number[] {
+  if (typeof block !== "object" || block === null) {
+    return [];
+  }
+  const feeRange = (block as Record<string, unknown>).feeRange;
+  if (!Array.isArray(feeRange)) {
+    return [];
+  }
+  return feeRange
+    .map(readFee)
+    .filter((fee): fee is number => fee !== null)
+    .sort((a, b) => a - b);
+}
+
+function derivePresetsFromFeeRange(feeRange: number[]): FeeEstimatePreset | null {
+  const unique = [...new Set(feeRange)].sort((a, b) => a - b);
+  if (unique.length === 0) {
+    return null;
+  }
+
+  const estimates = {
+    fastestFee: unique[unique.length - 1] ?? null,
+    halfHourFee: quantileFee(unique, 0.66),
+    hourFee: quantileFee(unique, 0.5),
+    economyFee: quantileFee(unique, 0.25),
+    minimumFee: unique[0] ?? null
+  };
+  return hasAnyFee(estimates) ? estimates : null;
+}
+
+function quantileFee(sortedAsc: number[], quantile: number): number | null {
+  if (sortedAsc.length === 0) {
+    return null;
+  }
+  const index = Math.min(sortedAsc.length - 1, Math.max(0, Math.round((sortedAsc.length - 1) * quantile)));
+  return sortedAsc[index] ?? null;
+}
+
+function normalizeFeePresetOrder(estimates: FeeEstimatePreset): FeeEstimatePreset {
+  const values = [
+    estimates.fastestFee,
+    estimates.halfHourFee,
+    estimates.hourFee,
+    estimates.economyFee,
+    estimates.minimumFee
+  ].filter((fee): fee is number => fee !== null);
+
+  if (values.length < 2) {
+    return estimates;
+  }
+
+  const monotonic = values.every((fee, index) => index === 0 || values[index - 1]! >= fee);
+  if (monotonic) {
+    return estimates;
+  }
+
+  return derivePresetsFromFeeRange(values) ?? estimates;
 }
 
 function hasAnyFee(estimates: FeeEstimatePreset): boolean {

@@ -376,6 +376,71 @@ export function mapSelectedUtxosForPsbt(
     : undefined;
 }
 
+export function selectFeePresetRate(
+  estimates: FeeEstimatesResponse["estimates"] | null,
+  kind: "fastest" | "medium" | "slow"
+): number | null {
+  if (!estimates) {
+    return null;
+  }
+  if (kind === "fastest") {
+    return estimates.fastestFee;
+  }
+  if (kind === "medium") {
+    return estimates.halfHourFee ?? estimates.hourFee;
+  }
+  return estimates.economyFee ?? estimates.minimumFee ?? estimates.hourFee;
+}
+
+export function formatFeeRate(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "";
+  }
+  const rounded = Math.round((value + Number.EPSILON) * 100) / 100;
+  return rounded.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    useGrouping: false
+  });
+}
+
+export function feeEstimateSourceLabel(source: FeeEstimatesResponse["source"]): string {
+  if (source === "mempool-blocks") {
+    return "local mempool block estimate";
+  }
+  if (source === "recommended") {
+    return "recommended mempool estimate";
+  }
+  return "live mempool estimate";
+}
+
+export async function copyTextToClipboard(text: string): Promise<"clipboard" | "fallback"> {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return "clipboard";
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  try {
+    if (!document.execCommand?.("copy")) {
+      throw new Error("copy command rejected");
+    }
+    return "fallback";
+  } finally {
+    textarea.remove();
+  }
+}
+
 type VerifyPsbtResponse = {
   status: "valid" | "warning" | "invalid";
   signed: boolean;
@@ -942,6 +1007,7 @@ function AppSidebar({ initialWalletId }: { initialWalletId?: string | null }) {
     <aside className="app-sidebar" aria-label="Navigation">
       <nav className="sidebar-nav">
         <a href="/">Dashboard</a>
+        <a href="/#import-wallet">Import wallet</a>
         <a href={`${walletHref}#settings`}>Settings</a>
       </nav>
     </aside>
@@ -1336,6 +1402,11 @@ function DashboardBalanceHero({
             {balanceState === "loading" ? "Syncing..." : formatBalance(totalBalanceSats ?? 0, "btc")}
           </p>
           {statusText ? <p className="muted">{statusText}</p> : null}
+        </div>
+        <div className="hero-actions">
+          <a className="primary-link-button compact-button" href="#import-wallet">
+            Import wallet
+          </a>
         </div>
       </div>
     </section>
@@ -1740,8 +1811,8 @@ function WalletCreateForm({
   }
 
   return (
-    <form className="form-stack vault-section" onSubmit={handleSubmit}>
-      <h2>Register watch-only wallet</h2>
+    <form id="import-wallet" className="form-stack vault-section" onSubmit={handleSubmit}>
+      <h2>Import watch-only wallet</h2>
       {!vaultUnlocked ? (
         <p className="status-message">Vault is locked. Unlock the vault before saving a wallet.</p>
       ) : null}
@@ -1820,8 +1891,8 @@ function WalletCreateForm({
       </div>
       <p className="muted">
         Camera QR scanning requires HTTPS or localhost. LAN HTTP addresses such as
-        http://172.30.x.x may be blocked by Brave/Chrome. Text PSBT and watch-only
-        import/export remain available.
+        http://172.30.x.x may be blocked by Brave/Chrome. Paste xpub/zpub text,
+        descriptors, JSON/UR watch-only exports, or use file import instead.
       </p>
       <label>
         <span className="field-header">
@@ -1976,7 +2047,7 @@ function WalletCreateForm({
           </div>
           <p className="muted">
             Camera QR scanning requires HTTPS or localhost. If camera access is blocked,
-            paste the watch-only export text or import a file instead.
+            paste xpub/zpub text, a descriptor, or a watch-only export file instead.
           </p>
           <div className="scanner-fallback-row">
             <button
@@ -2032,11 +2103,11 @@ function getCameraUnavailableMessage(): string | null {
   }
 
   if (!window.isSecureContext) {
-    return "Camera scanning requires a secure browser context. Use HTTPS, localhost, or a trusted tunnel such as Tailscale Serve. You can still paste PSBT or watch-only export text manually.";
+    return "Camera scanning requires a secure browser context. Use HTTPS, localhost, or a trusted tunnel such as Tailscale Serve. You can still paste xpub/zpub text, descriptors, or watch-only export text manually.";
   }
 
   if (!navigator.mediaDevices?.getUserMedia) {
-    return "Camera access is not available in this browser. Use text import/export or open Atlas over HTTPS/localhost.";
+    return "Camera access is not available in this browser. Use Paste/File import for xpub/zpub text, descriptors, or watch-only exports, or open Atlas over HTTPS/localhost.";
   }
 
   return null;
@@ -2046,18 +2117,18 @@ function getCameraStartErrorMessage(error: unknown): string {
   const name = error instanceof DOMException || error instanceof Error ? error.name : "";
 
   if (name === "NotAllowedError" || name === "SecurityError") {
-    return "Camera permission was denied. Allow camera access in the browser site settings, or use text import/export.";
+    return "Camera permission was denied. Allow camera access in the browser site settings, or use Paste/File import for xpub/zpub text, descriptors, or watch-only exports.";
   }
 
   if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-    return "No camera device was found. Use text import/export.";
+    return "No camera device was found. Use Paste/File import for xpub/zpub text, descriptors, or watch-only exports.";
   }
 
   if (name === "NotReadableError" || name === "TrackStartError") {
-    return "The camera is already in use or could not be started. Close other camera apps or use text import/export.";
+    return "The camera is already in use or could not be started. Close other camera apps or use Paste/File import.";
   }
 
-  return error instanceof Error ? error.message : "Unable to start QR scanner. Use text import/export.";
+  return error instanceof Error ? error.message : "Unable to start QR scanner. Use Paste/File import.";
 }
 
 const sourceDeviceOptions: Array<{ value: SourceDevice; label: string }> = [
@@ -2106,7 +2177,10 @@ function WalletList({
     return (
       <div id="wallets" className="terminal-panel empty-state">
         <p className="terminal-heading">No wallets yet</p>
-        <p className="muted">Register an xpub, ypub, or zpub to begin watch-only monitoring.</p>
+        <p className="muted">Import an xpub, zpub, descriptor, or watch-only export to begin monitoring.</p>
+        <a className="primary-link-button compact-button" href="#import-wallet">
+          Import wallet
+        </a>
       </div>
     );
   }
@@ -2657,7 +2731,7 @@ export function WalletIdentityPanel({
       return;
     }
     try {
-      await navigator.clipboard.writeText(firstReceive.address);
+      await copyTextToClipboard(firstReceive.address);
       setCopyMessage("First receive address copied.");
       setTimeout(() => setCopyMessage(""), 2000);
     } catch {
@@ -3277,6 +3351,7 @@ export function CreatePsbtBuilderPanel({
   const [feeRateInput, setFeeRateInput] = useState("5");
   const [feeEstimates, setFeeEstimates] = useState<FeeEstimatesResponse["estimates"] | null>(null);
   const [feeEstimateMessage, setFeeEstimateMessage] = useState("");
+  const [feeEstimateSourceKind, setFeeEstimateSourceKind] = useState<FeeEstimatesResponse["source"]>(null);
   const [feePresetSource, setFeePresetSource] = useState<"Custom" | "Fastest" | "Medium" | "Slow">("Custom");
   const [addressLimit, setAddressLimit] = useState(20);
   const [psbtResult, setPsbtResult] = useState<CreatePsbtResponse | null>(null);
@@ -3357,9 +3432,11 @@ export function CreatePsbtBuilderPanel({
       const feeUi = resolveFeeEstimateUiState(response);
       setFeeEstimates(feeUi.estimates);
       setFeeEstimateMessage(feeUi.message);
+      setFeeEstimateSourceKind(response.source ?? null);
     } catch {
       setFeeEstimates(null);
       setFeeEstimateMessage("Fee estimates unavailable. Enter a custom fee rate.");
+      setFeeEstimateSourceKind(null);
     }
   }
 
@@ -3396,14 +3473,9 @@ export function CreatePsbtBuilderPanel({
   }
 
   function applyFeePreset(kind: "fastest" | "medium" | "slow") {
-    const value =
-      kind === "fastest"
-        ? feeEstimates?.fastestFee
-        : kind === "medium"
-          ? feeEstimates?.halfHourFee ?? feeEstimates?.hourFee
-          : feeEstimates?.economyFee ?? feeEstimates?.minimumFee ?? feeEstimates?.hourFee;
-    if (value) {
-      setFeeRateInput(String(value));
+    const value = selectFeePresetRate(feeEstimates, kind);
+    if (value !== null) {
+      setFeeRateInput(formatFeeRate(value));
       setFeePresetSource(kind === "fastest" ? "Fastest" : kind === "medium" ? "Medium" : "Slow");
       setPsbtResult(null);
     }
@@ -3446,7 +3518,7 @@ export function CreatePsbtBuilderPanel({
   async function copyPsbt() {
     if (!psbtResult) return;
     try {
-      await navigator.clipboard.writeText(psbtResult.psbtBase64);
+      await copyTextToClipboard(psbtResult.psbtBase64);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -3713,18 +3785,18 @@ export function CreatePsbtBuilderPanel({
             <span className="muted psbt-field-hint">Low fee rate may not confirm quickly.</span>
           ) : null}
           <span className="muted psbt-field-hint">
-            Source: {feePresetSource === "Custom" ? "manual entry" : `${feePresetSource} live mempool estimate`}
+            Source: {feePresetSource === "Custom" ? "manual entry" : `${feePresetSource} ${feeEstimateSourceLabel(feeEstimateSourceKind)}`}
           </span>
         </label>
 
         <div className="button-row">
-          <button className="secondary-button compact-button" disabled={!feeEstimates?.fastestFee} type="button" onClick={() => applyFeePreset("fastest")}>
+          <button className="secondary-button compact-button" disabled={selectFeePresetRate(feeEstimates, "fastest") === null} type="button" onClick={() => applyFeePreset("fastest")}>
             Fastest
           </button>
-          <button className="secondary-button compact-button" disabled={!feeEstimates} type="button" onClick={() => applyFeePreset("medium")}>
+          <button className="secondary-button compact-button" disabled={selectFeePresetRate(feeEstimates, "medium") === null} type="button" onClick={() => applyFeePreset("medium")}>
             Medium
           </button>
-          <button className="secondary-button compact-button" disabled={!feeEstimates} type="button" onClick={() => applyFeePreset("slow")}>
+          <button className="secondary-button compact-button" disabled={selectFeePresetRate(feeEstimates, "slow") === null} type="button" onClick={() => applyFeePreset("slow")}>
             Slow
           </button>
           <button className="secondary-button compact-button" type="button" onClick={() => void refreshFeeEstimates()}>
@@ -3734,7 +3806,7 @@ export function CreatePsbtBuilderPanel({
         {feeEstimateMessage ? <p className="status-message">{feeEstimateMessage}</p> : null}
         {draftPlan.estimatedFeeSats !== null ? (
           <p className="muted technical-line">
-            Estimated fee: {formatBalance(draftPlan.estimatedFeeSats, "sats")} ({formatBalance(draftPlan.estimatedFeeSats, "btc")}) at {draftPlan.feeRate} sat/vB.
+            Estimated fee: {formatBalance(draftPlan.estimatedFeeSats, "sats")} ({formatBalance(draftPlan.estimatedFeeSats, "btc")}) at {formatFeeRate(draftPlan.feeRate)} sat/vB.
           </p>
         ) : null}
       </div>
@@ -3775,7 +3847,7 @@ export function CreatePsbtBuilderPanel({
             {draftPlan.estimatedFeeSats !== null ? (
               <div className="spending-plan-line fee-line">
                 <strong>Fee: {formatBalance(draftPlan.estimatedFeeSats, "btc")}</strong>
-                <span className="muted">{formatBalance(draftPlan.estimatedFeeSats, "sats")} / {draftPlan.feeRate} sat/vB</span>
+                <span className="muted">{formatBalance(draftPlan.estimatedFeeSats, "sats")} / {formatFeeRate(draftPlan.feeRate)} sat/vB</span>
               </div>
             ) : null}
           </div>
@@ -3811,7 +3883,7 @@ export function CreatePsbtBuilderPanel({
             </div>
             <div>
               <dt>fee</dt>
-              <dd>{formatBalance(psbtResult.feeSats, balanceUnit)} ({psbtResult.feeRateSatsPerVbyte} sat/vB, ~{psbtResult.estimatedVbytes} vB)</dd>
+              <dd>{formatBalance(psbtResult.feeSats, balanceUnit)} ({formatFeeRate(psbtResult.feeRateSatsPerVbyte)} sat/vB, ~{psbtResult.estimatedVbytes} vB)</dd>
             </div>
             <div>
               <dt>change</dt>
@@ -3980,7 +4052,7 @@ export function VerifyPsbtPanel({
   async function copyTxHex() {
     if (!verifyResult?.txHex) return;
     try {
-      await navigator.clipboard.writeText(verifyResult.txHex);
+      await copyTextToClipboard(verifyResult.txHex);
       setCopiedTxHex(true);
       setTimeout(() => setCopiedTxHex(false), 2000);
     } catch {
@@ -4039,7 +4111,7 @@ export function VerifyPsbtPanel({
   async function copyTxid() {
     if (!broadcastResult?.txid) return;
     try {
-      await navigator.clipboard.writeText(broadcastResult.txid);
+      await copyTextToClipboard(broadcastResult.txid);
       setCopiedTxid(true);
       setTimeout(() => setCopiedTxid(false), 2000);
     } catch {
@@ -4851,7 +4923,7 @@ function WalletAddressPanel({
 
   async function copyAddress(address: DerivedAddress) {
     try {
-      await navigator.clipboard.writeText(address.address);
+      await copyTextToClipboard(address.address);
       setCopyMessage(`Copied ${address.chain} address from ${wallet.name}`);
     } catch {
       setCopyMessage(`Unable to copy ${address.chain} address from ${wallet.name}`);
@@ -6065,13 +6137,13 @@ function parseAmountToSats(value: string, unit: "sats" | "btc"): { sats: number 
   return { sats, error: "" };
 }
 
-function parseFeeRate(value: string): number | null {
+export function parseFeeRate(value: string): number | null {
   const trimmed = value.trim();
   if (!/^\d+(\.\d+)?$/.test(trimmed)) {
     return null;
   }
   const feeRate = Number(trimmed);
-  return Number.isFinite(feeRate) && feeRate >= 1 && feeRate <= 1000 ? feeRate : null;
+  return Number.isFinite(feeRate) && feeRate > 0 && feeRate <= 1000 ? feeRate : null;
 }
 
 function estimateBuilderVbytes(

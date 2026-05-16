@@ -14,7 +14,7 @@ import type { WalletRecord } from "../vault/types.js";
 
 export const DUST_THRESHOLD_SATS = 546;
 
-const MIN_FEE_RATE = 1;
+const MIN_FEE_RATE = 0;
 const MAX_FEE_RATE = 1000;
 
 const SUPPORTED_SCRIPT_TYPES = ["native-segwit", "nested-segwit", "taproot"] as const;
@@ -268,7 +268,7 @@ export async function createWalletPsbt(
   if (
     typeof input.feeRateSatsPerVbyte !== "number" ||
     !Number.isFinite(input.feeRateSatsPerVbyte) ||
-    input.feeRateSatsPerVbyte < MIN_FEE_RATE ||
+    input.feeRateSatsPerVbyte <= MIN_FEE_RATE ||
     input.feeRateSatsPerVbyte > MAX_FEE_RATE
   ) {
     throw new InvalidPsbtParamsError(
