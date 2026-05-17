@@ -3,6 +3,17 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 54 - Docker internal API networking and Raspberry Pi deployment guardrails
+
+- Fixed Docker Compose configuration so `watch-wallet-api` uses `expose` instead of `ports` to prevent publishing port 3011 to the host.
+- Added `API_HOST=0.0.0.0` and `HOST=0.0.0.0` environment variables to ensure the API binds to Docker-accessible addresses instead of `127.0.0.1` only.
+- Fixed `apps/api/Dockerfile` to copy `/app/packages` in the runner stage so the API container can resolve workspace packages like `@watch-wallet/bitcoin` at runtime.
+- Added inline comments to `docker-compose.yml` and `apps/api/Dockerfile` explaining why port 3011 must remain Docker-internal and why workspace packages must be copied.
+- Added `scripts/check-raspi-runtime.sh` validation script to verify Docker container status, networking configuration, and environment variables without exposing secrets.
+- Documented Raspberry Pi HTTPS/Docker networking architecture in `docs/raspberry-pi-deployment.md`, including port structure, request flow, and critical networking rules.
+- Added Docker networking troubleshooting section covering `ECONNREFUSED 127.0.0.1:3011`, port binding issues, and Permissions-Policy browser warnings.
+- No wallet logic, PSBT logic, broadcast behavior, signing, private key handling, or secret exposure was added.
+
 ## Phase 51 - Frontend regression tests
 
 - Added a lightweight Vitest, React Testing Library, and jsdom setup for the Next.js web workspace.

@@ -23,12 +23,17 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     container_name: watch-wallet-api
-    ports:
-      - "${API_PORT:-3011}:${API_PORT:-3011}"
+    # API port 3011 is Docker-internal only. Do NOT publish to host.
+    # The web container accesses this via http://watch-wallet-api:3011
+    # Caddy/browser should NOT access 3011 directly.
+    expose:
+      - "3011"
     env_file:
       - .env
     environment:
       - DATA_DIR=/app/apps/api/data
+      - API_HOST=0.0.0.0
+      - HOST=0.0.0.0
     volumes:
       - ./apps/api/data:/app/apps/api/data
     restart: unless-stopped

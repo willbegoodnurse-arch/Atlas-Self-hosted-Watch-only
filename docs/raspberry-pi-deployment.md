@@ -134,26 +134,90 @@ Build and start:
 docker compose up --build -d
 ```
 
-Default ports:
+### Port Structure and Networking
 
-- Web: `http://<pi-lan-ip>:3010`
-- API: `http://<pi-lan-ip>:3011` in legacy/direct mode. In hardened same-origin mode, the browser uses `http://<pi-lan-ip>:3010/api/*`.
+**External access (via Caddy HTTPS):**
+- Web UI: `https://raspberry-pi-fullcrum.tailcb1ed9.ts.net:8443`
+- Vaultwarden: `https://raspberry-pi-fullcrum.tailcb1ed9.ts.net`
 
-Docker details:
+**Internal ports:**
+- `3010`: Watch-wallet web frontend (published to host, accessed by Caddy)
+- `3011`: Watch-wallet API (Docker-internal only, NOT published to host)
+- `8080`: Mempool frontend
+- `8081`: Vaultwarden HTTP backend
+- `8332`: Bitcoin Core RPC (localhost only, never expose publicly)
+- `8443`: Caddy HTTPS entrypoint for watch-wallet
+
+**Critical networking rules:**
+
+1. **Port 3011 must NOT be published to host**
+   - `docker-compose.yml` uses `expose: ["3011"]` for watch-wallet-api, NOT `ports`
+   - The web container accesses API via Docker internal network: `http://watch-wallet-api:3011`
+   - Caddy and browsers must NOT access port 3011 directly
+
+2. **API must bind to 0.0.0.0 inside Docker**
+   - Set `API_HOST=0.0.0.0` or `HOST=0.0.0.0` in environment
+   - If API binds to `127.0.0.1` only, Docker internal networking fails
+   - Correct log: `Server listening at http://172.x.x.x:3011`
+   - Incorrect log: `Server listening at http://127.0.0.1:3011`
+
+3. **Same-origin API proxy mode (recommended)**
+   - Browser calls: `https://raspberry-pi-fullcrum.tailcb1ed9.ts.net:8443/api/*`
+   - Caddy proxies to: `127.0.0.1:3010`
+   - Web container proxies `/api/*` to: `http://watch-wallet-api:3011`
+   - Set `NEXT_PUBLIC_API_URL=/api` and `INTERNAL_API_URL=http://watch-wallet-api:3011`
+
+4. **Request flow:**
+   ```
+   Browser
+   → https://raspberry-pi-fullcrum.tailcb1ed9.ts.net:8443
+   → Caddy (TLS termination)
+   → 127.0.0.1:3010
+   → watch-wallet-web container
+   → http://watch-wallet-api:3011 (Docker internal)
+   → watch-wallet-api container
+   ```
+
+5. **Do NOT expose these ports publicly:**
+   - Port 3011 (API)
+   - Port 8332 (Bitcoin Core RPC)
+   - Use Tailscale or local network access only
+
+**Docker details:**
 
 - The API bind mount `./apps/api/data:/app/apps/api/data` persists `wallets.enc`.
 - Docker Compose sets `DATA_DIR=/app/apps/api/data` inside the API container.
-- `API_PORT` is used as both the host and container API port in Compose.
-- `WEB_PORT` is the host port for the web container; the web container listens on port `3000`.
+- `WEB_PORT` (default 3010) is the host port for the web container; the web container listens on port `3000` internally.
 - `NEXT_PUBLIC_API_URL` and `INTERNAL_API_URL` affect the web build/proxy. If you change either, rebuild the web image with `docker compose up --build -d`.
 - Do not put real secrets, real xpubs, seed phrases, private keys, or RPC passwords in the image or committed files.
 
-Check reachability:
+**Validation:**
+
+Run the runtime validation script to check Docker networking:
 
 ```bash
-curl http://<pi-lan-ip>:3011/health
-curl http://<pi-lan-ip>:3011/api/status
-curl http://<pi-lan-ip>:3010/api/status
+./scripts/check-raspi-runtime.sh
+```
+
+This script verifies:
+- Containers are running
+- API port 3011 is not published to host
+- API is binding to Docker-accessible address (not 127.0.0.1 only)
+- Web container can reach API via internal network
+- No `ECONNREFUSED 127.0.0.1:3011` errors in web logs
+- `INTERNAL_API_URL` is correctly set to `http://watch-wallet-api:3011`
+
+Check reachability (from Raspberry Pi):
+
+```bash
+curl http://127.0.0.1:3010/api/status
+```
+
+**Do NOT** access port 3011 directly from outside Docker:
+
+```bash
+# This should NOT work from host or browser:
+curl http://127.0.0.1:3011/health  # Only works inside API container
 ```
 
 View logs:
@@ -476,6 +540,69 @@ journalctl -u atlas-web -f
 Logs should not contain vault passwords, seed phrases, private keys, xprv/WIF values, cookies, auth headers, or full xpub values. The xpub reveal audit event should record that a reveal happened without logging the revealed value.
 
 ## Troubleshooting
+
+### Docker Networking Issues
+
+**Problem: `ECONNREFUSED 127.0.0.1:3011` in web container logs**
+
+Cause: `INTERNAL_API_URL` is set to `http://127.0.0.1:3011` instead of the Docker service name.
+
+Solution:
+```bash
+# In .env, set:
+INTERNAL_API_URL=http://watch-wallet-api:3011
+# Then rebuild:
+docker compose up --build -d
+```
+
+**Problem: `Error starting userland proxy: listen tcp4 0.0.0.0:3011: bind: address already in use`**
+
+Cause: `docker-compose.yml` is trying to publish port 3011 to host, but it's already in use or should not be published.
+
+Solution:
+```bash
+# In docker-compose.yml, watch-wallet-api should use:
+expose:
+  - "3011"
+# NOT:
+ports:
+  - "3011:3011"
+```
+
+**Problem: API logs show `Server listening at http://127.0.0.1:3011`**
+
+Cause: API is binding to localhost only, which prevents Docker internal networking.
+
+Solution:
+```bash
+# In .env or docker-compose.yml environment, add:
+API_HOST=0.0.0.0
+HOST=0.0.0.0
+# Then restart:
+docker compose restart watch-wallet-api
+```
+
+**Problem: Browser shows "Server API Error" or cannot reach API**
+
+Check the request flow:
+1. Verify Caddy is running: `sudo systemctl status caddy`
+2. Verify Caddy is proxying to 127.0.0.1:3010
+3. Verify web container is running: `docker compose ps`
+4. Check web logs: `docker compose logs watch-wallet-web --tail=50`
+5. Check API logs: `docker compose logs watch-wallet-api --tail=30`
+6. Run validation script: `./scripts/check-raspi-runtime.sh`
+
+**Problem: Permissions-Policy warnings in browser console**
+
+These warnings are non-fatal:
+```
+Unrecognized feature: 'browsing-topics'
+Unrecognized feature: 'run-ad-auction'
+```
+
+These are browser warnings about ad-related features and do not affect wallet functionality. If API requests are working (no 500 errors, session loads correctly), the app is functioning normally.
+
+### General Troubleshooting
 
 - Web cannot reach API: check `NEXT_PUBLIC_API_URL` and `WEB_ORIGIN`.
 - Login cookie does not stick: check `COOKIE_SECURE`; it should be `false` for plain HTTP.

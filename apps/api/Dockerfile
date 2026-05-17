@@ -24,5 +24,9 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/apps/api/package.json apps/api/package.json
 COPY --from=build /app/apps/api/dist apps/api/dist
 
+# Copy workspace packages so runtime can resolve @watch-wallet/bitcoin, @watch-wallet/config, etc.
+# Without this, the API container will fail with ERR_MODULE_NOT_FOUND at runtime.
+COPY --from=build /app/packages ./packages
+
 EXPOSE 3011
 CMD ["node", "apps/api/dist/index.js"]

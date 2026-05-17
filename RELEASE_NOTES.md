@@ -1,6 +1,40 @@
 
 # Atlas v0.1.0 Release Candidate Notes
 
+## Phase 54 - Docker Internal API Networking and Raspberry Pi Deployment Guardrails
+
+Phase 54 fixes Docker internal networking issues that prevented the web container from reaching the API container, and documents the correct Raspberry Pi HTTPS/Docker deployment architecture.
+
+**Docker Compose fixes:**
+- `watch-wallet-api` now uses `expose: ["3011"]` instead of `ports` to keep port 3011 Docker-internal only
+- Added `API_HOST=0.0.0.0` and `HOST=0.0.0.0` environment variables so the API binds to Docker-accessible addresses
+- The web container accesses the API via `http://watch-wallet-api:3011` (Docker service name), not `http://127.0.0.1:3011`
+
+**Dockerfile fixes:**
+- `apps/api/Dockerfile` now copies `/app/packages` in the runner stage to resolve workspace packages like `@watch-wallet/bitcoin` at runtime
+- Without this copy, the API container fails with `ERR_MODULE_NOT_FOUND` at startup
+
+**Validation and documentation:**
+- Added `scripts/check-raspi-runtime.sh` to verify Docker container status, networking configuration, and environment variables without exposing secrets
+- Documented Raspberry Pi port structure, request flow, and critical networking rules in `docs/raspberry-pi-deployment.md`
+- Added troubleshooting section for common Docker networking errors: `ECONNREFUSED 127.0.0.1:3011`, port binding issues, and non-fatal Permissions-Policy browser warnings
+
+**Port structure:**
+- 3010: Web frontend (published to host, accessed by Caddy)
+- 3011: API (Docker-internal only, NOT published to host)
+- 8443: Caddy HTTPS entrypoint for watch-wallet
+- 8332: Bitcoin Core RPC (localhost only, never expose publicly)
+
+**Request flow:**
+```
+Browser → https://raspberry-pi-fullcrum.tailcb1ed9.ts.net:8443
+→ Caddy → 127.0.0.1:3010
+→ watch-wallet-web container → http://watch-wallet-api:3011
+→ watch-wallet-api container
+```
+
+This phase does not change wallet logic, PSBT logic, broadcast behavior, signing, private key handling, or expose secrets.
+
 ## Phase 51 - Frontend Regression Tests
 
 The web workspace now has a lightweight Vitest + React Testing Library + jsdom regression suite. The tests cover setup/login fallback behavior, browser storage safety, wallet card readability and actions, masked xpub defaults, wallet identity/MFP display, portal modal rendering, inline receive QR behavior, signed PSBT paste verification, selected UTXO payload mapping, and Phase 50 fee-estimate fallback copy.
