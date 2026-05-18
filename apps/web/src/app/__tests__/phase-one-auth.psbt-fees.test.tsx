@@ -273,19 +273,96 @@ describe("PSBT and fee UI regression", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: /Scan signed PSBT QR/i })).not.toBeInTheDocument());
   });
 
-  it("shows a specific unsupported message for multipart signed PSBT QR frames", async () => {
+  it("captures a partial multipart signed PSBT frame without verifying yet", async () => {
     const fetchMock = installVerifyFetch();
     const user = userEvent.setup();
     render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
 
-    await user.type(screen.getByLabelText(/Signed PSBT/i), "p1of3 abcdef");
+    await user.type(screen.getByLabelText(/Signed PSBT/i), "p1of3 signed-");
     await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
 
-    expect(await screen.findByText(/multipart signed PSBT QR frame 1 of 3/i)).toBeInTheDocument();
-    expect(screen.getByText(/complete signed PSBT base64/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Multipart signed PSBT frame 1 of 3 captured/i)).toBeInTheDocument();
+    expect(screen.getByText(/Waiting for frame 2 and frame 3/i)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/psbt/verify"), expect.anything());
     expect(signedPsbtMultipartFrameMessage("p2of3 data")).toMatch(/frame 2 of 3/i);
     expect(signedPsbtMultipartFrameMessage("p3of3 data")).toMatch(/frame 3 of 3/i);
+  });
+
+  it("assembles multipart signed PSBT frames entered in order and verifies the result", async () => {
+    const fetchMock = installVerifyFetch();
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    const signedPsbtInput = screen.getByLabelText(/Signed PSBT/i);
+
+    await user.type(signedPsbtInput, "p1of3 signed-");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    await user.type(signedPsbtInput, "p2of3 ps");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    await user.type(signedPsbtInput, "p3of3 bt");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+
+    expect(await screen.findByText(/Verification result/i)).toBeInTheDocument();
+    expect(screen.getByText(/All 3 frames captured. Ready to verify signed PSBT/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/wallets/wallet-1/psbt/verify"),
+      expect.objectContaining({
+        body: expect.stringContaining('"psbtBase64":"signed-psbt"')
+      })
+    );
+  });
+
+  it("assembles multipart signed PSBT frames entered out of order", async () => {
+    const fetchMock = installVerifyFetch();
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    const signedPsbtInput = screen.getByLabelText(/Signed PSBT/i);
+
+    await user.type(signedPsbtInput, "p3of3 bt");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    expect(await screen.findByText(/Waiting for frame 1 and frame 2/i)).toBeInTheDocument();
+    await user.type(signedPsbtInput, "p1of3 signed-");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    await user.type(signedPsbtInput, "p2of3 ps");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+
+    expect(await screen.findByText(/Verification result/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/wallets/wallet-1/psbt/verify"),
+      expect.objectContaining({
+        body: expect.stringContaining('"psbtBase64":"signed-psbt"')
+      })
+    );
+  });
+
+  it("handles duplicate multipart frames and rejects conflicting multipart frames", async () => {
+    const fetchMock = installVerifyFetch();
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    const signedPsbtInput = screen.getByLabelText(/Signed PSBT/i);
+
+    await user.type(signedPsbtInput, "p1of2 same");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    await user.type(signedPsbtInput, "p1of2 same");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    expect(await screen.findByText(/already captured/i)).toBeInTheDocument();
+
+    await user.type(signedPsbtInput, "p1of2 other");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    expect(await screen.findByText(/already has different data/i)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/psbt/verify"), expect.anything());
+  });
+
+  it("rejects mixed multipart total counts", async () => {
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    const signedPsbtInput = screen.getByLabelText(/Signed PSBT/i);
+
+    await user.type(signedPsbtInput, "p1of2 same");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    await user.type(signedPsbtInput, "p2of3 other");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+
+    expect(await screen.findByText(/total mismatch/i)).toBeInTheDocument();
   });
 
   it("rejects invalid and unsigned PSBTs in signed import flow", async () => {

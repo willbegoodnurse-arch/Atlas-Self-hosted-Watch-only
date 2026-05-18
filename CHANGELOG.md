@@ -3,6 +3,16 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 58 - Signed PSBT multipart QR reassembly
+
+- Added signed PSBT multipart frame parsing for `pNofM <base64-fragment>` inputs with case and spacing tolerance.
+- Added a multipart frame collector that tracks captured frames, missing frame numbers, duplicate identical frames, conflicting frame payloads, and mixed total counts.
+- Reassembles complete multipart signed PSBT input in frame-index order and passes the completed base64 into the existing signed PSBT verification flow.
+- Updated signed PSBT paste/scan UI to show captured/waiting/ready messages and a `Clear multipart frames` reset action.
+- Kept single-frame signed PSBT paste/file/QR behavior working through the existing verification path.
+- Added helper and component regression coverage for ordered frames, out-of-order frames, partial frames, duplicates, conflicts, total-count mismatches, and normal signed/unsigned verification behavior.
+- No PSBT verification core logic, signed/unsigned classification, broadcast behavior, wallet derivation, auth/session/cookie/vault behavior, xpub reveal behavior, dependency updates, commits, pushes, tags, or deployments were changed.
+
 ## Phase 57 - UI/UX cleanup and modal safety fixes
 
 - Renamed the dashboard top-level title to `ATLAS` and removed the duplicate dashboard import action from the total balance hero.
