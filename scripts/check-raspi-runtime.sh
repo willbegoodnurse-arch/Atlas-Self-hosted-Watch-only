@@ -53,7 +53,11 @@ echo ""
 
 # Check docker-compose.yml for incorrect API port publishing
 echo "--- Docker Compose Configuration Check ---"
-if grep -A 10 'watch-wallet-api:' docker-compose.yml | grep -q '^\s*ports:'; then
+# Extract only the watch-wallet-api service block (until next service or end of file)
+API_SERVICE_BLOCK=$(sed -n '/^  watch-wallet-api:/,/^  [a-z]/p' docker-compose.yml | sed '$d')
+
+# Check if the API service block contains 'ports:' (incorrect)
+if echo "$API_SERVICE_BLOCK" | grep -q '^\s*ports:'; then
     echo "❌ watch-wallet-api should use 'expose', not 'ports'"
     echo "   Port 3011 must be Docker-internal only"
     echo ""
@@ -65,7 +69,7 @@ fi
 echo "✓ watch-wallet-api does not publish port 3011 to host"
 
 # Check if expose is used instead
-if ! grep -A 10 'watch-wallet-api:' docker-compose.yml | grep -q 'expose:'; then
+if ! echo "$API_SERVICE_BLOCK" | grep -q 'expose:'; then
     echo "⚠️  Warning: watch-wallet-api should use 'expose: [\"3011\"]'"
 fi
 echo ""
@@ -77,7 +81,7 @@ echo "$API_LOGS"
 echo ""
 
 # Check if API is binding to 127.0.0.1 only (incorrect for Docker)
-if echo "$API_LOGS" | grep -q "Server listening at http://127.0.0.1:3011"; then
+if echo "$API_LOGS" | grep -q "Server listening at http://127.0.0.1:3011" && ! echo "$API_LOGS" | grep -qE "Server listening at http://(172\.|10\.|192\.168\.)"; then
     echo "❌ API is binding to 127.0.0.1 only"
     echo ""
     echo "   Problem: API cannot be reached from web container"
