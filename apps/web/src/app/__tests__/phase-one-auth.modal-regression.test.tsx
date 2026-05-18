@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { AddressQrPanel, PortalModal, XpubRevealModal } from "../phase-one-auth";
@@ -10,6 +10,9 @@ describe("portal and QR modal regression", () => {
     const { container } = render(
       <PortalModal ariaLabel="Scan watch-only import QR" panelClassName="scanner-dialog" onClose={onClose}>
         <p>Camera unavailable. Paste or import a file instead.</p>
+        <button type="button" onClick={onClose}>
+          Close
+        </button>
       </PortalModal>
     );
 
@@ -18,7 +21,11 @@ describe("portal and QR modal regression", () => {
     expect(container.querySelector(".portal-modal-root")).not.toBeInTheDocument();
     expect(document.body.querySelector(".portal-modal-backdrop")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Close Scan watch-only import QR" }));
+    fireEvent.click(document.body.querySelector(".portal-modal-backdrop") as Element);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

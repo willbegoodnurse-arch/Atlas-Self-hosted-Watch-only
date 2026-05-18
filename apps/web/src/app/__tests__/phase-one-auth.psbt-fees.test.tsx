@@ -12,6 +12,7 @@ import {
   SIGNED_PSBT_CAMERA_FALLBACK_MESSAGE,
   SIGNED_PSBT_QR_TOO_LARGE_MESSAGE,
   selectFeePresetRate,
+  signedPsbtMultipartFrameMessage,
   VerifyPsbtPanel
 } from "../phase-one-auth";
 import { jsonResponse, makeUtxo, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
@@ -268,8 +269,23 @@ describe("PSBT and fee UI regression", () => {
     await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
 
     expect(await screen.findByRole("dialog", { name: /Scan signed PSBT QR/i })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Close Scan signed PSBT QR/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Use Paste fallback/i }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: /Scan signed PSBT QR/i })).not.toBeInTheDocument());
+  });
+
+  it("shows a specific unsupported message for multipart signed PSBT QR frames", async () => {
+    const fetchMock = installVerifyFetch();
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+
+    await user.type(screen.getByLabelText(/Signed PSBT/i), "p1of3 abcdef");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+
+    expect(await screen.findByText(/multipart signed PSBT QR frame 1 of 3/i)).toBeInTheDocument();
+    expect(screen.getByText(/complete signed PSBT base64/i)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/psbt/verify"), expect.anything());
+    expect(signedPsbtMultipartFrameMessage("p2of3 data")).toMatch(/frame 2 of 3/i);
+    expect(signedPsbtMultipartFrameMessage("p3of3 data")).toMatch(/frame 3 of 3/i);
   });
 
   it("rejects invalid and unsigned PSBTs in signed import flow", async () => {

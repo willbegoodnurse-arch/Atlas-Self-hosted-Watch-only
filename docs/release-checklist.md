@@ -79,6 +79,26 @@ Do not manually patch workspace junctions or symlinks.
 - Confirm `watch-wallet-api` uses `expose: ["3011"]`, not a host-published `ports` entry.
 - Confirm Bitcoin Core RPC port `8332` is not public.
 
+## Phase 57 UI/UX Cleanup Gate
+
+- Confirm the dashboard top title reads `ATLAS`.
+- Confirm the total balance hero does not show a duplicate `Import wallet` action.
+- Confirm wallet cards show `Receive` and `Send`.
+- Confirm wallet detail primary actions show `Receive` and `Send`.
+- Confirm the send workflow still clearly says it creates an unsigned PSBT only and does not sign or broadcast.
+- Confirm receive address label editing presents `Label` as the primary visible field and does not require a separate notes field for normal use.
+- Confirm portal modals do not close when clicking the backdrop.
+- Confirm portal modals do not close on `Escape` unless that behavior is deliberately reintroduced and tested.
+- Confirm Receive, xpub reveal, and Send/unsigned PSBT modals have explicit in-panel close or fallback controls.
+- Confirm modal backdrop hover/focus does not flash to a white button background.
+- Confirm signer verification shows fingerprint/path metadata plus a receive address preview suitable for external signer comparison.
+- Confirm signer address preview shows up to five receive addresses without renumbering indexes or changing derivation logic.
+- Confirm transaction history default rows do not show internal `receive #0` / `change #1` summaries.
+- Confirm transaction `More` still exposes related address details for deeper inspection.
+- Confirm Send amount input no longer shows noisy inline `= ... sats` conversion text while sats/BTC parsing still works.
+- Confirm signed PSBT inputs like `p1of3 ...`, `p2of3 ...`, and `p3of3 ...` show a specific unsupported multipart QR frame message.
+- Confirm Coldcard BBQr import, animated QR full reassembly, KRW price API, receive address discovery changes, and broadcast handoff remain deferred.
+
 ## Startup
 
 - Start the API.

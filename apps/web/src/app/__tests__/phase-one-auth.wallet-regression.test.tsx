@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { WalletCard, WalletIdentityPanel } from "../phase-one-auth";
+import { AuthShell, WalletCard, WalletIdentityPanel } from "../phase-one-auth";
 import { jsonResponse, makeAddress, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
 
 describe("wallet list and identity regression", () => {
@@ -41,13 +41,21 @@ describe("wallet list and identity regression", () => {
     expect(screen.queryByText(rawXpub)).not.toBeInTheDocument();
     expect(container.querySelector('a[href="/wallets/wallet-1#receive"]')).toBeInTheDocument();
     expect(container.querySelector('a[href="/wallets/wallet-1#create-psbt"]')).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Receive" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Send" })).toBeInTheDocument();
   });
 
-  it("reveals master fingerprint only after explicit click and handles missing metadata", async () => {
+  it("reveals master fingerprint only after explicit click and renders signer address preview", async () => {
     const wallet = makeWallet();
     globalThis.fetch = vi.fn(async () =>
       jsonResponse({
-        addresses: [makeAddress()]
+        addresses: Array.from({ length: 5 }, (_, index) =>
+          makeAddress({
+            address: `bc1qatlasreceive${index}00000000000000000000000000`,
+            index,
+            path: `m/84'/0'/0'/0/${index}`
+          })
+        )
       })
     );
 
@@ -56,7 +64,10 @@ describe("wallet list and identity regression", () => {
     expect(await screen.findByText("********")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Reveal" }));
     expect(screen.getByText("f23a9c1d")).toBeInTheDocument();
-    expect(await screen.findByText(makeAddress().address)).toBeInTheDocument();
+    expect(await screen.findByText("Signer address check")).toBeInTheDocument();
+    expect(screen.getByText("bc1qatlasreceive000000000000000000000000000")).toBeInTheDocument();
+    expect(screen.getByText("bc1qatlasreceive400000000000000000000000000")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Copy first receive address/i })).not.toBeInTheDocument();
   });
 
   it("shows not provided fallbacks without crashing when fingerprint or account path are missing", async () => {
@@ -78,6 +89,35 @@ describe("wallet list and identity regression", () => {
     );
 
     expect(await screen.findAllByText("not provided")).toHaveLength(2);
-    expect(screen.getByText(/Bare extended public keys usually do not include master fingerprint/i)).toBeInTheDocument();
+    expect(screen.getByText(/Master fingerprint was not provided/i)).toBeInTheDocument();
+  });
+
+  it("shows a specific setup-state login error instead of a generic forbidden message", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/session")) {
+        return jsonResponse({
+          authenticated: false,
+          setupComplete: true,
+          user: null
+        });
+      }
+      if (url.endsWith("/api/auth/login")) {
+        return jsonResponse({ error: "Initial setup is not complete" }, 403);
+      }
+      return jsonResponse({ error: "unexpected request" }, 500);
+    });
+    globalThis.fetch = fetchMock;
+
+    render(<AuthShell apiUrl="" />);
+
+    await userEvent.clear(await screen.findByLabelText("Username"));
+    await userEvent.type(screen.getByLabelText("Username"), "admin");
+    await userEvent.type(screen.getByLabelText("Password"), "correct horse battery staple");
+    await userEvent.type(screen.getByLabelText("TOTP code"), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Log in" }));
+
+    expect(await screen.findByText("Initial setup is not complete")).toBeInTheDocument();
+    expect(screen.queryByText("This action is not allowed.")).not.toBeInTheDocument();
   });
 });

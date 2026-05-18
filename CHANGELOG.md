@@ -3,6 +3,19 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 57 - UI/UX cleanup and modal safety fixes
+
+- Renamed the dashboard top-level title to `ATLAS` and removed the duplicate dashboard import action from the total balance hero.
+- Standardized visible wallet actions to `Receive` and `Send` while preserving unsigned PSBT safety language inside the send workflow.
+- Made portal modals close only through explicit in-panel close/fallback controls, and hardened the modal backdrop hover style so it no longer turns white.
+- Reworked wallet signer verification to emphasize signer cross-checks and show up to five receive address preview rows without a first-address copy shortcut.
+- Simplified receive address label editing around `Label` while preserving existing address label note data internally.
+- Removed internal receive/change index summaries from the default transaction history row while keeping detailed related address data behind `More`.
+- Removed noisy send amount conversion helper text without changing sats/BTC parsing or PSBT payload mapping.
+- Added signed PSBT multipart QR frame detection for `p1of3`, `p2of3`, and similar fragments with a clear unsupported-message path instead of generic PSBT parse errors.
+- Added frontend regression coverage for modal close behavior, signer address preview, wallet action labels, and multipart signed PSBT QR frame guidance.
+- No wallet derivation logic, receive/change discovery algorithm, PSBT build/verify core logic, broadcast behavior, auth/session/cookie/vault behavior, xpub reveal behavior, dependency updates, or deployment actions were changed.
+
 ## Phase 56 - Release Candidate hardening and deployment readiness
 
 - Added a local release validation script for typecheck, tests, production build, whitespace diff checking, and production dependency audit review.

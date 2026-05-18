@@ -1775,6 +1775,7 @@ code,
 }
 
 .portal-modal-backdrop:hover,
+.portal-modal-backdrop:hover:not(:disabled),
 .portal-modal-backdrop:focus-visible {
   border: 0;
   background: rgb(0 0 0 / 82%);
@@ -1784,6 +1785,22 @@ code,
 
 .portal-modal-panel {
   background: #0a0a0a;
+}
+
+.signer-address-list {
+  display: grid;
+  gap: 10px;
+}
+
+.signer-address-row {
+  display: grid;
+  gap: 6px;
+  padding: 8px 0 0;
+}
+
+.signer-address-row + .signer-address-row {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
 }
 
 @media (max-width: 900px) {

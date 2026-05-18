@@ -448,6 +448,14 @@ export function isSignedPsbtSingleQrCandidate(payload: string): boolean {
   return payload.trim().length > 0 && payload.trim().length <= SIGNED_PSBT_SINGLE_QR_MAX_CHARS;
 }
 
+export function signedPsbtMultipartFrameMessage(payload: string): string | null {
+  const match = payload.trim().match(/^p(\d+)of(\d+)\b/i);
+  if (!match) {
+    return null;
+  }
+  return `This looks like multipart signed PSBT QR frame ${match[1]} of ${match[2]}. Atlas currently requires a complete signed PSBT base64, a signed PSBT file, or a single-frame signed PSBT QR.`;
+}
+
 type VerifyPsbtResponse = {
   status: "valid" | "warning" | "invalid";
   signed: boolean;
@@ -690,7 +698,7 @@ export function AuthShell({ apiUrl, initialWalletId = null }: AuthShellProps) {
       <section className={view === "dashboard" ? "auth-panel app-panel" : "auth-panel"}>
         <div className="brand-row">
           <div>
-            <h1>{view === "dashboard" ? (initialWalletId ? "Wallet detail" : "Dashboard") : "Secure access"}</h1>
+            <h1>{view === "dashboard" ? (initialWalletId ? "Wallet detail" : "ATLAS") : "Secure access"}</h1>
           </div>
         </div>
 
@@ -1411,11 +1419,6 @@ function DashboardBalanceHero({
             {balanceState === "loading" ? "Syncing..." : formatBalance(totalBalanceSats ?? 0, "btc")}
           </p>
           {statusText ? <p className="muted">{statusText}</p> : null}
-        </div>
-        <div className="hero-actions">
-          <a className="primary-link-button compact-button" href="#import-wallet">
-            Import wallet
-          </a>
         </div>
       </div>
     </section>
@@ -2298,10 +2301,10 @@ export function WalletCard({
         </div>
         <div className="button-row wallet-card-actions">
           <a className="primary-link-button compact-button" href={`${walletHref}#receive`}>
-            받기
+            Receive
           </a>
           <a className="secondary-button compact-button" href={`${walletHref}#create-psbt`}>
-            보내기
+            Send
           </a>
           <button
             className="secondary-button compact-button"
@@ -2481,29 +2484,13 @@ export function PortalModal({
   panelClassName?: string;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
   if (typeof document === "undefined") {
     return null;
   }
 
   return createPortal(
     <div className="portal-modal-root">
-      <button
-        aria-label={`Close ${ariaLabel}`}
-        className="portal-modal-backdrop"
-        type="button"
-        onClick={onClose}
-      />
+      <div aria-hidden="true" className="portal-modal-backdrop" />
       <div
         aria-label={ariaLabel}
         aria-modal="true"
@@ -2695,10 +2682,9 @@ export function WalletIdentityPanel({
   apiUrl: string;
   wallet: WalletRecord;
 }) {
-  const [firstReceive, setFirstReceive] = useState<DerivedAddress | null>(null);
+  const [receivePreview, setReceivePreview] = useState<DerivedAddress[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState("");
-  const [copyMessage, setCopyMessage] = useState("");
   const accountPath = wallet.accountPath ?? wallet.derivationPath ?? null;
   const fingerprintMissing = !wallet.masterFingerprint;
 
@@ -2706,27 +2692,26 @@ export function WalletIdentityPanel({
     let cancelled = false;
     setStatus("loading");
     setMessage("");
-    setCopyMessage("");
-    setFirstReceive(null);
+    setReceivePreview([]);
 
     void apiRequest<WalletAddressesResponse>(
       apiUrl,
-      `/api/wallets/${wallet.id}/addresses?chain=receive&limit=1`
+      `/api/wallets/${wallet.id}/addresses?chain=receive&limit=5`
     )
       .then((response) => {
         if (cancelled) {
           return;
         }
-        const address = response.addresses[0] ?? null;
-        setFirstReceive(address);
-        setStatus(address ? "ready" : "error");
-        setMessage(address ? "" : "First receive address could not be derived. Do not receive funds until this wallet is verified.");
+        const addresses = response.addresses.slice(0, 5);
+        setReceivePreview(addresses);
+        setStatus(addresses.length > 0 ? "ready" : "error");
+        setMessage(addresses.length > 0 ? "" : "Receive addresses could not be derived. Do not receive funds until this wallet is verified.");
       })
       .catch((error) => {
         if (!cancelled) {
-          setFirstReceive(null);
+          setReceivePreview([]);
           setStatus("error");
-          setMessage(error instanceof Error ? error.message : "First receive address could not be derived.");
+          setMessage(error instanceof Error ? error.message : "Receive addresses could not be derived.");
         }
       });
 
@@ -2735,25 +2720,14 @@ export function WalletIdentityPanel({
     };
   }, [apiUrl, wallet.id]);
 
-  async function copyFirstReceive() {
-    if (!firstReceive) {
-      return;
-    }
-    try {
-      await copyTextToClipboard(firstReceive.address);
-      setCopyMessage("First receive address copied.");
-      setTimeout(() => setCopyMessage(""), 2000);
-    } catch {
-      setCopyMessage("Clipboard copy failed. Select and copy the address manually.");
-    }
-  }
-
   return (
     <section className="wallet-identity-panel terminal-panel" aria-labelledby="wallet-identity-heading">
       <div className="wallet-card-header">
         <div>
-          <p className="terminal-heading">Wallet identity</p>
           <h2 id="wallet-identity-heading">Signer verification</h2>
+          <p className="muted">
+            Verify this fingerprint, account path, and receive address preview against your external signer before receiving funds.
+          </p>
         </div>
         <span className={fingerprintMissing ? "status-badge status-degraded" : "status-badge status-online"}>
           {fingerprintMissing ? "fingerprint missing" : "fingerprint present"}
@@ -2790,44 +2764,30 @@ export function WalletIdentityPanel({
       </dl>
 
       <div className="identity-receive-check">
-        <p className="terminal-heading">First receive address</p>
-        {status === "loading" ? <p className="muted">Deriving first receive address...</p> : null}
-        {firstReceive ? (
-          <>
-            <code className="preview-code">{firstReceive.address}</code>
-            <p className="technical-line">path: {firstReceive.path}</p>
-            <div className="button-row">
-              <button className="secondary-button compact-button" type="button" onClick={() => void copyFirstReceive()}>
-                Copy first receive address
-              </button>
-            </div>
-          </>
+        <p className="terminal-heading">Signer address check</p>
+        {status === "loading" ? <p className="muted">Deriving receive address preview...</p> : null}
+        {receivePreview.length > 0 ? (
+          <div className="signer-address-list">
+            {receivePreview.map((address) => (
+              <div className="signer-address-row" key={`${address.chain}-${address.index}`}>
+                <span className="terminal-meta">receive #{address.index}</span>
+                <code className="preview-code">{address.address}</code>
+              </div>
+            ))}
+          </div>
         ) : null}
         {status === "error" ? (
           <p className="status-message">
-            {message || "First receive address unavailable. Do not receive funds until this watch-only wallet is verified against the signer."}
+            {message || "Receive address preview unavailable. Do not receive funds until this watch-only wallet is verified against the signer."}
           </p>
         ) : null}
-        {copyMessage ? <p className="status-message">{copyMessage}</p> : null}
       </div>
 
       {fingerprintMissing ? (
         <p className="psbt-status-warning muted">
-          Master fingerprint was not provided. This can happen when importing a bare zpub/xpub. For real wallets,
-          prefer a descriptor or signer export that includes fingerprint and path. Before receiving funds, verify
-          the account path and first receive address on your external signer.
+          Master fingerprint was not provided. Prefer a descriptor or signer export that includes fingerprint and path.
         </p>
       ) : null}
-      {fingerprintMissing ? (
-        <p className="muted">
-          Bare extended public keys usually do not include master fingerprint metadata. To verify wallet identity,
-          compare the account path, script type, and first receive address with the external signer.
-        </p>
-      ) : (
-        <p className="muted">
-          Verify this fingerprint, account path, and first receive address against your external signer before receiving funds.
-        </p>
-      )}
     </section>
   );
 }
@@ -2932,7 +2892,7 @@ function WalletDetailView({
               Receive
             </button>
             <button className="secondary-button" type="button" onClick={() => openPsbtWorkflow()}>
-              Create PSBT
+              Send
             </button>
           </div>
           {mempoolStatusError || mempoolBadgeStatus !== "online" ? (
@@ -3022,7 +2982,7 @@ function WalletDetailView({
           <div className="wallet-card-header">
             <div>
               <p className="terminal-heading">Unsigned PSBT workflow</p>
-              <h2>{wallet.name}</h2>
+              <h2>Send</h2>
             </div>
             <button className="secondary-button compact-button" type="button" onClick={closePsbtWorkflow}>
               Close
@@ -3216,7 +3176,7 @@ function UtxoPanel({
                 type="button"
                 onClick={() => onCreatePsbt(selectedOutpoints)}
               >
-                Create unsigned PSBT
+                Send selected
               </button>
               <button
                 className="secondary-button compact-button"
@@ -3635,7 +3595,7 @@ export function CreatePsbtBuilderPanel({
   return (
     <section id="create-psbt" className="psbt-workflow-panel">
       <div className="wallet-card-header">
-        <p className="terminal-heading">Create unsigned PSBT</p>
+        <p className="terminal-heading">Send</p>
       </div>
 
       <div className="psbt-safety-notice muted">
@@ -3662,7 +3622,7 @@ export function CreatePsbtBuilderPanel({
             type="button"
             onClick={() => setUtxoSelectorOpen((current) => !current)}
           >
-            {utxoSelectorOpen ? "Hide UTXOs" : "UTXO 선택"}
+            {utxoSelectorOpen ? "Hide UTXOs" : "Select UTXOs"}
           </button>
           {selectedUtxos.length > 0 ? (
             <button
@@ -3726,7 +3686,6 @@ export function CreatePsbtBuilderPanel({
           </button>
         </div>
         {recipients.map((recipient, index) => {
-          const parsed = parseAmountToSats(recipient.amount, recipient.unit);
           const recipientLabel = getAddressLabelByAddress(wallet, recipient.address.trim());
           return (
             <div className="recipient-row" key={recipient.id}>
@@ -3762,9 +3721,6 @@ export function CreatePsbtBuilderPanel({
                   <option value="sats">sats</option>
                   <option value="btc">BTC</option>
                 </select>
-                <span className="muted psbt-field-hint">
-                  {parsed.sats !== null ? `= ${formatBalance(parsed.sats, "sats")}` : parsed.error || "Enter an amount"}
-                </span>
               </label>
               <button
                 className="secondary-button compact-button"
@@ -4051,7 +4007,7 @@ export function VerifyPsbtPanel({
             if (!result) return;
             const scannedValue = result.getText().trim();
             if (!isSignedPsbtSingleQrCandidate(scannedValue)) {
-              setSignedScannerMessage(SIGNED_PSBT_QR_TOO_LARGE_MESSAGE);
+              setSignedScannerMessage(signedPsbtMultipartFrameMessage(scannedValue) ?? SIGNED_PSBT_QR_TOO_LARGE_MESSAGE);
               return;
             }
             setSignedPsbtInput(scannedValue, "Signed PSBT QR scanned. Review and verify before broadcast.");
@@ -4076,6 +4032,14 @@ export function VerifyPsbtPanel({
     if (!trimmed) {
       setVerifyMessage("Paste a signed PSBT (base64) to verify.");
       setVerifyStatus("error");
+      return;
+    }
+    const multipartMessage = signedPsbtMultipartFrameMessage(trimmed);
+    if (multipartMessage) {
+      setVerifyMessage(multipartMessage);
+      setVerifyStatus("error");
+      setVerifyResult(null);
+      resetBroadcastConfirmation();
       return;
     }
 
@@ -5218,11 +5182,9 @@ function WalletAddressPanel({
     <section id="receive" className="wallet-address-panel">
       {message ? <p className="status-message">{message}</p> : null}
       {copyMessage ? <p className="status-message">{copyMessage}</p> : null}
-      {usageLookupNote ? (
+      {usageLookupNote && balanceFailedCount > 0 ? (
         <p className="status-message">
-          {balanceFailedCount > 0
-            ? `${balanceFailedCount} address lookup(s) failed — balance total may be incomplete. API may be rate-limiting or unreachable.`
-            : "Some address balances could not be fetched — total may be incomplete."}
+          {balanceFailedCount} address lookup(s) failed — balance total may be incomplete. API may be rate-limiting or unreachable.
         </p>
       ) : null}
 
@@ -5739,7 +5701,6 @@ function TransactionRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const directionClass = `tx-direction-badge tx-${tx.direction}`;
-  const relatedSummary = summarizeRelatedAddresses(tx.relatedAddresses);
 
   const formattedTime =
     tx.blockTime !== null
@@ -5773,7 +5734,6 @@ function TransactionRow({
         {tx.blockHeight !== null ? (
           <span className="terminal-meta">block {new Intl.NumberFormat("en-US").format(tx.blockHeight)}</span>
         ) : null}
-        <span className="terminal-meta">{relatedSummary}</span>
         <TransactionLabelPill label={label} />
         <button
           className="secondary-button compact-button"
@@ -5847,21 +5807,6 @@ function formatDirection(direction: WalletTransaction["direction"]): string {
   return "UNKNOWN";
 }
 
-function summarizeRelatedAddresses(addresses: WalletTransactionRelatedAddress[]): string {
-  const unique = new Map<string, WalletTransactionRelatedAddress>();
-  for (const address of addresses) {
-    unique.set(`${address.chain}-${address.index}`, address);
-  }
-  const values = [...unique.values()];
-  if (values.length === 0) {
-    return "no wallet address match";
-  }
-  if (values.length > 2) {
-    return `${values.length} wallet addresses`;
-  }
-  return values.map((address) => `${address.chain} #${address.index}`).join(", ");
-}
-
 function InlineLabelEditor({
   error,
   label,
@@ -5871,7 +5816,8 @@ function InlineLabelEditor({
   onClear,
   onLabelChange,
   onNotesChange,
-  onSave
+  onSave,
+  showNotes = true
 }: {
   error: string;
   label: string;
@@ -5882,28 +5828,31 @@ function InlineLabelEditor({
   onLabelChange: (value: string) => void;
   onNotesChange: (value: string) => void;
   onSave: () => void;
+  showNotes?: boolean;
 }) {
   return (
     <div className="label-editor">
       <label>
-        <span>label</span>
+        <span>Label</span>
         <input
           maxLength={80}
-          placeholder="local label"
+          placeholder="Wallet-local label"
           value={label}
           onChange={(event) => onLabelChange(event.target.value)}
         />
       </label>
-      <label>
-        <span>notes</span>
-        <textarea
-          maxLength={500}
-          placeholder="optional local note"
-          rows={3}
-          value={notes}
-          onChange={(event) => onNotesChange(event.target.value)}
-        />
-      </label>
+      {showNotes ? (
+        <label>
+          <span>Note</span>
+          <textarea
+            maxLength={500}
+            placeholder="Optional local note"
+            rows={3}
+            value={notes}
+            onChange={(event) => onNotesChange(event.target.value)}
+          />
+        </label>
+      ) : null}
       <div className="button-row">
         <button className="compact-button" disabled={saving} type="button" onClick={onSave}>
           Save
@@ -6118,6 +6067,7 @@ function AddressTable({
                     label={labelDraft}
                     notes={notesDraft}
                     saving={labelSaving}
+                    showNotes={false}
                     onCancel={onCancelEditLabel}
                     onClear={() => void onClearLabel(address)}
                     onLabelChange={onLabelDraftChange}
@@ -6950,7 +6900,7 @@ function friendlyApiError(status: number, payload: { error?: unknown; message?: 
     return "Session expired or not signed in. Sign in again.";
   }
   if (status === 403) {
-    return "This action is not allowed.";
+    return safeMessage ?? "This action is not allowed.";
   }
   if (status === 423) {
     return "Vault is locked. Unlock the vault and try again.";
