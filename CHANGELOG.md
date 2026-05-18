@@ -3,6 +3,18 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 55 - Raspberry Pi production runtime verification
+
+- Enhanced `scripts/check-raspi-runtime.sh` to verify hardened Docker same-origin deployment structure.
+- Added checks for host direct API access (should fail in hardened mode when web `/api/status` succeeds).
+- Added web container to API connectivity verification using wget or curl inside the container.
+- Improved error messages with "Problem / Cause / Fix" format for common Docker networking issues.
+- Fixed `.env.example` to recommend `INTERNAL_API_URL=http://watch-wallet-api:3011` for Docker Compose (not `127.0.0.1`).
+- Clarified that `127.0.0.1:3011` is only correct for direct Node.js/systemd deployment on the same host.
+- Documented that in hardened Docker mode, direct host access to port 3011 should fail, and this is correct behavior.
+- Confirmed the intended request flow: browser → Caddy/Tailscale HTTPS → web port 3010 → Docker-internal API port 3011.
+- No wallet logic, PSBT logic, broadcast behavior, signing, private key handling, vault deletion, or secret exposure was added.
+
 ## Phase 54 - Docker internal API networking and Raspberry Pi deployment guardrails
 
 - Fixed Docker Compose configuration so `watch-wallet-api` uses `expose` instead of `ports` to prevent publishing port 3011 to the host.

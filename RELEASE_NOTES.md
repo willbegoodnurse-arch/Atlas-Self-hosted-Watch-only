@@ -1,6 +1,37 @@
 
 # Atlas v0.1.0 Release Candidate Notes
 
+## Phase 55 - Raspberry Pi Production Runtime Verification
+
+Phase 55 enhances runtime verification for hardened Docker same-origin deployment and clarifies expected behavior in production.
+
+**Validation script improvements:**
+- `scripts/check-raspi-runtime.sh` now checks host direct API access and expects it to fail in hardened mode
+- Added web container to API connectivity check using wget or curl inside the container
+- Improved error messages with "Problem / Cause / Fix" format for Docker networking issues
+- Added checks for API binding address (must be Docker-accessible, not 127.0.0.1 only)
+
+**Configuration clarifications:**
+- Fixed `.env.example` to recommend `INTERNAL_API_URL=http://watch-wallet-api:3011` for Docker Compose
+- Clarified that `INTERNAL_API_URL=http://127.0.0.1:3011` is only for direct Node.js/systemd deployment
+- Documented that direct host access to port 3011 should fail in hardened Docker mode (this is correct)
+
+**Expected behavior in hardened Docker mode:**
+- ✓ Web endpoint `http://127.0.0.1:3010/api/status` should succeed from host
+- ✓ Web container can reach `http://watch-wallet-api:3011/health` via Docker internal network
+- ✓ Direct host access to `http://127.0.0.1:3011/health` should fail (API is not published to host)
+- ✓ Browser accesses via Caddy/Tailscale HTTPS → web port 3010 → Docker-internal API port 3011
+
+**Request flow (unchanged):**
+```
+Browser → https://<your-tailscale-host>:8443
+→ Caddy → 127.0.0.1:3010
+→ watch-wallet-web container → http://watch-wallet-api:3011
+→ watch-wallet-api container
+```
+
+This phase does not change wallet logic, PSBT logic, broadcast behavior, signing, private key handling, or expose secrets.
+
 ## Phase 54 - Docker Internal API Networking and Raspberry Pi Deployment Guardrails
 
 Phase 54 fixes Docker internal networking issues that prevented the web container from reaching the API container, and documents the correct Raspberry Pi HTTPS/Docker deployment architecture.
