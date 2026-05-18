@@ -81,13 +81,55 @@ npm run dev --workspace=apps/web
 ## Validation
 
 ```powershell
-npm.cmd run typecheck --workspace=apps/web
-npm.cmd run typecheck --workspace=apps/api
-npm.cmd test --workspace=apps/api
-npm.cmd run build --workspace=apps/web
+npm.cmd run typecheck
+npm.cmd test
+npm.cmd run build
+git diff --check
 ```
 
-`apps/web` currently has no frontend test script.
+On shells with Bash available, the local release gate can be run as:
+
+```bash
+./scripts/check-local-release.sh
+```
+
+The script runs typecheck, tests, build, `git diff --check`, and `npm audit --omit=dev`. It does not run `npm install`, `npm update`, `npm audit fix`, `npm audit fix --force`, commit, push, tag, deploy, or read `.env`.
+
+## Workspace Link Recovery
+
+npm workspaces create links under `node_modules/@watch-wallet/*`. If the project directory is moved or copied, those links can still point at the old path.
+
+Common symptom:
+
+```text
+Cannot find module '@watch-wallet/bitcoin'
+```
+
+Recovery:
+
+```bash
+npm install
+```
+
+Then rerun:
+
+```bash
+npm run typecheck
+```
+
+Do not edit generated workspace links by hand. Reinstalling dependencies from the repository root is the expected repair.
+
+## Dependency Audit Handling
+
+As of Phase 56, `npm audit --omit=dev` reports a moderate Next/PostCSS finding because `next@15.5.18` depends internally on `postcss@8.4.31`.
+
+Current policy:
+
+- Do not run `npm audit fix`.
+- Do not run `npm audit fix --force`.
+- Do not downgrade or major-upgrade Next to satisfy audit output.
+- Recheck when a newer Next 15 patch is available.
+- Treat high or critical production dependency findings as release blockers until reviewed.
 
 ## Local Data
 

@@ -3,6 +3,16 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 56 - Release Candidate hardening and deployment readiness
+
+- Added a local release validation script for typecheck, tests, production build, whitespace diff checking, and production dependency audit review.
+- Documented the current `npm audit --omit=dev` state for the known Next/PostCSS moderate finding.
+- Clarified that `npm audit fix` and `npm audit fix --force` must not be used for the current Next/PostCSS finding because they can introduce unsafe or breaking dependency changes.
+- Documented that `next@15.5.18` is currently up to date within the Next 15 line in this workspace, and the Next/PostCSS audit state should be rechecked when a newer Next 15 patch is available.
+- Added workspace link recovery guidance for moved or copied project directories where `node_modules/@watch-wallet/*` can point at an old path and cause `Cannot find module '@watch-wallet/bitcoin'`.
+- Reaffirmed local and Raspberry Pi/Docker release gates without changing wallet logic, PSBT logic, broadcast behavior, signing, authentication, vault behavior, xpub reveal behavior, or deployment state.
+- No commit, push, PR, tag, deployment, dependency fix, Next major upgrade, wallet logic change, or secret exposure was performed.
+
 ## Phase 55 - Raspberry Pi production runtime verification
 
 - Enhanced `scripts/check-raspi-runtime.sh` to verify hardened Docker same-origin deployment structure.

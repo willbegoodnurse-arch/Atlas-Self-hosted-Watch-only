@@ -162,13 +162,21 @@ Legacy direct mode is still available for troubleshooting by setting `NEXT_PUBLI
 Run these before releases or handoff:
 
 ```powershell
-npm.cmd run typecheck --workspace=apps/web
-npm.cmd run typecheck --workspace=apps/api
-npm.cmd test --workspace=apps/api
-npm.cmd run build --workspace=apps/web
+npm.cmd install
+npm.cmd run typecheck
+npm.cmd test
+npm.cmd run build
+git diff --check
+npm.cmd audit --omit=dev
 ```
 
-`apps/web` currently has no frontend test script. Use the web typecheck plus the smoke checklist in [docs/release-checklist.md](docs/release-checklist.md).
+On shells with Bash available, the local release helper runs the same non-deploying checks except dependency installation:
+
+```bash
+./scripts/check-local-release.sh
+```
+
+The helper does not run `npm install`, `npm update`, `npm audit fix`, `npm audit fix --force`, commit, push, tag, deploy, or read `.env`. Use the full smoke checklist in [docs/release-checklist.md](docs/release-checklist.md).
 
 ## Docker Compose
 

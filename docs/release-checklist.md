@@ -5,18 +5,79 @@ Use this checklist before tagging, deploying, or handing off a build.
 ## Automated Checks
 
 ```powershell
-npm.cmd run typecheck --workspace=apps/web
-npm.cmd run typecheck --workspace=apps/api
-npm.cmd test --workspace=apps/api
-npm.cmd test --workspace=apps/web
-npm.cmd run build --workspace=apps/web
-npm.cmd run build --workspace=apps/api
+npm.cmd install
+npm.cmd run typecheck
+npm.cmd test
+npm.cmd run build
 git diff --check
+npm.cmd audit --omit=dev
 ```
 
 On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
 
+On shells with Bash available, run the local release helper:
+
+```bash
+./scripts/check-local-release.sh
+```
+
+The helper runs typecheck, tests, build, `git diff --check`, and `npm audit --omit=dev`. It does not run `npm install`, `npm update`, `npm audit fix`, `npm audit fix --force`, commit, push, tag, deploy, or read `.env`.
+
 The web regression test suite covers auth/session fallback rendering, wallet cards, wallet identity/MFP display, portal modals, inline receive QR behavior, signed PSBT verification UI, selected UTXO payload mapping, and local fee-estimate fallback copy.
+
+## Phase 56 Local Release Gate
+
+- Run `npm install` from the repository root before release validation, especially after moving or copying the project directory.
+- Run `npm run typecheck`.
+- Run `npm run test`.
+- Run `npm run build`.
+- Run `git diff --check`.
+- Run `npm audit --omit=dev`.
+- Confirm `git status --short` contains only intentional documentation or script changes before committing.
+- Do not commit generated build output.
+- Do not read, print, or modify `.env`, `wallets.enc`, `auth.json`, cookies, sessions, xpubs, PSBTs, txHex, or RPC credentials during local release validation.
+
+### npm Audit Handling
+
+As of Phase 56, `npm audit --omit=dev` reports a moderate finding through Next's internal PostCSS dependency:
+
+- Installed Next version: `next@15.5.18`.
+- Reported vulnerable dependency path: Next internal `postcss@8.4.31`.
+- Current status: `npm update next` is already up to date within the Next 15 line in this workspace.
+- Current policy: do not run `npm audit fix` or `npm audit fix --force`.
+- Reason: npm's force fix can select unsafe or breaking dependency changes.
+- Follow-up: re-run `npm update next` and `npm audit --omit=dev` when a newer Next 15 patch is available.
+- Release rule: high or critical production dependency findings require review before release.
+
+### Workspace Link Recovery
+
+npm workspaces create local links under `node_modules/@watch-wallet/*`. If this repository is moved or copied, those links can point at an old path.
+
+Symptom example:
+
+```text
+Cannot find module '@watch-wallet/bitcoin'
+```
+
+Recovery:
+
+```bash
+npm install
+npm run typecheck
+```
+
+Do not manually patch workspace junctions or symlinks.
+
+## Raspberry Pi / Docker Release Gate
+
+- Run `docker compose build`.
+- Run `docker compose up -d`.
+- Run `./scripts/check-raspi-runtime.sh`.
+- Confirm web `/api/status` succeeds through the web origin.
+- Confirm host direct API access to `http://127.0.0.1:3011` fails in hardened Docker mode.
+- Confirm the web container can reach `http://watch-wallet-api:3011` through Docker internal networking.
+- Confirm `watch-wallet-api` uses `expose: ["3011"]`, not a host-published `ports` entry.
+- Confirm Bitcoin Core RPC port `8332` is not public.
 
 ## Startup
 
