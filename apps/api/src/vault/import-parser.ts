@@ -5,6 +5,7 @@ import type {
   ScriptType,
   SourceDevice
 } from "./types.js";
+import { addBbqrFrame, assembleBbqrPayload, createBbqrCollectorState, parseBbqrFrame } from "./bbqr.js";
 
 export const watchOnlyImportError =
   "This is a watch-only wallet. Private keys or seed phrases must never be imported.";
@@ -37,23 +38,28 @@ export function parseWalletImport(input: {
   const sourceDevice = input.sourceDevice ?? "other";
   const fallbackNetwork = input.network ?? "mainnet";
   const notes = sanitizeOptionalText(input.notes, 500);
-  // BBQr multipart QR (Coldcard)
+  const bbqrFrame = parseBbqrFrame(importText);
+  if (bbqrFrame) {
+    try {
+      const state = addBbqrFrame(createBbqrCollectorState(), bbqrFrame).state;
+      const payload = assembleBbqrPayload(state);
+      if (payload) {
+        const json = parseJson(payload);
+        if (json) {
+          return applyOverrides(parseColdcardLikeJson(json, payload, "coldcard", fallbackNetwork, notes), input);
+        }
+      }
+    } catch {
+      // Fall through to the sanitized unsupported BBQr response below.
+    }
+  }
   if (importText.startsWith("B$")) {
-    return {
-      extendedPublicKey: null,
-      type: null,
+    return unsupportedImport("Incomplete or unsupported BBQr format. Atlas imports Coldcard Generic JSON/Text BBQr after all frames are collected.", {
       sourceDevice,
       network: fallbackNetwork,
-      scriptType: "unknown",
-      accountPath: null,
-      masterFingerprint: null,
       importFormat: "bbqr",
-      rawImport: null,
-      notes,
-      warnings: [],
-      unsupportedReason:
-        "BBQr multipart QR detected. Export a descriptor or Generic JSON from Coldcard and import via Paste or File."
-    };
+      notes
+    });
   }
 
   // Raw PSBT base64 magic bytes
@@ -427,18 +433,33 @@ function parseColdcardLikeJson(
   network: BitcoinNetwork,
   notes: string | null
 ): ParsedWalletImport {
-  const xfp = stringField(value, "xfp") ?? stringField(value, "fingerprint");
+  const xfp =
+    stringField(value, "xfp") ??
+    stringField(value, "fingerprint") ??
+    stringField(value, "master_fingerprint") ??
+    stringField(value, "masterFingerprint");
   const candidates = [
     jsonKeyCandidate(value, "bip84", "native-segwit"),
+    jsonKeyCandidate(value, "p2wpkh", "native-segwit"),
+    jsonKeyCandidate(value, "zpub", "native-segwit"),
     jsonKeyCandidate(value, "bip49", "nested-segwit"),
+    jsonKeyCandidate(value, "p2sh_p2wpkh", "nested-segwit"),
+    jsonKeyCandidate(value, "ypub", "nested-segwit"),
     jsonKeyCandidate(value, "bip44", "legacy"),
-    jsonKeyCandidate(value, "xpub", "unknown")
+    jsonKeyCandidate(value, "p2pkh", "legacy"),
+    jsonKeyCandidate(value, "bip86", "taproot"),
+    jsonKeyCandidate(value, "p2tr", "taproot"),
+    jsonKeyCandidate(value, "taproot", "taproot"),
+    jsonKeyCandidate(value, "xpub", "unknown"),
+    jsonKeyCandidate(value, "tpub", "unknown"),
+    jsonKeyCandidate(value, "upub", "nested-segwit"),
+    jsonKeyCandidate(value, "vpub", "native-segwit")
   ].filter((candidate): candidate is JsonKeyCandidate => Boolean(candidate));
   const selected = candidates[0] ?? null;
   const key = selected?.key ?? null;
 
   return parsedFromKey(key, {
-    sourceDevice,
+    sourceDevice: sourceDevice === "other" ? "coldcard" : sourceDevice,
     network: key ? networkForKey(key) ?? network : network,
     scriptType: selected?.scriptType ?? "unknown",
     accountPath: selected?.accountPath ?? null,
@@ -465,10 +486,11 @@ function jsonKeyCandidate(
   const candidate = value[field];
   if (typeof candidate === "string") {
     const key = extractExtendedPublicKey(candidate);
-    return key ? { key, scriptType, accountPath: accountPathFor(scriptType, networkForKey(key) ?? "mainnet") } : null;
+    const path = stringField(value, `${field}_deriv`) ?? stringField(value, `${field}_path`);
+    return key ? { key, scriptType, accountPath: path ? normalizePath(path) : accountPathFor(scriptType, networkForKey(key) ?? "mainnet") } : null;
   }
   if (isRecord(candidate)) {
-    const key = extractExtendedPublicKey(String(candidate.xpub ?? candidate.zpub ?? candidate.ypub ?? ""));
+    const key = extractExtendedPublicKey(String(candidate.xpub ?? candidate.zpub ?? candidate.ypub ?? candidate.tpub ?? candidate.upub ?? candidate.vpub ?? candidate.value ?? ""));
     const path = typeof candidate.deriv === "string"
       ? candidate.deriv
       : typeof candidate.derivation === "string"

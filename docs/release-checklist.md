@@ -97,7 +97,9 @@ Do not manually patch workspace junctions or symlinks.
 - Confirm transaction `More` still exposes related address details for deeper inspection.
 - Confirm Send amount input no longer shows noisy inline `= ... sats` conversion text while sats/BTC parsing still works.
 - Confirm signed PSBT inputs like `p1of3 ...`, `p2of3 ...`, and `p3of3 ...` show a specific unsupported multipart QR frame message.
-- Confirm Coldcard BBQr import, animated QR full reassembly, KRW price API, receive address discovery changes, and broadcast handoff remain deferred.
+- Confirm Coldcard Generic JSON watch-only import preserves XFP/master fingerprint, account path, source device, script type, and first receive preview.
+- Confirm Coldcard Generic JSON/Text BBQr watch-only import can collect all frames before previewing, and unsupported BBQr variants fail with a clear message.
+- Confirm animated UR full reassembly, KRW price API, receive address discovery changes, and broadcast handoff remain deferred.
 
 ## Startup
 

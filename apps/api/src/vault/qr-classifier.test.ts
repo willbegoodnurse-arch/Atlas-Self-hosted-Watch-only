@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyQrPayload } from "./qr-classifier.js";
+import { assembleBbqrFrames, classifyQrPayload } from "./qr-classifier.js";
 
 const xpub =
   "xpub6BvTm7YLvSRVjijq48yLuTA3eThj9nqZjsCyd48QXLW1cgmkThmXaWRiRJv7j59nxRSkPD2ux97rSFAFPFppMEUAsE7Zoqt8oBYguJz2Mtb";
@@ -104,11 +104,53 @@ test("classifies raw base64 PSBT magic as psbt-ur", () => {
 });
 
 test("classifies B$ BBQr prefix as bbqr animated", () => {
-  const result = classifyQrPayload("B$ZZ0110AABBCCDD");
+  const result = classifyQrPayload("B$HJ0200414243");
   assert.equal(result.format, "bbqr");
   assert.equal(result.animated, true);
-  assert.equal(result.watchOnlyCandidate, false);
-  assert.ok(result.warning);
+  assert.equal(result.watchOnlyCandidate, true);
+  assert.equal(result.frameIndex, 1);
+  assert.equal(result.totalFrames, 2);
+  assert.equal(result.warning, null);
+});
+
+test("assembles hex BBQr Coldcard Generic JSON frames", () => {
+  const json = JSON.stringify({ xfp: "AB12CD34", p2wpkh: zpub });
+  const hex = Buffer.from(json, "utf8").toString("hex").toUpperCase();
+  const first = hex.slice(0, Math.ceil(hex.length / 2));
+  const second = hex.slice(Math.ceil(hex.length / 2));
+
+  const result = assembleBbqrFrames([`B$HJ0201${second}`, `B$HJ0200${first}`]);
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.payload, json);
+  }
+});
+
+test("reports incomplete and conflicting BBQr frames", () => {
+  const one = assembleBbqrFrames(["B$HJ0200414243"]);
+  assert.equal(one.ok, false);
+  if (!one.ok) {
+    assert.deepEqual(one.missingFrames, [2]);
+  }
+
+  const duplicate = assembleBbqrFrames(["B$HJ0200414243", "B$HJ0200414243"]);
+  assert.equal(duplicate.ok, false);
+  if (!duplicate.ok) {
+    assert.deepEqual(duplicate.missingFrames, [2]);
+  }
+
+  const conflict = assembleBbqrFrames(["B$HJ0200414243", "B$HJ0200444546"]);
+  assert.equal(conflict.ok, false);
+  if (!conflict.ok) {
+    assert.match(conflict.error, /different data/);
+  }
+
+  const mismatch = assembleBbqrFrames(["B$HJ0200414243", "B$HJ0301444546"]);
+  assert.equal(mismatch.ok, false);
+  if (!mismatch.ok) {
+    assert.match(mismatch.error, /total mismatch/);
+  }
 });
 
 test("classifies animated UR NofM frame as ur-animated with frame metadata", () => {

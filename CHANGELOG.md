@@ -3,6 +3,15 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 59 - Coldcard Generic JSON and BBQr watch-only import support
+
+- Expanded Coldcard Generic JSON watch-only import parsing to preserve public extended key metadata, master fingerprint, account path, script type, network, and Coldcard source-device context.
+- Added support for Coldcard Generic JSON/Text BBQr frame collection and reassembly for the watch-only wallet import flow.
+- Added explicit incomplete, duplicate, conflict, total-mismatch, unsupported-format, invalid JSON, and private-material rejection paths without echoing wallet import payloads.
+- Kept bare zpub/xpub import working with missing fingerprint/path guidance, while Generic JSON imports with XFP/path now show stronger signer verification metadata.
+- Added API, QR classifier, BBQr helper, import preview, and web regression tests for Generic JSON metadata and BBQr frame handling.
+- No PSBT builder, signed PSBT verification core, broadcast behavior, wallet derivation/address discovery, auth/session/cookie/vault/xpub reveal behavior, signing, private-key import, dependency updates, commits, pushes, tags, or deployments were changed.
+
 ## Phase 58 - Signed PSBT multipart QR reassembly
 
 - Added signed PSBT multipart frame parsing for `pNofM <base64-fragment>` inputs with case and spacing tolerance.

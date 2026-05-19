@@ -76,6 +76,30 @@ test("wallet import preview derives first receive address without echoing the xp
   assert.match(descriptorPayload.firstReceiveAddress, /^bc1q/);
   assert.doesNotMatch(descriptorResponse.body, new RegExp(ZPUB));
 
+  const genericJsonResponse = await server.inject({
+    method: "POST",
+    url: "/api/wallets/import-preview",
+    headers,
+    payload: {
+      importText: JSON.stringify({
+        xfp: "F23A9C1D",
+        p2wpkh: ZPUB,
+        p2wpkh_deriv: "m/84'/0'/0'"
+      }),
+      network: "mainnet",
+      sourceDevice: "coldcard",
+      scriptType: "native-segwit"
+    }
+  });
+
+  assert.equal(genericJsonResponse.statusCode, 200);
+  const genericJsonPayload = genericJsonResponse.json();
+  assert.equal(genericJsonPayload.importFormat, "coldcard-json");
+  assert.equal(genericJsonPayload.masterFingerprint, "f23a9c1d");
+  assert.equal(genericJsonPayload.accountPath, "m/84'/0'/0'");
+  assert.equal(genericJsonPayload.scriptType, "native-segwit");
+  assert.doesNotMatch(genericJsonResponse.body, new RegExp(ZPUB));
+
   const secretResponse = await server.inject({
     method: "POST",
     url: "/api/wallets/import-preview",

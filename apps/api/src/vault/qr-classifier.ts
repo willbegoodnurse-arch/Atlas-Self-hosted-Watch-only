@@ -1,3 +1,5 @@
+import { addBbqrFrame, assembleBbqrPayload, createBbqrCollectorState, getMissingBbqrFrames, parseBbqrFrame } from "./bbqr.js";
+
 export type QrPayloadFormat =
   | "bare-extended-public-key"
   | "descriptor"
@@ -20,6 +22,10 @@ export type QrPayloadClassification = {
   warning: string | null;
 };
 
+export type BbqrAssemblyResult =
+  | { ok: true; payload: string }
+  | { ok: false; error: string; missingFrames: number[] };
+
 const xpubPattern = /\b(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{40,}\b/;
 
 export function classifyQrPayload(frame: string): QrPayloadClassification {
@@ -29,6 +35,20 @@ export function classifyQrPayload(frame: string): QrPayloadClassification {
   }
 
   // BBQr: Coldcard multipart format
+  const bbqr = parseBbqrFrame(trimmed);
+  if (bbqr) {
+    return {
+      format: "bbqr",
+      animated: true,
+      watchOnlyCandidate: bbqr.fileType === "J" || bbqr.fileType === "U",
+      frameIndex: bbqr.index + 1,
+      totalFrames: bbqr.total,
+      warning:
+        bbqr.fileType === "J" || bbqr.fileType === "U"
+          ? null
+          : "Unsupported BBQr format. Atlas only imports Coldcard Generic JSON/Text watch-only exports."
+    };
+  }
   if (trimmed.startsWith("B$")) {
     return {
       format: "bbqr",
@@ -36,8 +56,7 @@ export function classifyQrPayload(frame: string): QrPayloadClassification {
       watchOnlyCandidate: false,
       frameIndex: null,
       totalFrames: null,
-      warning:
-        "BBQr multipart QR detected. Export a descriptor or Generic JSON from Coldcard and import via Paste or File."
+      warning: "Unsupported BBQr format."
     };
   }
 
@@ -170,6 +189,39 @@ export function classifyQrPayload(frame: string): QrPayloadClassification {
   }
 
   return notWatchOnly("unknown", null);
+}
+
+export function assembleBbqrFrames(frames: string[]): BbqrAssemblyResult {
+  let state = createBbqrCollectorState();
+  for (const rawFrame of frames) {
+    const frame = parseBbqrFrame(rawFrame);
+    if (!frame) {
+      return { ok: false, error: "Unsupported BBQr format.", missingFrames: getMissingBbqrFrames(state) };
+    }
+    const result = addBbqrFrame(state, frame);
+    state = result.state;
+    if (result.status === "error") {
+      return { ok: false, error: result.message, missingFrames: getMissingBbqrFrames(state) };
+    }
+  }
+
+  const missingFrames = getMissingBbqrFrames(state);
+  if (missingFrames.length > 0) {
+    return { ok: false, error: "Incomplete BBQr frames.", missingFrames };
+  }
+
+  try {
+    const payload = assembleBbqrPayload(state);
+    return payload
+      ? { ok: true, payload }
+      : { ok: false, error: "Incomplete BBQr frames.", missingFrames: getMissingBbqrFrames(state) };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Unsupported BBQr format.",
+      missingFrames: []
+    };
+  }
 }
 
 function isAnimatedUr(value: string): boolean {

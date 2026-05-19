@@ -1,8 +1,19 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthShell, WalletCard, WalletIdentityPanel } from "../phase-one-auth";
+import { AuthShell, WalletCard, WalletCreateForm, WalletIdentityPanel } from "../phase-one-auth";
 import { jsonResponse, makeAddress, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
+
+const FULL_ZPUB =
+  "zpub6rtpJPNNq6CeKuycgiXu7RBRDzQcPG9uJWbKQ4NCiuVzP3wW6WspGjCD3h1gUKKwZRgo8Mzm21GEkD2HpUUHkfPrwyfcRaaWA93NSnnKTaP";
+
+function importTextarea(): HTMLTextAreaElement {
+  const textarea = document.querySelector("textarea.import-textarea");
+  if (!(textarea instanceof HTMLTextAreaElement)) {
+    throw new Error("Import textarea not found");
+  }
+  return textarea;
+}
 
 describe("wallet list and identity regression", () => {
   beforeEach(() => {
@@ -119,5 +130,93 @@ describe("wallet list and identity regression", () => {
 
     expect(await screen.findByText("Initial setup is not complete")).toBeInTheDocument();
     expect(screen.queryByText("This action is not allowed.")).not.toBeInTheDocument();
+  });
+
+  it("previews Coldcard Generic JSON metadata for wallet import", async () => {
+    const genericJson = JSON.stringify({
+      xfp: "F23A9C1D",
+      p2wpkh: FULL_ZPUB,
+      p2wpkh_deriv: "m/84'/0'/0'"
+    });
+    globalThis.fetch = vi.fn(async () =>
+      jsonResponse({
+        accountPath: "m/84'/0'/0'",
+        firstReceiveAddress: "bc1qatlasreceive000000000000000000000000000",
+        firstReceivePath: "m/84'/0'/0'/0/0",
+        importFormat: "coldcard-json",
+        keyType: "zpub",
+        masterFingerprint: "f23a9c1d",
+        network: "mainnet",
+        scriptType: "native-segwit",
+        warnings: []
+      })
+    );
+
+    render(
+      <WalletCreateForm
+        apiUrl=""
+        busy={false}
+        vaultUnlocked={true}
+        onSubmit={async () => undefined}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Source device"), { target: { value: "coldcard" } });
+    fireEvent.change(importTextarea(), { target: { value: genericJson } });
+
+    expect(await screen.findByDisplayValue("f23a9c1d")).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue("m/84'/0'/0'").length).toBeGreaterThan(0);
+    expect(await screen.findByText("zpub / coldcard-json")).toBeInTheDocument();
+    expect(screen.queryByText(/Master fingerprint was not provided/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps missing fingerprint guidance for zpub-only wallet import", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResponse({
+        accountPath: "m/84'/0'/0'",
+        firstReceiveAddress: "bc1qatlasreceive000000000000000000000000000",
+        firstReceivePath: "m/84'/0'/0'/0/0",
+        importFormat: "bare-extended-public-key",
+        keyType: "zpub",
+        masterFingerprint: null,
+        network: "mainnet",
+        scriptType: "native-segwit",
+        warnings: []
+      })
+    );
+
+    render(
+      <WalletCreateForm
+        apiUrl=""
+        busy={false}
+        vaultUnlocked={true}
+        onSubmit={async () => undefined}
+      />
+    );
+
+    fireEvent.change(importTextarea(), { target: { value: FULL_ZPUB } });
+
+    expect(await screen.findByText(/Bare extended public keys usually do not include master fingerprint metadata/i)).toBeInTheDocument();
+  });
+
+  it("rejects private material without echoing the payload", async () => {
+    const wif = "5KYZdUEo39z3FPrtuX2QbbwGnNP5zTd7yyr2SC1j299sBCnWjss";
+    globalThis.fetch = vi.fn();
+
+    render(
+      <WalletCreateForm
+        apiUrl=""
+        busy={false}
+        vaultUnlocked={true}
+        onSubmit={async () => undefined}
+      />
+    );
+
+    fireEvent.change(importTextarea(), { target: { value: JSON.stringify({ private_key: wif }) } });
+
+    const rejectionMessages = screen.getAllByText(/Never enter private keys/i);
+    expect(rejectionMessages.length).toBeGreaterThan(0);
+    expect(rejectionMessages.map((message) => message.textContent ?? "").join(" ")).not.toContain(wif);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });

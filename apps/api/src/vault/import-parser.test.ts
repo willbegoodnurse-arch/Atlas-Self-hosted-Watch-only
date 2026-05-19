@@ -216,6 +216,77 @@ test("extracts Coldcard-like JSON xfp and bip84 xpub", () => {
   assert.equal(parsed.scriptType, "native-segwit");
 });
 
+test("extracts Coldcard Generic JSON p2wpkh metadata", () => {
+  const parsed = parseWalletImport({
+    importText: JSON.stringify({
+      xfp: "AB12CD34",
+      p2wpkh: zpub,
+      p2wpkh_deriv: "m/84'/0'/0'"
+    }),
+    sourceDevice: "coldcard",
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.extendedPublicKey, zpub);
+  assert.equal(parsed.sourceDevice, "coldcard");
+  assert.equal(parsed.importFormat, "coldcard-json");
+  assert.equal(parsed.masterFingerprint, "ab12cd34");
+  assert.equal(parsed.accountPath, "m/84'/0'/0'");
+  assert.equal(parsed.scriptType, "native-segwit");
+});
+
+test("rejects private material inside Coldcard Generic JSON", () => {
+  assert.throws(
+    () => parseWalletImport({
+      importText: JSON.stringify({
+        xfp: "AB12CD34",
+        p2wpkh: zpub,
+        private_key: "5KYZdUEo39z3FPrtuX2QbbwGnNP5zTd7yyr2SC1j299sBCnWjss"
+      }),
+      sourceDevice: "coldcard",
+      network: "mainnet"
+    }),
+    /watch-only wallet/
+  );
+});
+
+test("malformed JSON and JSON without watch-only key return safe unsupported results", () => {
+  const malformed = parseWalletImport({
+    importText: '{"xfp":"AB12CD34",',
+    sourceDevice: "coldcard",
+    network: "mainnet"
+  });
+  assert.equal(malformed.extendedPublicKey, null);
+  assert.match(malformed.unsupportedReason ?? "", /Unsupported import format/);
+
+  const noKey = parseWalletImport({
+    importText: '{"xfp":"AB12CD34"}',
+    sourceDevice: "coldcard",
+    network: "mainnet"
+  });
+  assert.equal(noKey.importFormat, "coldcard-json");
+  assert.equal(noKey.extendedPublicKey, null);
+  assert.match(noKey.unsupportedReason ?? "", /Unsupported JSON export/);
+});
+
+test("imports a single-frame hex BBQr Coldcard Generic JSON payload", () => {
+  const json = JSON.stringify({
+    xfp: "AB12CD34",
+    p2wpkh: zpub,
+    p2wpkh_deriv: "m/84'/0'/0'"
+  });
+  const frame = `B$HJ0100${Buffer.from(json, "utf8").toString("hex").toUpperCase()}`;
+  const parsed = parseWalletImport({
+    importText: frame,
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.extendedPublicKey, zpub);
+  assert.equal(parsed.sourceDevice, "coldcard");
+  assert.equal(parsed.masterFingerprint, "ab12cd34");
+  assert.equal(parsed.accountPath, "m/84'/0'/0'");
+});
+
 test("detects unsupported UR payloads without throwing", () => {
   const parsed = parseWalletImport({
     importText: "ur:crypto-account/otadlewtaad...",

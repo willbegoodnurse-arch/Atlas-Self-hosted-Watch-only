@@ -13,6 +13,13 @@ import {
   type MultipartPsbtFrame,
   type MultipartPsbtState
 } from "./psbt-multipart";
+import {
+  addBbqrFrame,
+  assembleBbqrPayload,
+  createBbqrCollectorState,
+  parseBbqrFrame,
+  type BbqrCollectorState
+} from "./bbqr";
 export { signedPsbtMultipartFrameMessage } from "./psbt-multipart";
 
 type SessionResponse = {
@@ -1519,7 +1526,7 @@ function VaultUnlockForm({
   );
 }
 
-function WalletCreateForm({
+export function WalletCreateForm({
   apiUrl,
   busy,
   vaultUnlocked,
@@ -1551,6 +1558,7 @@ function WalletCreateForm({
   const [qrFrames, setQrFrames] = useState<string[]>([]);
   const [qrFrameTotal, setQrFrameTotal] = useState<number | null>(null);
   const [qrFrameFormat, setQrFrameFormat] = useState<string>("");
+  const [bbqrState, setBbqrState] = useState<BbqrCollectorState>(() => createBbqrCollectorState());
   const [saveMessage, setSaveMessage] = useState("");
   const [preview, setPreview] = useState<WalletImportPreviewResponse | null>(null);
   const [previewMessage, setPreviewMessage] = useState("");
@@ -1746,9 +1754,7 @@ function WalletCreateForm({
           }
 
           if (classification.format === "bbqr") {
-            setScannerMessage("BBQr multipart QR detected. Export a descriptor or Generic JSON from Coldcard and import via Paste or File.");
-            stopScanner();
-            setScannerOpen(false);
+            captureBbqrFrame(scannedValue);
             return;
           }
 
@@ -1782,7 +1788,7 @@ function WalletCreateForm({
     scannerControls.current?.stop();
     scannerControls.current = null;
     const stream = scannerVideo.current?.srcObject;
-    if (stream instanceof MediaStream) {
+    if (typeof MediaStream !== "undefined" && stream instanceof MediaStream) {
       stream.getTracks().forEach((track) => track.stop());
     }
     if (scannerVideo.current) {
@@ -1799,7 +1805,39 @@ function WalletCreateForm({
     setQrFrames([]);
     setQrFrameTotal(null);
     setQrFrameFormat("");
+    setBbqrState(createBbqrCollectorState());
     setScannerMessage("Frames cleared. Point the camera at the animated QR again.");
+  }
+
+  function captureBbqrFrame(scannedValue: string) {
+    const frame = parseBbqrFrame(scannedValue);
+    if (!frame) {
+      setScannerMessage("Unsupported BBQr format.");
+      return;
+    }
+    const result = addBbqrFrame(bbqrState, frame);
+    setBbqrState(result.state);
+    setQrFrameTotal(frame.total);
+    setQrFrameFormat("bbqr");
+    if (result.status === "error") {
+      setScannerMessage(result.message);
+      return;
+    }
+    try {
+      const payload = assembleBbqrPayload(result.state);
+      if (payload) {
+        setImportText(payload);
+        setSourceDevice("coldcard");
+        setImportMethod("qr");
+        setScannerMessage("All BBQr frames captured. Previewing watch-only wallet import.");
+        stopScanner();
+        setScannerOpen(false);
+        return;
+      }
+      setScannerMessage(result.message);
+    } catch (error) {
+      setScannerMessage(error instanceof Error ? error.message : "Unsupported BBQr format.");
+    }
   }
 
   function tryImportFromFrames() {
@@ -1995,7 +2033,7 @@ function WalletCreateForm({
           ))}
         </div>
       ) : null}
-      {detected.unsupportedReason ? <p className="status-message">{detected.unsupportedReason}</p> : null}
+      {detected.unsupportedReason && !detected.privateInput ? <p className="status-message">{detected.unsupportedReason}</p> : null}
       <div className="terminal-panel import-preview">
         <p className="terminal-heading">First receive check</p>
         {previewLoading ? <p className="muted">Deriving first receive address...</p> : null}
@@ -2156,7 +2194,7 @@ const sourceDeviceOptions: Array<{ value: SourceDevice; label: string }> = [
 
 function DeviceGuidance({ sourceDevice }: { sourceDevice: SourceDevice }) {
   const guidance: Record<SourceDevice, string> = {
-    coldcard: "Coldcard: use Export Wallet > Descriptor or Generic JSON — static QR or file. BBQr multipart QR is detected but not fully decoded; use file/paste instead. Confirm XFP, account path, and script type.",
+    coldcard: "Coldcard: use Export Wallet > Generic JSON or Descriptor. Atlas can collect Generic JSON/Text BBQr frames for watch-only import. Confirm XFP, account path, and script type.",
     keystone: "Keystone: animated crypto-account UR QR is detected via frame collection — scan all frames then use Try Import. Descriptor file import is also available. Verify the first receive address on-device.",
     seedsigner: "SeedSigner: static xpub or UR xpub QR is supported. For animated UR, scan all frames then use Try Import. Verify fingerprint, derivation path, and script type.",
     krux: "Krux: xpub/ypub/zpub QR or SD card text export. Verify fingerprint, derivation path, and script type match the device display.",
@@ -6477,11 +6515,23 @@ function detectImportMetadata(
 
   const json = parseImportJson(trimmed);
   if (json) {
-    const xfp = stringField(json, "xfp") ?? stringField(json, "fingerprint");
+    const xfp =
+      stringField(json, "xfp") ??
+      stringField(json, "fingerprint") ??
+      stringField(json, "master_fingerprint") ??
+      stringField(json, "masterFingerprint");
     const candidate =
       jsonImportCandidate(json, "bip84", "native-segwit") ??
+      jsonImportCandidate(json, "p2wpkh", "native-segwit") ??
+      jsonImportCandidate(json, "zpub", "native-segwit") ??
       jsonImportCandidate(json, "bip49", "nested-segwit") ??
+      jsonImportCandidate(json, "p2sh_p2wpkh", "nested-segwit") ??
+      jsonImportCandidate(json, "ypub", "nested-segwit") ??
       jsonImportCandidate(json, "bip44", "legacy") ??
+      jsonImportCandidate(json, "p2pkh", "legacy") ??
+      jsonImportCandidate(json, "bip86", "taproot") ??
+      jsonImportCandidate(json, "p2tr", "taproot") ??
+      jsonImportCandidate(json, "taproot", "taproot") ??
       jsonImportCandidate(json, "xpub", "unknown");
     return {
       extendedPublicKey: candidate?.key ?? null,
@@ -6499,11 +6549,23 @@ function detectImportMetadata(
 
   // BBQr multipart
   if (trimmed.startsWith("B$")) {
+    const frame = parseBbqrFrame(trimmed);
+    if (frame) {
+      try {
+        const state = addBbqrFrame(createBbqrCollectorState(), frame).state;
+        const payload = assembleBbqrPayload(state);
+        if (payload) {
+          return detectImportMetadata(payload, network, "coldcard");
+        }
+      } catch {
+        // Continue to the sanitized unsupported BBQr message below.
+      }
+    }
     return {
       ...emptyImportDetection(),
       importFormat: "bbqr",
       warnings: [],
-      unsupportedReason: "BBQr multipart QR detected. Export a descriptor or Generic JSON from Coldcard and import via Paste or File."
+      unsupportedReason: "Incomplete or unsupported BBQr format. Scan all Coldcard Generic JSON BBQr frames."
     };
   }
 
@@ -6676,6 +6738,16 @@ function classifyQrFrame(frame: string): QrFrameClassification {
     return { format: "unknown", animated: false, watchOnlyCandidate: false, frameIndex: null, totalFrames: null };
   }
 
+  const bbqr = parseBbqrFrame(trimmed);
+  if (bbqr) {
+    return {
+      format: "bbqr",
+      animated: true,
+      watchOnlyCandidate: bbqr.fileType === "J" || bbqr.fileType === "U",
+      frameIndex: bbqr.index + 1,
+      totalFrames: bbqr.total
+    };
+  }
   if (trimmed.startsWith("B$")) {
     return { format: "bbqr", animated: true, watchOnlyCandidate: false, frameIndex: null, totalFrames: null };
   }
@@ -6840,11 +6912,12 @@ function jsonImportCandidate(
   const candidate = value[field];
   if (typeof candidate === "string") {
     const key = extractExtendedPublicKey(candidate);
-    return key ? { key, scriptType, accountPath: accountPathFor(scriptType, networkForKey(key)) } : null;
+    const path = stringField(value, `${field}_deriv`) ?? stringField(value, `${field}_path`);
+    return key ? { key, scriptType, accountPath: path ? normalizeAccountPath(path) : accountPathFor(scriptType, networkForKey(key)) } : null;
   }
   if (typeof candidate === "object" && candidate !== null && !Array.isArray(candidate)) {
     const record = candidate as Record<string, unknown>;
-    const key = extractExtendedPublicKey(String(record.xpub ?? record.ypub ?? record.zpub ?? ""));
+    const key = extractExtendedPublicKey(String(record.xpub ?? record.ypub ?? record.zpub ?? record.tpub ?? record.upub ?? record.vpub ?? record.value ?? ""));
     const path = typeof record.deriv === "string"
       ? record.deriv
       : typeof record.derivation === "string"
