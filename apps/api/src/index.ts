@@ -7,6 +7,7 @@ import { registerAuthRoutes } from "./auth/routes.js";
 import { authConfig } from "./auth/config.js";
 import { requireAuthenticatedSession } from "./auth/guard.js";
 import { lookupFeeEstimateResult } from "./mempool/fees.js";
+import { registerMarketRoutes } from "./market/btc-krw.js";
 import { checkMempoolHealth, getMempoolApiConfig } from "./mempool/usage.js";
 import { registerRuntimeSettingsRoute } from "./settings/runtime.js";
 import { registerVaultRoutes } from "./vault/routes.js";
@@ -134,6 +135,7 @@ await registerAuthRoutes(server);
 await registerRuntimeSettingsRoute(server, requireAuthenticatedSession);
 await registerFulcrumStatusRoute(server);
 await registerBroadcastRoutes(server, requireAuthenticatedSession);
+await registerMarketRoutes(server);
 await registerVaultRoutes(server);
 
 try {

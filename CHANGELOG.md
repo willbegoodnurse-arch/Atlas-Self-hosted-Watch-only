@@ -3,6 +3,14 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 60 - Dashboard BTC/sats toggle and KRW price feed
+
+- Added a dashboard total-balance display toggle for BTC and sats without changing wallet balance, send amount, or PSBT calculation logic.
+- Added a small KRW conversion line under the total balance using an Atlas API market endpoint instead of browser-to-Upbit calls.
+- Added `GET /api/market/btc-krw` backed by Upbit public `KRW-BTC` ticker data, with timeout handling, sanitized offline/stale fallbacks, and a 5 second server-side cache.
+- Added API and web regression coverage for ticker parsing, malformed/failing upstream responses, cache behavior, dashboard unit toggling, KRW conversion display, and unavailable price fallback.
+- No wallet derivation/address discovery, PSBT build/verify logic, broadcast behavior, auth/session/cookie/vault/xpub reveal behavior, dependency updates, commits, pushes, tags, or deployments were changed.
+
 ## Phase 59 - Coldcard Generic JSON and BBQr watch-only import support
 
 - Expanded Coldcard Generic JSON watch-only import parsing to preserve public extended key metadata, master fingerprint, account path, script type, network, and Coldcard source-device context.

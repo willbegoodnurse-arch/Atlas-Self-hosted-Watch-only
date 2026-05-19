@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthShell, WalletCard, WalletCreateForm, WalletIdentityPanel } from "../phase-one-auth";
+import { AuthShell, DashboardBalanceHero, WalletCard, WalletCreateForm, WalletIdentityPanel } from "../phase-one-auth";
 import { jsonResponse, makeAddress, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
 
 const FULL_ZPUB =
@@ -54,6 +54,83 @@ describe("wallet list and identity regression", () => {
     expect(container.querySelector('a[href="/wallets/wallet-1#create-psbt"]')).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Receive" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Send" })).toBeInTheDocument();
+  });
+
+  it("shows dashboard total balance in BTC by default and toggles to sats and back", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/market/btc-krw")) {
+        return jsonResponse({
+          market: "KRW-BTC",
+          priceKrw: 150_000_000,
+          source: "upbit",
+          checkedAt: "2026-05-19T00:00:00.000Z",
+          status: "online"
+        });
+      }
+      if (url.includes("/api/wallets/wallet-1/balance")) {
+        return jsonResponse({
+          confirmedBalance: 1_234_567,
+          lookupError: null,
+          totalBalance: 1_234_567,
+          unconfirmedBalance: 0
+        });
+      }
+      return jsonResponse({ error: "unexpected request" }, 500);
+    });
+
+    render(<DashboardBalanceHero apiUrl="" wallets={[makeWallet()]} />);
+
+    expect(await screen.findByText("0.01234567 BTC")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "sats" }));
+    expect(screen.getByText("1,234,567 sats")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "BTC" }));
+    expect(screen.getByText("0.01234567 BTC")).toBeInTheDocument();
+  });
+
+  it("shows KRW conversion under the dashboard total balance", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/market/btc-krw")) {
+        return jsonResponse({
+          market: "KRW-BTC",
+          priceKrw: 150_000_000,
+          source: "upbit",
+          checkedAt: "2026-05-19T00:00:00.000Z",
+          status: "online"
+        });
+      }
+      return jsonResponse({
+        confirmedBalance: 1_234_567,
+        lookupError: null,
+        totalBalance: 1_234_567,
+        unconfirmedBalance: 0
+      });
+    });
+
+    render(<DashboardBalanceHero apiUrl="" wallets={[makeWallet()]} />);
+
+    expect(await screen.findByText("≈ ₩1,851,851")).toBeInTheDocument();
+  });
+
+  it("keeps dashboard rendering when KRW price is unavailable", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/market/btc-krw")) {
+        throw new Error("price fetch down");
+      }
+      return jsonResponse({
+        confirmedBalance: 1_234_567,
+        lookupError: null,
+        totalBalance: 1_234_567,
+        unconfirmedBalance: 0
+      });
+    });
+
+    render(<DashboardBalanceHero apiUrl="" wallets={[makeWallet()]} />);
+
+    expect(await screen.findByText("0.01234567 BTC")).toBeInTheDocument();
+    expect(await screen.findByText("KRW price unavailable")).toBeInTheDocument();
   });
 
   it("reveals master fingerprint only after explicit click and renders signer address preview", async () => {

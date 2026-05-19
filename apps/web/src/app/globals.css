@@ -1460,6 +1460,26 @@ h2 {
   line-height: 1;
 }
 
+.hero-krw-price {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.balance-unit-toggle {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgb(0 0 0 / 18%);
+  padding: 4px;
+}
+
+.balance-unit-toggle .compact-button {
+  min-width: 58px;
+}
+
 .hero-status-row,
 .hero-actions,
 .wallet-detail-actions,

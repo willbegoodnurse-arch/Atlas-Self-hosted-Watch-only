@@ -181,6 +181,15 @@ type WalletBalanceResponse = {
   };
 };
 
+type MarketPriceResponse = {
+  market: "KRW-BTC";
+  priceKrw: number | null;
+  source: "upbit";
+  checkedAt: string;
+  status: "online" | "stale" | "offline";
+  error?: "price-unavailable";
+};
+
 type WalletAddressesResponse = {
   walletId: string;
   network: WalletRecord["network"];
@@ -1360,7 +1369,7 @@ function VaultWorkspace({
   );
 }
 
-function DashboardBalanceHero({
+export function DashboardBalanceHero({
   apiUrl,
   wallets
 }: {
@@ -1369,6 +1378,8 @@ function DashboardBalanceHero({
 }) {
   const [totalBalanceSats, setTotalBalanceSats] = useState<number | null>(null);
   const [balanceState, setBalanceState] = useState<"loading" | "ready" | "partial" | "offline">("loading");
+  const [balanceUnit, setBalanceUnit] = useState<"btc" | "sats">("btc");
+  const [marketPrice, setMarketPrice] = useState<MarketPriceResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1409,6 +1420,45 @@ function DashboardBalanceHero({
     };
   }, [apiUrl, wallets]);
 
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | null = null;
+
+    async function refreshPrice() {
+      try {
+        const price = await apiRequest<MarketPriceResponse>(apiUrl, "/api/market/btc-krw");
+        if (!cancelled) {
+          setMarketPrice(price);
+        }
+      } catch {
+        if (!cancelled) {
+          setMarketPrice((previous) => previous
+            ? { ...previous, status: "stale", error: "price-unavailable" }
+            : {
+                market: "KRW-BTC",
+                priceKrw: null,
+                source: "upbit",
+                checkedAt: new Date().toISOString(),
+                status: "offline",
+                error: "price-unavailable"
+              });
+        }
+      }
+    }
+
+    void refreshPrice();
+    timer = window.setInterval(() => {
+      void refreshPrice();
+    }, 5_000);
+
+    return () => {
+      cancelled = true;
+      if (timer !== null) {
+        window.clearInterval(timer);
+      }
+    };
+  }, [apiUrl]);
+
   const statusText =
     balanceState === "loading"
       ? "Syncing balances"
@@ -1424,9 +1474,30 @@ function DashboardBalanceHero({
         <div>
           <p className="eyebrow">Total Balance</p>
           <p className="hero-balance">
-            {balanceState === "loading" ? "Syncing..." : formatBalance(totalBalanceSats ?? 0, "btc")}
+            {balanceState === "loading" ? "Syncing..." : formatBalance(totalBalanceSats ?? 0, balanceUnit)}
+          </p>
+          <p className="hero-krw-price">
+            {formatKrwBalance(totalBalanceSats ?? 0, marketPrice)}
           </p>
           {statusText ? <p className="muted">{statusText}</p> : null}
+        </div>
+        <div className="balance-unit-toggle" aria-label="Total balance unit">
+          <button
+            aria-pressed={balanceUnit === "btc"}
+            className={balanceUnit === "btc" ? "compact-button" : "secondary-button compact-button"}
+            type="button"
+            onClick={() => setBalanceUnit("btc")}
+          >
+            BTC
+          </button>
+          <button
+            aria-pressed={balanceUnit === "sats"}
+            className={balanceUnit === "sats" ? "compact-button" : "secondary-button compact-button"}
+            type="button"
+            onClick={() => setBalanceUnit("sats")}
+          >
+            sats
+          </button>
         </div>
       </div>
     </section>
@@ -6465,6 +6536,17 @@ function formatBalance(sats: number, unit: "sats" | "btc"): string {
   }
 
   return `${new Intl.NumberFormat("en-US").format(sats)} sats`;
+}
+
+function formatKrwBalance(sats: number, marketPrice: MarketPriceResponse | null): string {
+  if (!marketPrice || marketPrice.priceKrw === null) {
+    return "KRW price unavailable";
+  }
+  const krwValue = Math.round((sats / 100_000_000) * marketPrice.priceKrw);
+  const formatted = new Intl.NumberFormat("ko-KR", {
+    maximumFractionDigits: 0
+  }).format(krwValue);
+  return marketPrice.status === "stale" ? `≈ ₩${formatted} · stale price` : `≈ ₩${formatted}`;
 }
 
 function svgToDataUrl(svg: string): string {

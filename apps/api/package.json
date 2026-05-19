@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "test": "npm run build && node --test dist/mempool/backend.test.js dist/mempool/fees.test.js dist/mempool/usage.test.js dist/mempool/transactions.test.js dist/mempool/utxos.test.js dist/fulcrum/diagnostics.test.js dist/settings/runtime.test.js dist/security/runtime-warnings.test.js dist/vault/import-parser.test.js dist/vault/import-preview-routes.test.js dist/vault/qr-classifier.test.js dist/vault/labels.test.js dist/vault/labels-routes.test.js dist/vault/redact.test.js dist/psbt/build.test.js dist/psbt/verify.test.js dist/broadcast/routes.test.js",
+    "test": "npm run build && node --test dist/mempool/backend.test.js dist/mempool/fees.test.js dist/mempool/usage.test.js dist/mempool/transactions.test.js dist/mempool/utxos.test.js dist/fulcrum/diagnostics.test.js dist/settings/runtime.test.js dist/security/runtime-warnings.test.js dist/market/btc-krw.test.js dist/vault/import-parser.test.js dist/vault/import-preview-routes.test.js dist/vault/qr-classifier.test.js dist/vault/labels.test.js dist/vault/labels-routes.test.js dist/vault/redact.test.js dist/psbt/build.test.js dist/psbt/verify.test.js dist/broadcast/routes.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

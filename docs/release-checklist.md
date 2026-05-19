@@ -99,7 +99,11 @@ Do not manually patch workspace junctions or symlinks.
 - Confirm signed PSBT inputs like `p1of3 ...`, `p2of3 ...`, and `p3of3 ...` show a specific unsupported multipart QR frame message.
 - Confirm Coldcard Generic JSON watch-only import preserves XFP/master fingerprint, account path, source device, script type, and first receive preview.
 - Confirm Coldcard Generic JSON/Text BBQr watch-only import can collect all frames before previewing, and unsupported BBQr variants fail with a clear message.
-- Confirm animated UR full reassembly, KRW price API, receive address discovery changes, and broadcast handoff remain deferred.
+- Confirm the dashboard total balance defaults to BTC and can be toggled to sats without changing wallet/send/PSBT amount behavior.
+- Confirm `GET /api/market/btc-krw` returns only `market`, `priceKrw`, `source`, `checkedAt`, `status`, and optional sanitized `error` fields.
+- Confirm the dashboard shows a small KRW conversion below total balance when the price feed is online, and a quiet `KRW price unavailable` fallback when offline.
+- Confirm browser requests go to Atlas `/api/market/btc-krw`, not directly to Upbit.
+- Confirm animated UR full reassembly, receive address discovery changes, and broadcast handoff remain deferred.
 
 ## Startup
 
