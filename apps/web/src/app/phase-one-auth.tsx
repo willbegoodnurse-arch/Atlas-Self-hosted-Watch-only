@@ -7131,16 +7131,19 @@ async function apiRequest<T = unknown>(
   const payload = (await response.json().catch(() => ({}))) as { error?: unknown; message?: unknown };
 
   if (!response.ok) {
-    throw new Error(friendlyApiError(response.status, payload));
+    throw new Error(friendlyApiError(response.status, payload, path));
   }
 
   return payload as T;
 }
 
-function friendlyApiError(status: number, payload: { error?: unknown; message?: unknown }): string {
+function friendlyApiError(status: number, payload: { error?: unknown; message?: unknown }, path: string): string {
   const safeMessage = safeApiMessage(payload.error) ?? safeApiMessage(payload.message);
 
   if (status === 401) {
+    if (path.startsWith("/api/auth/")) {
+      return safeMessage ?? "Invalid credentials or code";
+    }
     return "Session expired or not signed in. Sign in again.";
   }
   if (status === 403) {

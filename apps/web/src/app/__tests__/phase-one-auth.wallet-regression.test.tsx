@@ -209,6 +209,35 @@ describe("wallet list and identity regression", () => {
     expect(screen.queryByText("This action is not allowed.")).not.toBeInTheDocument();
   });
 
+  it("shows invalid credentials for login 401 instead of an expired session message", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/session")) {
+        return jsonResponse({
+          authenticated: false,
+          setupComplete: true,
+          user: null
+        });
+      }
+      if (url.endsWith("/api/auth/login")) {
+        return jsonResponse({ error: "Invalid credentials or code" }, 401);
+      }
+      return jsonResponse({ error: "unexpected request" }, 500);
+    });
+    globalThis.fetch = fetchMock;
+
+    render(<AuthShell apiUrl="" />);
+
+    await userEvent.clear(await screen.findByLabelText("Username"));
+    await userEvent.type(screen.getByLabelText("Username"), "admin");
+    await userEvent.type(screen.getByLabelText("Password"), "wrong password");
+    await userEvent.type(screen.getByLabelText("TOTP code"), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Log in" }));
+
+    expect(await screen.findByText("Invalid credentials or code")).toBeInTheDocument();
+    expect(screen.queryByText("Session expired or not signed in. Sign in again.")).not.toBeInTheDocument();
+  });
+
   it("previews Coldcard Generic JSON metadata for wallet import", async () => {
     const genericJson = JSON.stringify({
       xfp: "F23A9C1D",
