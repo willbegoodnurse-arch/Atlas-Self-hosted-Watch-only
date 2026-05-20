@@ -46,7 +46,13 @@ export function parseWalletImport(input: {
       if (payload) {
         const json = parseJson(payload);
         if (json) {
-          return applyOverrides(parseColdcardLikeJson(json, payload, "coldcard", fallbackNetwork, notes), input);
+          return applyOverrides(
+            {
+              ...parseColdcardLikeJson(json, null, "coldcard", fallbackNetwork, notes),
+              importFormat: "coldcard-generic-json-bbqr"
+            },
+            input
+          );
         }
       }
     } catch {
@@ -428,7 +434,7 @@ function parseUr(
 
 function parseColdcardLikeJson(
   value: Record<string, unknown>,
-  rawImport: string,
+  rawImport: string | null,
   sourceDevice: SourceDevice,
   network: BitcoinNetwork,
   notes: string | null
@@ -490,7 +496,18 @@ function jsonKeyCandidate(
     return key ? { key, scriptType, accountPath: path ? normalizePath(path) : accountPathFor(scriptType, networkForKey(key) ?? "mainnet") } : null;
   }
   if (isRecord(candidate)) {
-    const key = extractExtendedPublicKey(String(candidate.xpub ?? candidate.zpub ?? candidate.ypub ?? candidate.tpub ?? candidate.upub ?? candidate.vpub ?? candidate.value ?? ""));
+    const descriptor = typeof candidate.desc === "string" ? candidate.desc : "";
+    const key = extractExtendedPublicKey(String(
+      candidate._pub ??
+      candidate.xpub ??
+      candidate.zpub ??
+      candidate.ypub ??
+      candidate.tpub ??
+      candidate.upub ??
+      candidate.vpub ??
+      candidate.value ??
+      descriptor
+    ));
     const path = typeof candidate.deriv === "string"
       ? candidate.deriv
       : typeof candidate.derivation === "string"

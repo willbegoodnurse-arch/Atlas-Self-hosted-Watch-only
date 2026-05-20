@@ -25,6 +25,18 @@ The helper runs typecheck, tests, build, `git diff --check`, and `npm audit --om
 
 The web regression test suite covers auth/session fallback rendering, wallet cards, wallet identity/MFP display, portal modals, inline receive QR behavior, signed PSBT verification UI, selected UTXO payload mapping, and local fee-estimate fallback copy.
 
+## Phase 61 Coldcard BBQr Scanner Gate
+
+- Confirm Coldcard Generic JSON BBQr paste captures `B$2J0700...` as frame `1/7` and does not echo the body.
+- Confirm multi-line BBQr paste accumulates frames and duplicate same-frame input does not increase the captured count.
+- Confirm unsupported paste or unsupported camera scans do not reset existing BBQr progress.
+- Confirm camera scanning shows safe metadata only: scan count, raw length, two-character prefix, encoding, file type, frame number, captured count, missing frames, and sanitized error code.
+- Confirm fast Coldcard animation can be scanned over multiple loops until missing frames reach `none`.
+- Confirm completed BBQr import hides the full Generic JSON payload while still deriving the import preview.
+- Confirm XFP/master fingerprint, account path, native SegWit key candidate, and `sourceDevice=coldcard` survive the import preview and save flow.
+- Confirm full xpub/zpub, Generic JSON, QR raw payload, PSBT, txHex, cookies, sessions, `.env`, `wallets.enc`, `auth.json`, and RPC credentials are not printed in UI status, logs, or test output.
+- Confirm broadcast files and broadcast behavior were not changed by the BBQr follow-up.
+
 ## Phase 56 Local Release Gate
 
 - Run `npm install` from the repository root before release validation, especially after moving or copying the project directory.

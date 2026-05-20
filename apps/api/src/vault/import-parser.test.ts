@@ -235,6 +235,31 @@ test("extracts Coldcard Generic JSON p2wpkh metadata", () => {
   assert.equal(parsed.scriptType, "native-segwit");
 });
 
+test("extracts Coldcard Generic JSON bip84 _pub metadata before xpub fallback", () => {
+  const parsed = parseWalletImport({
+    importText: JSON.stringify({
+      chain: "BTC",
+      xfp: "AB12CD34",
+      account: 0,
+      xpub,
+      bip84: {
+        deriv: "m/84'/0'/0'",
+        _pub: zpub,
+        xpub,
+        first: "bc1qatlasreceive000000000000000000000000000"
+      }
+    }),
+    sourceDevice: "coldcard",
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.extendedPublicKey, zpub);
+  assert.equal(parsed.sourceDevice, "coldcard");
+  assert.equal(parsed.masterFingerprint, "ab12cd34");
+  assert.equal(parsed.accountPath, "m/84'/0'/0'");
+  assert.equal(parsed.scriptType, "native-segwit");
+});
+
 test("rejects private material inside Coldcard Generic JSON", () => {
   assert.throws(
     () => parseWalletImport({
@@ -283,6 +308,29 @@ test("imports a single-frame hex BBQr Coldcard Generic JSON payload", () => {
 
   assert.equal(parsed.extendedPublicKey, zpub);
   assert.equal(parsed.sourceDevice, "coldcard");
+  assert.equal(parsed.importFormat, "coldcard-generic-json-bbqr");
+  assert.equal(parsed.masterFingerprint, "ab12cd34");
+  assert.equal(parsed.accountPath, "m/84'/0'/0'");
+});
+
+test("imports a single-frame base32 BBQr Coldcard Generic JSON payload", () => {
+  const json = JSON.stringify({
+    xfp: "AB12CD34",
+    bip84: {
+      deriv: "m/84'/0'/0'",
+      _pub: zpub,
+      xpub
+    }
+  });
+  const frame = `B$2J0100${base32NoPadding(Buffer.from(json, "utf8"))}`;
+  const parsed = parseWalletImport({
+    importText: frame,
+    network: "mainnet"
+  });
+
+  assert.equal(parsed.extendedPublicKey, zpub);
+  assert.equal(parsed.sourceDevice, "coldcard");
+  assert.equal(parsed.importFormat, "coldcard-generic-json-bbqr");
   assert.equal(parsed.masterFingerprint, "ab12cd34");
   assert.equal(parsed.accountPath, "m/84'/0'/0'");
 });
@@ -345,3 +393,22 @@ test("detects BBQr B$ prefix as bbqr with unsupportedReason", () => {
   assert.match(parsed.unsupportedReason ?? "", /BBQr/);
   assert.equal(parsed.rawImport, null);
 });
+
+function base32NoPadding(bytes: Buffer): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = 0;
+  let bitCount = 0;
+  let output = "";
+  for (const byte of bytes) {
+    bits = (bits << 8) | byte;
+    bitCount += 8;
+    while (bitCount >= 5) {
+      output += alphabet[(bits >> (bitCount - 5)) & 31];
+      bitCount -= 5;
+    }
+  }
+  if (bitCount > 0) {
+    output += alphabet[(bits << (5 - bitCount)) & 31];
+  }
+  return output;
+}
