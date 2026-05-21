@@ -11,15 +11,15 @@ Use this guide for local Atlas development.
 ## Clone And Install
 
 ```bash
-git clone https://github.com/willbegoodnurse-arch/watch-wallet.git
-cd watch-wallet
+git clone https://github.com/willbegoodnurse-arch/Atlas-Self-hosted-Watch-only.git
+cd Atlas-Self-hosted-Watch-only
 npm install
 ```
 
 On the current Windows development machine:
 
 ```powershell
-cd C:\Users\USER\watch-wallet
+cd C:\Users\USER\Atlas-Self-hosted-Watch-only
 npm install
 ```
 
