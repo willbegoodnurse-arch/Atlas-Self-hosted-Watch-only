@@ -14,6 +14,7 @@ export type ImportFormat =
   | "origin-extended-public-key"
   | "descriptor"
   | "coldcard-json"
+  | "coldcard-generic-json-bbqr"
   | "crypto-account-ur"
   | "crypto-hdkey-ur"
   | "ur-xpub"
