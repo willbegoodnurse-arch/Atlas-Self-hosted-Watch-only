@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   copyTextToClipboard,
+  CreatePsbtBuilderPanel,
   feeEstimateSourceLabel,
   formatFeeRate,
   isSignedPsbtSingleQrCandidate,
@@ -15,7 +16,7 @@ import {
   signedPsbtMultipartFrameMessage,
   VerifyPsbtPanel
 } from "../phase-one-auth";
-import { jsonResponse, makeUtxo, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
+import { jsonResponse, makePsbtResult, makeUtxo, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
 
 const feeEstimates = {
   economyFee: 4,
@@ -158,6 +159,73 @@ describe("PSBT and fee UI regression", () => {
       { txid: "1".repeat(64), vout: 0 },
       { txid: "2".repeat(64), vout: 1 }
     ]);
+  });
+
+  it("shows created PSBT change output as an unused change address with path metadata", async () => {
+    const selected = makeUtxo({ outpoint: `${"1".repeat(64)}:0`, txid: "1".repeat(64), vout: 0, valueSats: 100000 });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/wallets/wallet-1/utxos")) {
+        return jsonResponse({
+          addressLimit: 20,
+          chain: "both",
+          failedAddresses: [],
+          includeUnconfirmed: true,
+          status: "online",
+          summary: { confirmedBalance: 100000, totalBalance: 100000, unconfirmedBalance: 0 },
+          unit: "sats",
+          utxos: [selected],
+          walletId: "wallet-1"
+        });
+      }
+      if (url.includes("/api/fees/recommended")) {
+        return jsonResponse({ estimates: feeEstimates, source: "recommended", status: "online" });
+      }
+      if (url.includes("/api/wallets/wallet-1/psbt")) {
+        return jsonResponse(
+          makePsbtResult({
+            outputs: [
+              {
+                address: "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                chain: null,
+                index: null,
+                path: null,
+                type: "recipient",
+                valueSats: 10000
+              },
+              {
+                address: "bc1qatlaschange000000000000000000000000000",
+                chain: "change",
+                index: 0,
+                path: "m/84'/0'/0'/1/0",
+                type: "change",
+                valueSats: 88000
+              }
+            ]
+          })
+        );
+      }
+      return jsonResponse({ error: "unexpected request" }, 500);
+    });
+    globalThis.fetch = fetchMock;
+
+    render(
+      <CreatePsbtBuilderPanel
+        apiUrl=""
+        balanceUnit="sats"
+        initialSelectedOutpoints={[selected.outpoint]}
+        wallet={makeWallet()}
+      />
+    );
+
+    await userEvent.type(screen.getByLabelText(/Recipient 1 address/i), "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080");
+    await userEvent.type(screen.getByLabelText(/^Amount$/i), "10000");
+    await userEvent.click(screen.getByRole("button", { name: /Create unsigned PSBT/i }));
+
+    expect(await screen.findByText("Unsigned PSBT ready")).toBeInTheDocument();
+    expect(screen.getAllByText(/Unused change address/i).length).toBeGreaterThan(0);
+    expect(screen.getByText("change #0 / m/84'/0'/0'/1/0")).toBeInTheDocument();
+    expect(screen.getAllByText(/Recipient 1/i).length).toBeGreaterThan(0);
   });
 
   it("maps fee presets to high medium and low priorities", () => {

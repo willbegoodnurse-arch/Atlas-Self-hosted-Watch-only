@@ -6,6 +6,7 @@ import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { authConfig } from "../auth/config.js";
 import {
+  checkMempoolHealth,
   discoverNextUnusedReceiveAddress,
   lookupAddressBalanceRecords,
   lookupAddressUsageRecords
@@ -464,8 +465,10 @@ export async function getWalletTransactions(
     address: a.address
   }));
 
+  const health = await checkMempoolHealth();
   const result = await lookupWalletTransactions(walletAddresses, input.txLimit, {
-    pages: input.pages
+    pages: input.pages,
+    tipHeight: health.tipHeight
   });
   return { wallet, result };
 }
