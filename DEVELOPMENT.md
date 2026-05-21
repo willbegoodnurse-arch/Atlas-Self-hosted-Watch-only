@@ -5,8 +5,8 @@ Use this guide to continue watch wallet development on another computer.
 ## Clone
 
 ```bash
-git clone https://github.com/willbegoodnurse-arch/watch-wallet.git
-cd watch-wallet
+git clone https://github.com/willbegoodnurse-arch/Atlas-Self-hosted-Watch-only.git
+cd Atlas-Self-hosted-Watch-only
 ```
 
 ## Install
