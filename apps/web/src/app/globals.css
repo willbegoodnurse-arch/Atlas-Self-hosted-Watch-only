@@ -1807,6 +1807,94 @@ code,
   background: #0a0a0a;
 }
 
+.settings-dialog {
+  width: min(920px, calc(100vw - 32px));
+  max-height: min(86vh, 860px);
+  overflow: hidden;
+}
+
+.settings-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-modal-header h2 {
+  margin: 4px 0 0;
+  font-size: 22px;
+}
+
+.settings-modal-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+  padding-right: 4px;
+  overflow-y: auto;
+}
+
+.settings-section {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d0d0d;
+}
+
+.settings-section h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.settings-row strong {
+  min-width: 0;
+  color: var(--text);
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.settings-toggle-row {
+  cursor: pointer;
+}
+
+.settings-toggle-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: #e8e8e8;
+}
+
+.settings-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .signer-address-list {
   display: grid;
   gap: 10px;
@@ -1844,6 +1932,10 @@ code,
 
   .sidebar-nav a {
     white-space: nowrap;
+  }
+
+  .settings-modal-body {
+    grid-template-columns: 1fr;
   }
 
 }
