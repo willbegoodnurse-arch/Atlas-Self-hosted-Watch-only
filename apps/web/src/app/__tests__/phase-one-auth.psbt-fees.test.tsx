@@ -100,7 +100,19 @@ function installVerifyFetch() {
       return jsonResponse(signedVerifyResponse);
     }
     if (url.includes("/api/wallets/wallet-1/psbt/broadcast")) {
-      return jsonResponse({ backend: "core", status: "broadcasted", txid: "3".repeat(64) });
+      const txid = "3".repeat(64);
+      return jsonResponse({
+        backend: "core",
+        status: "broadcasted",
+        txid,
+        message: "Broadcast accepted by Bitcoin Core.",
+        mempool: {
+          configured: true,
+          lookupStatus: "pending",
+          message: "Mempool lookup pending.",
+          txUrl: `http://raspberrypi.local:8080/tx/${txid}`
+        }
+      });
     }
     return jsonResponse({ error: "unexpected request" }, 500);
   });
@@ -387,13 +399,83 @@ describe("PSBT and fee UI regression", () => {
 
     await user.type(screen.getByLabelText(/Signed PSBT/i), "signed-psbt");
     await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
-    const broadcastButton = await screen.findByRole("button", { name: /Broadcast transaction/i });
+    const broadcastButton = await screen.findByRole("button", { name: /Broadcast signed transaction/i });
 
     expect(broadcastButton).toBeDisabled();
     await user.click(screen.getByLabelText(/I verified the recipient/i));
     expect(broadcastButton).toBeDisabled();
     await user.type(screen.getByLabelText(/Type BROADCAST/i), "BROADCAST");
     expect(broadcastButton).toBeEnabled();
+  });
+
+  it("shows txid and local mempool handoff after broadcast success", async () => {
+    installVerifyFetch();
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+
+    await user.type(screen.getByLabelText(/Signed PSBT/i), "signed-psbt");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    await screen.findByText(/Verification result/i);
+    await user.click(screen.getByLabelText(/I verified the recipient/i));
+    await user.type(screen.getByLabelText(/Type BROADCAST/i), "BROADCAST");
+    await user.click(screen.getByRole("button", { name: /Broadcast signed transaction/i }));
+
+    const txid = "3".repeat(64);
+    expect((await screen.findAllByText(/Broadcast accepted by Bitcoin Core/i)).length).toBeGreaterThan(0);
+    expect(screen.getByText(new RegExp(txid))).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Copy txid/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open in local mempool/i })).toHaveAttribute(
+      "href",
+      `http://raspberrypi.local:8080/tx/${txid}`
+    );
+    expect(screen.getByRole("button", { name: /Close/i })).toBeInTheDocument();
+  });
+
+  it("keeps local mempool handoff disabled when MEMPOOL_WEB_URL is not configured", async () => {
+    installVerifyFetch();
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/broadcast/core/status")) {
+        return jsonResponse({
+          backend: "core",
+          configured: true,
+          enabled: true,
+          message: "Bitcoin Core RPC broadcast is enabled.",
+          reachable: true
+        });
+      }
+      if (url.includes("/api/wallets/wallet-1/psbt/verify")) {
+        return jsonResponse(signedVerifyResponse);
+      }
+      if (url.includes("/api/wallets/wallet-1/psbt/broadcast")) {
+        return jsonResponse({
+          backend: "core",
+          status: "broadcasted",
+          txid: "3".repeat(64),
+          message: "Broadcast accepted by Bitcoin Core.",
+          mempool: {
+            configured: false,
+            lookupStatus: "unavailable",
+            message: "Local mempool web URL not configured.",
+            txUrl: null
+          }
+        });
+      }
+      return jsonResponse({ error: "unexpected request" }, 500);
+    });
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+
+    await user.type(screen.getByLabelText(/Signed PSBT/i), "signed-psbt");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    await screen.findByText(/Verification result/i);
+    await user.click(screen.getByLabelText(/I verified the recipient/i));
+    await user.type(screen.getByLabelText(/Type BROADCAST/i), "BROADCAST");
+    await user.click(screen.getByRole("button", { name: /Broadcast signed transaction/i }));
+
+    expect((await screen.findAllByText(/Local mempool web URL not configured/i)).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: /Open in local mempool/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Local mempool web URL not configured/i })).toBeDisabled();
   });
 
   it("detects oversized single-frame signed PSBT QR payloads", () => {

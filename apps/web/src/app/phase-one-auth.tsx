@@ -240,6 +240,10 @@ type RuntimeSettingsResponse = {
   mempoolApiUrl: string;
   mempoolApiHost: string;
   isLocalMempool: boolean;
+  mempoolWebUrl: string | null;
+  mempoolWebUrlConfigured: boolean;
+  broadcastBackend: "disabled" | "core";
+  broadcastCoreConfigured: boolean;
   fulcrum: FulcrumRuntimeConfig;
   defaultNetwork: string;
   defaultCurrency: string;
@@ -262,6 +266,13 @@ type BroadcastResponse = {
   status: "broadcasted";
   backend: "core";
   txid: string;
+  message?: string;
+  mempool?: {
+    configured: boolean;
+    txUrl: string | null;
+    lookupStatus: "pending" | "unavailable";
+    message: string;
+  };
 };
 
 type WalletTransactionRelatedAddress = {
@@ -4366,7 +4377,7 @@ export function VerifyPsbtPanel({
         }
       );
       setBroadcastResult(result);
-      setBroadcastMessage(`Broadcast submitted via ${result.backend}.`);
+      setBroadcastMessage(result.message ?? "Broadcast accepted by Bitcoin Core.");
     } catch (error) {
       setBroadcastMessage(error instanceof Error ? error.message : "Broadcast failed.");
     } finally {
@@ -4985,7 +4996,7 @@ export function VerifyPsbtPanel({
                     disabled={broadcastButtonDisabled}
                     onClick={() => void handleBroadcast()}
                   >
-                    {broadcastLoading ? "Broadcasting..." : "Broadcast transaction"}
+                    {broadcastLoading ? "Broadcasting..." : "Broadcast signed transaction"}
                   </button>
                 </div>
               </>
@@ -5006,12 +5017,41 @@ export function VerifyPsbtPanel({
 
             {broadcastResult ? (
               <div className="psbt-verify-section">
-                <p className="terminal-heading psbt-status-valid">Broadcast submitted</p>
-                <p className="muted">Backend: Bitcoin Core</p>
+                <p className="terminal-heading psbt-status-valid">Broadcast accepted</p>
+                <p className="muted">Broadcast accepted by Bitcoin Core.</p>
                 <p className="muted psbt-change-addr">txid: {broadcastResult.txid}</p>
-                <button className="compact-button" type="button" onClick={() => void copyTxid()}>
-                  {copiedTxid ? "Copied txid" : "Copy txid"}
-                </button>
+                <p className="muted psbt-change-addr">
+                  {broadcastResult.mempool?.message ?? "Mempool lookup pending."}
+                </p>
+                <div className="psbt-actions">
+                  <button className="compact-button" type="button" onClick={() => void copyTxid()}>
+                    {copiedTxid ? "Copied txid" : "Copy txid"}
+                  </button>
+                  {broadcastResult.mempool?.txUrl ? (
+                    <a
+                      className="compact-button"
+                      href={broadcastResult.mempool.txUrl}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Open in local mempool
+                    </a>
+                  ) : (
+                    <button className="compact-button" disabled type="button">
+                      Local mempool web URL not configured
+                    </button>
+                  )}
+                  <button
+                    className="secondary-button compact-button"
+                    type="button"
+                    onClick={() => {
+                      setBroadcastResult(null);
+                      setBroadcastMessage("");
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             ) : null}
           </div>
@@ -7154,6 +7194,9 @@ function friendlyApiError(status: number, payload: { error?: unknown; message?: 
   }
   if (status === 429) {
     return "Too many attempts. Wait and try again.";
+  }
+  if (path.includes("/psbt/broadcast")) {
+    return safeMessage ?? "Broadcast failed.";
   }
   if (status >= 500) {
     return "Server error. Check API logs.";
