@@ -172,13 +172,18 @@ Do not manually patch workspace junctions or symlinks.
 - Confirm `bitcoin-cli getblockchaininfo` works on the Bitcoin Core host.
 - Confirm `GET /api/broadcast/status` shows disabled by default or core enabled only when intended.
 - Confirm `GET /api/broadcast/core/status` does not return RPC username, password, or full RPC URL.
+- Confirm `GET /api/settings/runtime` reports only sanitized broadcast status and whether `MEMPOOL_WEB_URL` is configured.
 - Confirm Bitcoin Core RPC port `8332` is not exposed publicly.
 - Confirm firewall, `rpcbind`, and `rpcallowip` restrict RPC to localhost or trusted private hosts.
 - Follow `docs/bitcoin-core-rpc-live-wiring.md` before any real broadcast attempt.
 - Confirm invalid PSBT broadcast is blocked.
 - Confirm warning PSBT broadcast is blocked.
+- Confirm unsigned and non-extractable PSBT broadcast is blocked.
 - Confirm valid signed PSBT broadcast requires checkbox plus typing `BROADCAST`.
 - Confirm a successful broadcast displays txid.
+- Confirm a successful broadcast keeps the result visible until the operator closes it.
+- Confirm `MEMPOOL_WEB_URL` shows an `Open in local mempool` transaction link only when configured.
+- Confirm no public mempool.space broadcast fallback is present.
 - Confirm there is no raw txHex paste broadcast path.
 - Use testnet/signet first where possible; otherwise use a tiny mainnet transaction first.
 - Follow `docs/tiny-broadcast-validation.md` before the first live broadcast validation.
