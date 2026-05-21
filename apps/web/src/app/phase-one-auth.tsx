@@ -1232,14 +1232,21 @@ function DashboardShell({
   );
 }
 
-function AppSidebar({ initialWalletId }: { initialWalletId?: string | null }) {
-  const walletHref = initialWalletId ? `/wallets/${encodeURIComponent(initialWalletId)}` : "/";
+function AppSidebar({
+  initialWalletId,
+  onOpenSettings
+}: {
+  initialWalletId?: string | null;
+  onOpenSettings: () => void;
+}) {
   return (
     <aside className="app-sidebar" aria-label="Navigation">
       <nav className="sidebar-nav">
         <a href="/">Dashboard</a>
         <a href="/#import-wallet">Import wallet</a>
-        <a href={`${walletHref}#settings`}>Settings</a>
+        <button type="button" className="sidebar-link" onClick={onOpenSettings}>
+          Settings
+        </button>
       </nav>
     </aside>
   );
@@ -1504,7 +1511,7 @@ function VaultWorkspace({
 
   return (
     <div className="dashboard-shell">
-      <AppSidebar initialWalletId={initialWalletId} />
+      <AppSidebar initialWalletId={initialWalletId} onOpenSettings={() => setSettingsOpen(true)} />
       <div className="dashboard-main">
         <div className="toolbar-row">
           <p className="muted">Signed in as {session?.user?.username ?? "admin"}</p>

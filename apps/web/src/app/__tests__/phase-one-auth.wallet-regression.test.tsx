@@ -321,9 +321,122 @@ describe("wallet list and identity regression", () => {
 
     render(<AuthShell apiUrl="" />);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    await waitFor(() =>
+      expect(document.querySelector(".dashboard-main .button-row > button.secondary-button.compact-button")).not.toBeNull()
+    );
+    await userEvent.click(document.querySelector(".dashboard-main .button-row > button.secondary-button.compact-button") as Element);
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByText("Watch-only mode enforced")).toBeInTheDocument();
+  });
+
+  it("opens Settings from the sidebar button without navigating away", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/session")) {
+        return jsonResponse({
+          authenticated: true,
+          setupComplete: true,
+          user: { username: "admin" }
+        });
+      }
+      if (url.endsWith("/api/vault/status")) {
+        return jsonResponse({ autoLockMinutes: 30, initialized: true, unlocked: true, walletCount: 0 });
+      }
+      if (url.endsWith("/api/wallets")) {
+        return jsonResponse({ wallets: [] });
+      }
+      if (url.endsWith("/api/status/mempool")) {
+        return jsonResponse({
+          cacheTtlSeconds: 30,
+          mode: "local",
+          status: "online",
+          tipHeight: 900000,
+          url: "sanitized"
+        });
+      }
+      if (url.endsWith("/api/settings/runtime")) {
+        return jsonResponse({
+          apiMode: "same-origin",
+          backendKind: "mempool-local",
+          broadcastBackend: "disabled",
+          broadcastCoreConfigured: false,
+          defaultCurrency: "KRW",
+          defaultNetwork: "mainnet",
+          defaultUnit: "btc",
+          fulcrum: { configured: false, host: null, port: 50001, tlsPort: 50002, useTls: false },
+          isLocalMempool: true,
+          mempoolApiHost: "localhost",
+          mempoolApiUrl: "sanitized",
+          mempoolWebUrl: null,
+          mempoolWebUrlConfigured: false
+        });
+      }
+      if (url.endsWith("/api/status/fulcrum")) {
+        return jsonResponse({
+          checkedAt: "2026-05-19T00:00:00.000Z",
+          error: null,
+          host: null,
+          latencyMs: null,
+          port: 50001,
+          status: "not-configured",
+          useTls: false
+        });
+      }
+      if (url.endsWith("/api/status")) {
+        return jsonResponse({ status: "ok", watchOnly: true });
+      }
+      if (url.endsWith("/api/market/btc-krw")) {
+        return jsonResponse({
+          market: "KRW-BTC",
+          priceKrw: 150_000_000,
+          source: "upbit",
+          checkedAt: "2026-05-19T00:00:00.000Z",
+          status: "online"
+        });
+      }
+      return jsonResponse({ error: "unexpected request" }, 500);
+    });
+
+    render(<AuthShell apiUrl="" />);
+
+    await waitFor(() => expect(document.querySelector(".sidebar-link")).not.toBeNull());
+    await userEvent.click(document.querySelector(".sidebar-link") as Element);
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    expect(window.location.hash).toBe("");
+  });
+
+  it("keeps Settings open and shows fallback status when runtime fetch fails", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/status") || url.endsWith("/api/market/btc-krw")) {
+        throw new Error("network down");
+      }
+      return jsonResponse({ error: "unexpected request" }, 500);
+    });
+
+    render(
+      <SettingsModal
+        apiUrl=""
+        balanceUnit="btc"
+        busy={false}
+        language="en"
+        mempoolStatus={null}
+        runtimeSettings={null}
+        session={{ authenticated: true, setupComplete: true, user: { username: "admin" } }}
+        showKrwEstimate={true}
+        vaultStatus={{ autoLockMinutes: 30, initialized: true, unlocked: true, walletCount: 1 }}
+        onBalanceUnitChange={() => undefined}
+        onClose={() => undefined}
+        onLanguageChange={() => undefined}
+        onLockVault={async () => undefined}
+        onShowKrwEstimateChange={() => undefined}
+      />
+    );
+
+    expect(await screen.findByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByText("API health")).toBeInTheDocument();
+    expect(screen.getAllByText("offline").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("unavailable").length).toBeGreaterThan(0);
   });
 
   it("switches Settings modal language between Korean and English with English fallback", async () => {

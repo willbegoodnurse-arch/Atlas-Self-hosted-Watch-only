@@ -1343,7 +1343,17 @@ h2 {
   text-decoration: none;
 }
 
+.sidebar-nav button {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text);
+  padding: 10px 12px;
+  text-align: left;
+  background: transparent;
+}
+
 .sidebar-nav a:hover,
+.sidebar-nav button:hover,
 .sidebar-nav a:focus-visible {
   border-color: var(--line-strong);
   background: var(--panel-strong);
