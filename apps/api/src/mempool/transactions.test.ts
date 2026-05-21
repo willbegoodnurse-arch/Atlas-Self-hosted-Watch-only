@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  calculateConfirmations,
   compareTransactions,
   lookupWalletTransactions,
   parseMempoolTx,
@@ -84,6 +85,51 @@ test("classifies incoming tx: external input, our output", async () => {
   assert.equal(result.transactions[0].feeSats, 500);
   assert.equal(result.transactions[0].blockTime, 1_700_000_001);
   assert.equal(result.failedAddresses.length, 0);
+});
+
+test("calculateConfirmations returns count only when tip and block heights are available", () => {
+  assert.equal(calculateConfirmations(100, 100), 1);
+  assert.equal(calculateConfirmations(105, 100), 6);
+  assert.equal(calculateConfirmations(null, 100), null);
+  assert.equal(calculateConfirmations(105, null), null);
+  assert.equal(calculateConfirmations(99, 100), null);
+});
+
+test("lookupWalletTransactions includes confirmation count for confirmed txs with tip height", async () => {
+  const tx = confirmedTx(
+    "txconfirmed",
+    1_700_000_001,
+    100,
+    [{ address: "bc1qexternal", value: 200_000 }],
+    [{ address: "bc1qreceive0", value: 100_000 }]
+  );
+
+  const result = await lookupWalletTransactions(
+    [receiveAddr0],
+    50,
+    { fetchAddressTxsFn: async () => [tx], tipHeight: 105 }
+  );
+
+  assert.equal(result.transactions[0].confirmations, 6);
+});
+
+test("lookupWalletTransactions omits confirmation count when tip height is unavailable", async () => {
+  const tx = confirmedTx(
+    "txfallback",
+    1_700_000_001,
+    100,
+    [{ address: "bc1qexternal", value: 200_000 }],
+    [{ address: "bc1qreceive0", value: 100_000 }]
+  );
+
+  const result = await lookupWalletTransactions(
+    [receiveAddr0],
+    50,
+    { fetchAddressTxsFn: async () => [tx] }
+  );
+
+  assert.equal(result.transactions[0].status, "confirmed");
+  assert.equal(result.transactions[0].confirmations, null);
 });
 
 test("classifies outgoing tx: our input, external output", async () => {

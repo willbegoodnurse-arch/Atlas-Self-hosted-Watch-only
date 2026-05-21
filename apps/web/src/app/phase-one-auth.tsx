@@ -277,7 +277,7 @@ type WalletTransactionRelatedAddress = {
   valueSats: number;
 };
 
-type WalletTransaction = {
+export type WalletTransaction = {
   txid: string;
   status: "confirmed" | "unconfirmed" | "unknown";
   direction: "incoming" | "outgoing" | "self" | "unknown";
@@ -285,6 +285,7 @@ type WalletTransaction = {
   feeSats: number | null;
   blockHeight: number | null;
   blockTime: number | null;
+  confirmations?: number | null;
   relatedAddresses: WalletTransactionRelatedAddress[];
 };
 
@@ -355,6 +356,9 @@ export type CreatePsbtResponse = {
     address: string;
     valueSats: number;
     type: "recipient" | "change";
+    chain?: "receive" | "change" | null;
+    index?: number | null;
+    path?: string | null;
   }>;
   feeSats: number;
   feeRateSatsPerVbyte: number;
@@ -439,6 +443,54 @@ export function feeEstimateSourceLabel(source: FeeEstimatesResponse["source"]): 
     return "Local mempool estimate";
   }
   return "Local mempool unavailable - manual entry required";
+}
+
+export function isUsedEmptyReceiveAddress(address: DerivedAddress): boolean {
+  if (address.chain !== "receive" || address.usage !== "used") {
+    return false;
+  }
+
+  const totalBalance =
+    typeof address.totalBalance === "number"
+      ? address.totalBalance
+      : typeof address.confirmedBalance === "number" || typeof address.unconfirmedBalance === "number"
+        ? (address.confirmedBalance ?? 0) + (address.unconfirmedBalance ?? 0)
+        : null;
+
+  return totalBalance === 0;
+}
+
+export function selectDefaultReceiveAddresses(
+  addresses: DerivedAddress[],
+  displayLimit: number
+): DerivedAddress[] {
+  const limit = Math.max(0, displayLimit);
+  const visibleReceiveAddresses = addresses.filter(
+    (address) => address.chain === "receive" && !isUsedEmptyReceiveAddress(address)
+  );
+  const unused = visibleReceiveAddresses.filter((address) => address.usage === "unused");
+
+  if (unused.length >= limit) {
+    return unused.slice(0, limit);
+  }
+
+  const selected = [...unused];
+  for (const address of visibleReceiveAddresses) {
+    if (selected.length >= limit) {
+      break;
+    }
+    if (!selected.some((selectedAddress) => selectedAddress.chain === address.chain && selectedAddress.index === address.index && selectedAddress.address === address.address)) {
+      selected.push(address);
+    }
+  }
+  return selected;
+}
+
+export function formatTransactionStatus(tx: Pick<WalletTransaction, "status" | "confirmations">): string {
+  if (tx.status !== "confirmed" || typeof tx.confirmations !== "number" || tx.confirmations < 1) {
+    return tx.status;
+  }
+  return `confirmed · ${tx.confirmations} ${tx.confirmations === 1 ? "confirmation" : "confirmations"}`;
 }
 
 export async function copyTextToClipboard(text: string): Promise<"clipboard" | "fallback"> {
@@ -4101,10 +4153,26 @@ export function CreatePsbtBuilderPanel({
           </dl>
 
           {psbtResult.changeAddress ? (
-            <p className="muted psbt-change-addr">Change address: {psbtResult.changeAddress}</p>
+            <p className="muted psbt-change-addr">Unused change address: {psbtResult.changeAddress}</p>
           ) : (
             <p className="muted psbt-change-addr">No change output (dust absorbed into fee)</p>
           )}
+
+          <div className="spending-plan-line">
+            <p className="terminal-meta">Output classification</p>
+            {psbtResult.outputs.map((output, index) => (
+              <div className="tx-related-tag" key={`${output.type}-${output.address}-${index}`}>
+                <span className="terminal-meta">
+                  {output.type === "change" ? "Unused change address" : `Recipient ${index + 1}`}
+                </span>
+                <span className="terminal-meta">{formatBalance(output.valueSats, balanceUnit)}</span>
+                <code>{truncateMiddle(output.address, 22)}</code>
+                {output.type === "change" && output.path ? (
+                  <span className="muted">{output.chain} #{output.index} / {output.path}</span>
+                ) : null}
+              </div>
+            ))}
+          </div>
 
           <div className="psbt-base64-block">
             <p className="terminal-heading">Export unsigned PSBT</p>
@@ -5283,7 +5351,7 @@ function WalletNotesEditor({
   );
 }
 
-function WalletAddressPanel({
+export function WalletAddressPanel({
   apiUrl,
   balanceUnit,
   mempoolBadgeStatus,
@@ -5382,9 +5450,10 @@ function WalletAddressPanel({
     setCopyMessage("");
 
     try {
+      const scanLimit = Math.min(200, Math.max(wallet.gapLimit, wallet.gapLimit + 20));
       const response = await apiRequest<WalletBalanceResponse>(
         apiUrl,
-        `/api/wallets/${wallet.id}/balance?chain=${chain}&limit=${wallet.gapLimit}`
+        `/api/wallets/${wallet.id}/balance?chain=${chain}&limit=${scanLimit}`
       );
       setAddresses(response.addresses ?? []);
       setNextReceiveAddress(response.nextUnusedReceiveAddress ?? null);
@@ -5494,8 +5563,14 @@ function WalletAddressPanel({
     usageTab === "all"
       ? addresses
       : addresses.filter((address) => address.usage === usageTab);
-  const receiveAddresses = visibleAddresses.filter((address) => address.chain === "receive");
+  const receiveDisplayLimit = Math.max(1, wallet.gapLimit);
+  const receiveAddresses =
+    usageTab === "all"
+      ? selectDefaultReceiveAddresses(visibleAddresses, receiveDisplayLimit)
+      : visibleAddresses.filter((address) => address.chain === "receive");
   const changeAddresses = visibleAddresses.filter((address) => address.chain === "change");
+  const hiddenUsedEmptyReceiveCount =
+    usageTab === "all" ? addresses.filter(isUsedEmptyReceiveAddress).length : 0;
   const unknownAddressCount = addresses.filter((address) => address.usage === "unknown").length;
   const usageLookupFailed = Boolean(usageLookupNote) || (unknownAddressCount === addresses.length && addresses.length > 0);
   const emptyUsageMessage = getEmptyUsageMessage({
@@ -5717,6 +5792,10 @@ function WalletAddressPanel({
         <p className="muted">{emptyUsageMessage}</p>
       ) : null}
       {receiveAddresses.length ? (
+        <>
+        {hiddenUsedEmptyReceiveCount > 0 ? (
+          <p className="muted technical-line">Used empty receive addresses are hidden from this list. Actual index and path values are preserved.</p>
+        ) : null}
         <AddressTable
           addresses={receiveAddresses}
           balanceUnit={balanceUnit}
@@ -5741,6 +5820,7 @@ function WalletAddressPanel({
           onSaveLabel={saveAddressLabel}
           onShowQr={(address) => openAddressQr(address, addressQrPanelKey("table", address))}
         />
+        </>
       ) : null}
       {changeAddresses.length ? (
         <AddressTable
@@ -6053,7 +6133,7 @@ function TransactionRow({
           {formatTransactionAmount(tx.netSats, balanceUnit)}
         </span>
         <span className={`usage-pill usage-${tx.status === "confirmed" ? "used" : tx.status === "unconfirmed" ? "unused" : "unknown"}`}>
-          {tx.status}
+          {formatTransactionStatus(tx)}
         </span>
         {tx.feeSats !== null ? (
           <span className="terminal-meta muted">fee: {formatBalance(tx.feeSats, balanceUnit)}</span>

@@ -60,6 +60,9 @@ export type CreatePsbtOutputSummary = {
   address: string;
   valueSats: number;
   type: "recipient" | "change";
+  chain: "receive" | "change" | null;
+  index: number | null;
+  path: string | null;
 };
 
 export type CreatePsbtResult = {
@@ -396,7 +399,10 @@ export async function createWalletPsbt(
     outputs: psbtOutputs.map((o) => ({
       address: o.address,
       valueSats: o.valueSats,
-      type: o.type
+      type: o.type,
+      chain: o.type === "change" ? "change" : null,
+      index: o.type === "change" ? changeAddress?.index ?? null : null,
+      path: o.type === "change" ? changeAddress?.path ?? null : null
     })),
     feeSats: selection.feeSats,
     feeRateSatsPerVbyte: input.feeRateSatsPerVbyte,

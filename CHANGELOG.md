@@ -3,6 +3,15 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 62 - Receive address availability and transaction confirmation display
+
+- Updated the default receive address display so used receive addresses with zero current balance no longer consume the visible receive slots.
+- Kept used receive addresses with current balance visible and preserved the actual receive index/path for every displayed address.
+- Increased the receive balance scan depth used by the UI display so a gap limit of 5 can still surface five unused receive addresses after used-empty rows are hidden.
+- Added transaction confirmation counts when both the mempool tip height and transaction block height are available, with confirmed/unconfirmed fallbacks unchanged when count data is missing.
+- Labeled PSBT change outputs as unused change addresses and included change chain/path metadata in the unsigned PSBT result summary without changing PSBT construction rules.
+- No wallet derivation/index/path renumbering, receive/change chain semantics, broadcast behavior, BBQr/Coldcard import behavior, package dependency changes, commits, pushes, tags, or deployments were changed.
+
 ## Phase 61 - Coldcard BBQr scanner reliability follow-up
 
 - Fixed Coldcard BBQr collection so camera and paste paths share the same collector state and do not lose frames across fast Coldcard animation loops.
