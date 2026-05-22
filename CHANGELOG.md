@@ -3,6 +3,15 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 61 - Coldcard BBQr scanner reliability follow-up
+
+- Fixed Coldcard BBQr collection so camera and paste paths share the same collector state and do not lose frames across fast Coldcard animation loops.
+- Added safe BBQr scanner metadata for scan count, raw length, two-character prefix, header fields, captured count, missing frame numbers, and sanitized error codes without showing frame bodies or full Generic JSON payloads.
+- Made pasted `B$2J...` frames feed the BBQr collector directly, including multi-line paste, duplicate-frame handling, conflict detection, and different-set detection without resetting existing progress on unsupported input.
+- Aligned BBQr header parsing with Coldcard's `B$` structure: encoding at byte 2, file type at byte 3, base36 total/index fields, zero-based frame indexes, and one-based UI display.
+- Added Base32 Coldcard Generic JSON BBQr coverage, Coldcard `bip84._pub` metadata extraction, and scanner/paste regression tests.
+- No PSBT builder, signed PSBT verification core, broadcast behavior, wallet derivation/address discovery, auth/session/cookie/vault/xpub reveal behavior, dependency updates, commits, pushes, tags, or deployments were changed.
+
 ## Phase 60 - Dashboard BTC/sats toggle and KRW price feed
 
 - Added a dashboard total-balance display toggle for BTC and sats without changing wallet balance, send amount, or PSBT calculation logic.

@@ -104,13 +104,21 @@ test("classifies raw base64 PSBT magic as psbt-ur", () => {
 });
 
 test("classifies B$ BBQr prefix as bbqr animated", () => {
-  const result = classifyQrPayload("B$HJ0200414243");
+  const result = classifyQrPayload("B$2J0700ABCDEF");
   assert.equal(result.format, "bbqr");
   assert.equal(result.animated, true);
   assert.equal(result.watchOnlyCandidate, true);
   assert.equal(result.frameIndex, 1);
-  assert.equal(result.totalFrames, 2);
+  assert.equal(result.totalFrames, 7);
   assert.equal(result.warning, null);
+});
+
+test("parses Coldcard BBQr base36 frame numbers as zero-based indexes", () => {
+  const result = classifyQrPayload("B$2J0700ABCDEF");
+  assert.equal(parseInt("07", 36), 7);
+  assert.equal(parseInt("00", 36), 0);
+  assert.equal(result.frameIndex, 1);
+  assert.equal(result.totalFrames, 7);
 });
 
 test("assembles hex BBQr Coldcard Generic JSON frames", () => {
@@ -149,7 +157,7 @@ test("reports incomplete and conflicting BBQr frames", () => {
   const mismatch = assembleBbqrFrames(["B$HJ0200414243", "B$HJ0301444546"]);
   assert.equal(mismatch.ok, false);
   if (!mismatch.ok) {
-    assert.match(mismatch.error, /total mismatch/);
+    assert.match(mismatch.error, /Different BBQr set/);
   }
 });
 
