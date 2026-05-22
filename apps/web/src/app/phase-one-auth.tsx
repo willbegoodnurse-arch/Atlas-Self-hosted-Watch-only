@@ -1205,13 +1205,15 @@ function DashboardShell({
 }
 
 function AppSidebar({
-  initialWalletId,
+  activeItem,
   onOpenSettings
 }: {
-  initialWalletId?: string | null;
+  activeItem: "dashboard" | "import-wallet" | "settings" | null;
   onOpenSettings: () => void;
 }) {
-  const dashboardActive = !initialWalletId;
+  const dashboardActive = activeItem === "dashboard";
+  const importWalletActive = activeItem === "import-wallet";
+  const settingsActive = activeItem === "settings";
 
   return (
     <aside className="app-sidebar" aria-label="Navigation">
@@ -1223,8 +1225,19 @@ function AppSidebar({
         >
           Dashboard
         </a>
-        <a className="sidebar-link" href="/#import-wallet">Import wallet</a>
-        <button type="button" className="sidebar-link" onClick={onOpenSettings}>
+        <a
+          aria-current={importWalletActive ? "page" : undefined}
+          className={importWalletActive ? "sidebar-link is-active" : "sidebar-link"}
+          href="/#import-wallet"
+        >
+          Import wallet
+        </a>
+        <button
+          type="button"
+          aria-pressed={settingsActive}
+          className={settingsActive ? "sidebar-link is-active" : "sidebar-link"}
+          onClick={onOpenSettings}
+        >
           Settings
         </button>
       </nav>
@@ -1257,10 +1270,21 @@ function VaultWorkspace({
   const [settingsLanguage, setSettingsLanguage] = useState<SettingsLanguage>("en");
   const [dashboardBalanceUnit, setDashboardBalanceUnit] = useState<BalanceUnit>("btc");
   const [showKrwEstimate, setShowKrwEstimate] = useState(true);
+  const [importContextActive, setImportContextActive] = useState(false);
   const detailWalletId = initialWalletId ? decodeURIComponent(initialWalletId) : null;
 
   useEffect(() => {
     void refreshVault();
+  }, []);
+
+  useEffect(() => {
+    function syncImportContext() {
+      setImportContextActive(window.location.hash === "#import-wallet");
+    }
+
+    syncImportContext();
+    window.addEventListener("hashchange", syncImportContext);
+    return () => window.removeEventListener("hashchange", syncImportContext);
   }, []);
 
   async function refreshVault() {
@@ -1491,7 +1515,16 @@ function VaultWorkspace({
 
   return (
     <div className="dashboard-shell">
-      <AppSidebar initialWalletId={initialWalletId} onOpenSettings={() => setSettingsOpen(true)} />
+      <AppSidebar
+        activeItem={
+          settingsOpen
+            ? "settings"
+            : importContextActive
+              ? "import-wallet"
+              : "dashboard"
+        }
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
       <div className="dashboard-main">
         <div className="toolbar-row dashboard-toolbar-panel">
           <p className="muted">Signed in as {session?.user?.username ?? "admin"}</p>
@@ -3657,7 +3690,7 @@ function WalletDetailView({
             {deviceLabel(wallet.sourceDevice)} / {wallet.network} / {formatScriptType(wallet.scriptType)} / {accountPath} / fpr {wallet.masterFingerprint ?? "not provided"}
           </p>
           <div className="hero-actions wallet-detail-actions">
-            <button className="primary-link-button" type="button" onClick={() => setReceivePanelOpen(true)}>
+            <button className="primary-link-button wallet-primary-action" type="button" onClick={() => setReceivePanelOpen(true)}>
               Receive
             </button>
             <button className="secondary-button" type="button" onClick={() => openPsbtWorkflow()}>

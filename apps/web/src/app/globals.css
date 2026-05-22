@@ -1339,17 +1339,20 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  width: 100%;
   min-height: 0;
   border: 1px solid transparent;
   border-left: 3px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: var(--text);
+  color: var(--muted);
   font: inherit;
   font-weight: 600;
   line-height: 1.2;
   padding: 10px 12px;
+  text-align: left;
   text-decoration: none;
+  appearance: none;
   box-shadow: none;
 }
 
@@ -1363,10 +1366,11 @@ h2 {
 
 .sidebar-nav .sidebar-link.is-active,
 .sidebar-nav .sidebar-link[aria-current="page"] {
-  border-color: var(--line-strong);
+  border-color: rgb(216 155 69 / 34%);
   border-left-color: var(--amber);
-  background: var(--amber-soft);
-  color: #fff;
+  background: linear-gradient(90deg, rgb(216 155 69 / 13%), var(--panel-strong));
+  color: var(--text);
+  font-weight: 700;
 }
 
 .sidebar-security {
@@ -1560,6 +1564,20 @@ button:hover:not(:disabled),
 .secondary-button:focus-visible {
   border-color: #555;
   background: #121212;
+  color: #fff;
+  outline: none;
+}
+
+.wallet-detail-actions .wallet-primary-action {
+  border-color: rgb(216 155 69 / 56%);
+  background: rgb(216 155 69 / 14%);
+  color: var(--text);
+}
+
+.wallet-detail-actions .wallet-primary-action:hover:not(:disabled),
+.wallet-detail-actions .wallet-primary-action:focus-visible {
+  border-color: rgb(216 155 69 / 78%);
+  background: rgb(216 155 69 / 20%);
   color: #fff;
   outline: none;
 }
