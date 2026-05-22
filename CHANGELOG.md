@@ -3,6 +3,15 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 65 - Settings modal and safe runtime preferences
+
+- Added a dashboard Settings modal using the existing PortalModal safety pattern, with Display, Security, Network, Broadcast, Backup, Diagnostics, and Language sections.
+- Added in-memory display preferences for the dashboard total balance default unit and KRW estimate visibility without using browser storage or changing balance, send amount, or PSBT logic.
+- Added Korean/English Settings labels through a small dictionary helper with English fallback and no new dependency.
+- Surfaced sanitized vault, auth, runtime, mempool, market, broadcast, backup, and diagnostics status without returning or rendering secrets, wallet contents, PSBTs, txHex, RPC credentials, TOTP secrets, or session secrets.
+- Added a Settings lock-vault action using the existing vault lock flow and kept public broadcast fallback disabled as read-only status.
+- No wallet derivation/address discovery, receive/change logic, PSBT core, broadcast behavior, BBQr/Coldcard scanner logic, auth/vault internals, package dependency changes, commits, pushes, tags, or deployments were changed.
+
 ## Phase 63 - Verified broadcast and local mempool handoff
 
 - Hardened signed PSBT broadcast so Atlas only submits valid, signed, finalizable, extractable transactions through the configured Bitcoin Core backend.

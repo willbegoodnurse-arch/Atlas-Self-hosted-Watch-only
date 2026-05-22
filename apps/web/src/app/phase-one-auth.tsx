@@ -256,6 +256,120 @@ type RuntimeSettingsResponse = {
   defaultUnit: string;
 };
 
+type AppStatusResponse = {
+  status: string;
+  watchOnly?: boolean;
+  storagePolicy?: string;
+  service?: string;
+  version?: string;
+  commit?: string;
+};
+
+type BalanceUnit = "btc" | "sats";
+type SettingsLanguage = "en" | "ko";
+
+type SettingsMessageKey =
+  | "settings.button"
+  | "settings.title"
+  | "settings.close"
+  | "settings.display"
+  | "settings.security"
+  | "settings.network"
+  | "settings.broadcast"
+  | "settings.backup"
+  | "settings.diagnostics"
+  | "settings.language"
+  | "settings.defaultBalanceUnit"
+  | "settings.showKrw"
+  | "settings.vaultStatus"
+  | "settings.autoLock"
+  | "settings.totp"
+  | "settings.watchOnly"
+  | "settings.lockVaultNow"
+  | "settings.mempoolStatus"
+  | "settings.marketStatus"
+  | "settings.apiMode"
+  | "settings.tipHeight"
+  | "settings.backend"
+  | "settings.localMempool"
+  | "settings.publicFallback"
+  | "settings.walletsLocation"
+  | "settings.backupChecklist"
+  | "settings.appVersion"
+  | "settings.apiHealth"
+  | "settings.dockerStatus"
+  | "settings.english"
+  | "settings.korean";
+
+const SETTINGS_MESSAGES: Record<SettingsLanguage, Record<SettingsMessageKey, string>> = {
+  en: {
+    "settings.button": "Settings",
+    "settings.title": "Settings",
+    "settings.close": "Close",
+    "settings.display": "Display",
+    "settings.security": "Security",
+    "settings.network": "Network",
+    "settings.broadcast": "Broadcast",
+    "settings.backup": "Backup",
+    "settings.diagnostics": "Diagnostics",
+    "settings.language": "Language",
+    "settings.defaultBalanceUnit": "Default balance unit",
+    "settings.showKrw": "Show KRW estimate",
+    "settings.vaultStatus": "Vault status",
+    "settings.autoLock": "Auto-lock timeout",
+    "settings.totp": "TOTP enabled",
+    "settings.watchOnly": "Watch-only mode enforced",
+    "settings.lockVaultNow": "Lock vault now",
+    "settings.mempoolStatus": "Mempool status",
+    "settings.marketStatus": "Market price status",
+    "settings.apiMode": "API mode",
+    "settings.tipHeight": "Current tip height",
+    "settings.backend": "Backend",
+    "settings.localMempool": "Local mempool web URL configured",
+    "settings.publicFallback": "Public fallback",
+    "settings.walletsLocation": "wallets.enc location",
+    "settings.backupChecklist": "Backup checklist",
+    "settings.appVersion": "App version / commit",
+    "settings.apiHealth": "API health",
+    "settings.dockerStatus": "Docker hardened status",
+    "settings.english": "English",
+    "settings.korean": "Korean"
+  },
+  ko: {
+    "settings.button": "설정",
+    "settings.title": "설정",
+    "settings.close": "닫기",
+    "settings.display": "표시",
+    "settings.security": "보안",
+    "settings.network": "네트워크",
+    "settings.broadcast": "브로드캐스트",
+    "settings.backup": "백업",
+    "settings.diagnostics": "진단",
+    "settings.language": "언어",
+    "settings.defaultBalanceUnit": "기본 잔고 단위",
+    "settings.showKrw": "KRW 추정 표시",
+    "settings.vaultStatus": "볼트 상태",
+    "settings.autoLock": "자동 잠금 시간",
+    "settings.totp": "TOTP 활성화",
+    "settings.watchOnly": "Watch-only 모드 적용",
+    "settings.lockVaultNow": "지금 볼트 잠금",
+    "settings.mempoolStatus": "Mempool 상태",
+    "settings.marketStatus": "시세 상태",
+    "settings.apiMode": "API 모드",
+    "settings.tipHeight": "현재 tip height",
+    "settings.backend": "백엔드",
+    "settings.localMempool": "로컬 mempool 웹 URL 설정",
+    "settings.publicFallback": "공개 fallback",
+    "settings.walletsLocation": "wallets.enc 위치",
+    "settings.backupChecklist": "백업 체크리스트",
+    "settings.appVersion": "앱 버전 / 커밋",
+    "settings.apiHealth": "API 상태",
+    "settings.dockerStatus": "Docker hardening 상태",
+    "settings.english": "English",
+    "settings.korean": "한국어"
+  }
+};
+
 type BroadcastStatusResponse = {
   enabled: boolean;
   backend: "disabled" | "core";
@@ -878,6 +992,21 @@ function readFormInput(form: HTMLFormElement, name: string): string | null {
   return null;
 }
 
+export function normalizeSettingsLanguage(value: unknown): SettingsLanguage {
+  return value === "ko" ? "ko" : "en";
+}
+
+function settingsText(language: SettingsLanguage, key: SettingsMessageKey): string {
+  return SETTINGS_MESSAGES[normalizeSettingsLanguage(language)][key] ?? SETTINGS_MESSAGES.en[key];
+}
+
+function formatYesNo(value: boolean, language: SettingsLanguage): string {
+  if (language === "ko") {
+    return value ? "예" : "아니오";
+  }
+  return value ? "yes" : "no";
+}
+
 function StatusBadge({
   label,
   status
@@ -1104,14 +1233,21 @@ function DashboardShell({
   );
 }
 
-function AppSidebar({ initialWalletId }: { initialWalletId?: string | null }) {
-  const walletHref = initialWalletId ? `/wallets/${encodeURIComponent(initialWalletId)}` : "/";
+function AppSidebar({
+  initialWalletId,
+  onOpenSettings
+}: {
+  initialWalletId?: string | null;
+  onOpenSettings: () => void;
+}) {
   return (
     <aside className="app-sidebar" aria-label="Navigation">
       <nav className="sidebar-nav">
         <a href="/">Dashboard</a>
         <a href="/#import-wallet">Import wallet</a>
-        <a href={`${walletHref}#settings`}>Settings</a>
+        <button type="button" className="sidebar-link" onClick={onOpenSettings}>
+          Settings
+        </button>
       </nav>
     </aside>
   );
@@ -1138,6 +1274,10 @@ function VaultWorkspace({
   const [wallets, setWallets] = useState<WalletRecord[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsLanguage, setSettingsLanguage] = useState<SettingsLanguage>("en");
+  const [dashboardBalanceUnit, setDashboardBalanceUnit] = useState<BalanceUnit>("btc");
+  const [showKrwEstimate, setShowKrwEstimate] = useState(true);
   const detailWalletId = initialWalletId ? decodeURIComponent(initialWalletId) : null;
 
   useEffect(() => {
@@ -1372,7 +1512,7 @@ function VaultWorkspace({
 
   return (
     <div className="dashboard-shell">
-      <AppSidebar initialWalletId={initialWalletId} />
+      <AppSidebar initialWalletId={initialWalletId} onOpenSettings={() => setSettingsOpen(true)} />
       <div className="dashboard-main">
         <div className="toolbar-row">
           <p className="muted">Signed in as {session?.user?.username ?? "admin"}</p>
@@ -1382,6 +1522,9 @@ function VaultWorkspace({
                 Back to dashboard
               </a>
             ) : null}
+            <button className="secondary-button compact-button" type="button" onClick={() => setSettingsOpen(true)}>
+              {settingsText(settingsLanguage, "settings.button")}
+            </button>
             <button className="secondary-button compact-button" disabled={busy} type="button" onClick={handleLock}>
               Lock vault
             </button>
@@ -1416,7 +1559,12 @@ function VaultWorkspace({
             )
           ) : (
             <>
-              <DashboardBalanceHero apiUrl={apiUrl} wallets={wallets} />
+              <DashboardBalanceHero
+                apiUrl={apiUrl}
+                defaultBalanceUnit={dashboardBalanceUnit}
+                showKrwEstimate={showKrwEstimate}
+                wallets={wallets}
+              />
               <WalletList
                 apiUrl={apiUrl}
                 busy={busy}
@@ -1434,21 +1582,280 @@ function VaultWorkspace({
           )}
         </div>
       </div>
+      {settingsOpen ? (
+        <SettingsModal
+          apiUrl={apiUrl}
+          balanceUnit={dashboardBalanceUnit}
+          busy={busy}
+          language={settingsLanguage}
+          mempoolStatus={mempoolStatus}
+          runtimeSettings={runtimeSettings}
+          session={session}
+          showKrwEstimate={showKrwEstimate}
+          vaultStatus={status}
+          onBalanceUnitChange={setDashboardBalanceUnit}
+          onClose={() => setSettingsOpen(false)}
+          onLanguageChange={(nextLanguage) => setSettingsLanguage(normalizeSettingsLanguage(nextLanguage))}
+          onLockVault={async () => {
+            await handleLock();
+            setSettingsOpen(false);
+          }}
+          onShowKrwEstimateChange={setShowKrwEstimate}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+export function SettingsModal({
+  apiUrl,
+  balanceUnit,
+  busy,
+  language,
+  mempoolStatus,
+  runtimeSettings,
+  session,
+  showKrwEstimate,
+  vaultStatus,
+  onBalanceUnitChange,
+  onClose,
+  onLanguageChange,
+  onLockVault,
+  onShowKrwEstimateChange
+}: {
+  apiUrl: string;
+  balanceUnit: BalanceUnit;
+  busy: boolean;
+  language: SettingsLanguage;
+  mempoolStatus: MempoolStatusResponse | null;
+  runtimeSettings: RuntimeSettingsResponse | null;
+  session: SessionResponse | null;
+  showKrwEstimate: boolean;
+  vaultStatus: VaultStatus | null;
+  onBalanceUnitChange: (unit: BalanceUnit) => void;
+  onClose: () => void;
+  onLanguageChange: (language: SettingsLanguage) => void;
+  onLockVault: () => Promise<void>;
+  onShowKrwEstimateChange: (show: boolean) => void;
+}) {
+  const [apiHealth, setApiHealth] = useState<AppStatusResponse | null>(null);
+  const [apiHealthState, setApiHealthState] = useState<"loading" | "online" | "offline">("loading");
+  const [marketPrice, setMarketPrice] = useState<MarketPriceResponse | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshSettingsStatus() {
+      const [healthResult, marketResult] = await Promise.allSettled([
+        apiRequest<AppStatusResponse>(apiUrl, "/api/status"),
+        apiRequest<MarketPriceResponse>(apiUrl, "/api/market/btc-krw")
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (healthResult.status === "fulfilled") {
+        setApiHealth(healthResult.value);
+        setApiHealthState("online");
+      } else {
+        setApiHealth(null);
+        setApiHealthState("offline");
+      }
+
+      if (marketResult.status === "fulfilled") {
+        setMarketPrice(marketResult.value);
+      } else {
+        setMarketPrice({
+          market: "KRW-BTC",
+          priceKrw: null,
+          source: "upbit",
+          checkedAt: new Date().toISOString(),
+          status: "offline",
+          error: "price-unavailable"
+        });
+      }
+    }
+
+    void refreshSettingsStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl]);
+
+  const t = (key: SettingsMessageKey) => settingsText(language, key);
+  const apiMode = describeApiConnectionMode(apiUrl);
+  const broadcastBackend = runtimeSettings?.broadcastBackend === "core" ? "Bitcoin Core" : "disabled";
+  const appVersion =
+    apiHealth?.commit || apiHealth?.version
+      ? [apiHealth.version, apiHealth.commit].filter(Boolean).join(" / ")
+      : "not embedded";
+  const dockerStatus =
+    apiMode === "same-origin"
+      ? "Configured for same-origin mode. Runtime verification requires scripts/check-raspi-runtime.sh."
+      : "Direct API mode. Runtime verification requires scripts/check-raspi-runtime.sh.";
+
+  return (
+    <PortalModal ariaLabel={t("settings.title")} panelClassName="settings-dialog" onClose={onClose}>
+      <div className="settings-modal-header">
+        <div>
+          <p className="eyebrow">{t("settings.title")}</p>
+          <h2>{t("settings.title")}</h2>
+        </div>
+        <button className="secondary-button compact-button" type="button" onClick={onClose}>
+          {t("settings.close")}
+        </button>
+      </div>
+
+      <div className="settings-modal-body">
+        <section className="settings-section" aria-labelledby="settings-display">
+          <h3 id="settings-display">{t("settings.display")}</h3>
+          <div className="settings-row">
+            <span>{t("settings.defaultBalanceUnit")}</span>
+            <div className="segmented-control" aria-label={t("settings.defaultBalanceUnit")}>
+              <button
+                aria-pressed={balanceUnit === "btc"}
+                className={balanceUnit === "btc" ? "compact-button" : "secondary-button compact-button"}
+                type="button"
+                onClick={() => onBalanceUnitChange("btc")}
+              >
+                BTC
+              </button>
+              <button
+                aria-pressed={balanceUnit === "sats"}
+                className={balanceUnit === "sats" ? "compact-button" : "secondary-button compact-button"}
+                type="button"
+                onClick={() => onBalanceUnitChange("sats")}
+              >
+                sats
+              </button>
+            </div>
+          </div>
+          <label className="settings-row settings-toggle-row">
+            <span>{t("settings.showKrw")}</span>
+            <input
+              checked={showKrwEstimate}
+              type="checkbox"
+              onChange={(event) => onShowKrwEstimateChange(event.currentTarget.checked)}
+            />
+          </label>
+        </section>
+
+        <section className="settings-section" aria-labelledby="settings-security">
+          <h3 id="settings-security">{t("settings.security")}</h3>
+          <SettingsValue label={t("settings.vaultStatus")} value={vaultStatus?.unlocked ? "unlocked" : "locked"} />
+          <SettingsValue
+            label={t("settings.autoLock")}
+            value={vaultStatus?.autoLockMinutes ? `${vaultStatus.autoLockMinutes} minutes` : "not configured"}
+          />
+          <SettingsValue label={t("settings.totp")} value={formatYesNo(Boolean(session?.setupComplete), language)} />
+          <SettingsValue label={t("settings.watchOnly")} value="enforced" />
+          <p className="settings-note">Atlas does not store seed phrases or private keys. Atlas cannot sign transactions.</p>
+          <button
+            className="secondary-button compact-button"
+            disabled={busy || !vaultStatus?.unlocked}
+            type="button"
+            onClick={() => void onLockVault()}
+          >
+            {t("settings.lockVaultNow")}
+          </button>
+        </section>
+
+        <section className="settings-section" aria-labelledby="settings-network">
+          <h3 id="settings-network">{t("settings.network")}</h3>
+          <SettingsValue label={t("settings.mempoolStatus")} value={mempoolStatus?.status ?? "unavailable"} />
+          <SettingsValue label={t("settings.marketStatus")} value={marketPrice?.status ?? "unavailable"} />
+          <SettingsValue label={t("settings.apiMode")} value={apiMode} />
+          <SettingsValue
+            label={t("settings.tipHeight")}
+            value={mempoolStatus?.tipHeight ? String(mempoolStatus.tipHeight) : "unavailable"}
+          />
+        </section>
+
+        <section className="settings-section" aria-labelledby="settings-broadcast">
+          <h3 id="settings-broadcast">{t("settings.broadcast")}</h3>
+          <SettingsValue label={t("settings.backend")} value={broadcastBackend} />
+          <SettingsValue
+            label={t("settings.localMempool")}
+            value={formatYesNo(Boolean(runtimeSettings?.mempoolWebUrlConfigured), language)}
+          />
+          <SettingsValue label={t("settings.publicFallback")} value="disabled" />
+          <p className="settings-note">
+            Atlas broadcasts only valid signed transactions. Atlas does not sign. Unsigned, invalid, or warning PSBTs cannot be broadcast.
+          </p>
+        </section>
+
+        <section className="settings-section" aria-labelledby="settings-backup">
+          <h3 id="settings-backup">{t("settings.backup")}</h3>
+          <SettingsValue label={t("settings.walletsLocation")} value="apps/api/data/wallets.enc" />
+          <SettingsValue label={t("settings.backupChecklist")} value="docs/backup-restore.md" />
+          <p className="settings-note">
+            Back up wallets.enc and auth.json securely. Do not store the vault password next to backups.
+          </p>
+        </section>
+
+        <section className="settings-section" aria-labelledby="settings-diagnostics">
+          <h3 id="settings-diagnostics">{t("settings.diagnostics")}</h3>
+          <SettingsValue label={t("settings.appVersion")} value={appVersion} />
+          <SettingsValue label={t("settings.apiHealth")} value={apiHealthState} />
+          <SettingsValue label={t("settings.dockerStatus")} value={dockerStatus} />
+        </section>
+
+        <section className="settings-section" aria-labelledby="settings-language">
+          <h3 id="settings-language">{t("settings.language")}</h3>
+          <div className="segmented-control" aria-label={t("settings.language")}>
+            <button
+              aria-pressed={language === "ko"}
+              className={language === "ko" ? "compact-button" : "secondary-button compact-button"}
+              type="button"
+              onClick={() => onLanguageChange("ko")}
+            >
+              한국어
+            </button>
+            <button
+              aria-pressed={language === "en"}
+              className={language === "en" ? "compact-button" : "secondary-button compact-button"}
+              type="button"
+              onClick={() => onLanguageChange("en")}
+            >
+              English
+            </button>
+          </div>
+        </section>
+      </div>
+    </PortalModal>
+  );
+}
+
+function SettingsValue({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="settings-row">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
 
 export function DashboardBalanceHero({
   apiUrl,
+  defaultBalanceUnit = "btc",
+  showKrwEstimate = true,
   wallets
 }: {
   apiUrl: string;
+  defaultBalanceUnit?: BalanceUnit;
+  showKrwEstimate?: boolean;
   wallets: WalletRecord[];
 }) {
   const [totalBalanceSats, setTotalBalanceSats] = useState<number | null>(null);
   const [balanceState, setBalanceState] = useState<"loading" | "ready" | "partial" | "offline">("loading");
-  const [balanceUnit, setBalanceUnit] = useState<"btc" | "sats">("btc");
+  const [balanceUnit, setBalanceUnit] = useState<BalanceUnit>(defaultBalanceUnit);
   const [marketPrice, setMarketPrice] = useState<MarketPriceResponse | null>(null);
+
+  useEffect(() => {
+    setBalanceUnit(defaultBalanceUnit);
+  }, [defaultBalanceUnit]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1545,9 +1952,11 @@ export function DashboardBalanceHero({
           <p className="hero-balance">
             {balanceState === "loading" ? "Syncing..." : formatBalance(totalBalanceSats ?? 0, balanceUnit)}
           </p>
-          <p className="hero-krw-price">
-            {formatKrwBalance(totalBalanceSats ?? 0, marketPrice)}
-          </p>
+          {showKrwEstimate ? (
+            <p className="hero-krw-price">
+              {formatKrwBalance(totalBalanceSats ?? 0, marketPrice)}
+            </p>
+          ) : null}
           {statusText ? <p className="muted">{statusText}</p> : null}
         </div>
         <div className="balance-unit-toggle" aria-label="Total balance unit">

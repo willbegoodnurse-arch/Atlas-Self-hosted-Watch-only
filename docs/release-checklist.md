@@ -25,6 +25,19 @@ The helper runs typecheck, tests, build, `git diff --check`, and `npm audit --om
 
 The web regression test suite covers auth/session fallback rendering, wallet cards, wallet identity/MFP display, portal modals, inline receive QR behavior, signed PSBT verification UI, selected UTXO payload mapping, and local fee-estimate fallback copy.
 
+## Phase 65 Settings Modal Gate
+
+- Confirm the Settings button opens the modal from the dashboard toolbar.
+- Confirm the Settings modal closes only through the explicit Close button and does not close on backdrop click.
+- Confirm the dashboard default balance unit can switch between BTC and sats without changing send amount or PSBT amount behavior.
+- Confirm the KRW estimate can be hidden and shown without removing the market price endpoint or making price failures look like wallet degradation.
+- Confirm Korean and English Settings labels switch in the modal, with English fallback for invalid values.
+- Confirm the Security section shows vault status, auto-lock timeout, TOTP enabled status, watch-only status, and the existing Lock vault now action without showing secrets.
+- Confirm the Network, Broadcast, Backup, and Diagnostics sections display sanitized status only.
+- Confirm Broadcast shows backend status, local mempool web URL configured status, and public fallback disabled without exposing RPC credentials.
+- Confirm Backup shows only documentation paths and guidance, not `wallets.enc`, `auth.json`, `.env`, or vault contents.
+- Confirm Settings does not display full xpub/zpub, PSBT, txHex, RPC credentials, TOTP secret, SESSION_SECRET, cookies, sessions, or vault passwords.
+
 ## Phase 61 Coldcard BBQr Scanner Gate
 
 - Confirm Coldcard Generic JSON BBQr paste captures `B$2J0700...` as frame `1/7` and does not echo the body.
