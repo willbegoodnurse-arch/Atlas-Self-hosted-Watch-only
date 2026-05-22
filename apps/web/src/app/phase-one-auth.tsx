@@ -655,6 +655,38 @@ export function isSignedPsbtSingleQrCandidate(payload: string): boolean {
   return payload.trim().length > 0 && payload.trim().length <= SIGNED_PSBT_SINGLE_QR_MAX_CHARS;
 }
 
+export function formatSecurityAddressDisplay(address: string): string {
+  const raw = address.trim();
+  if (!raw) return "";
+
+  const bech32Prefix = raw.match(/^(bc1|tb1|bcrt1)[qp]/i)?.[0] ?? "";
+  const prefix = bech32Prefix || (raw.length > 12 ? raw.slice(0, 4) : "");
+  const body = prefix ? raw.slice(prefix.length) : raw;
+  const sections = body.match(/.{1,8}/g) ?? [];
+  const groupedSections = sections.map((section) => section.match(/.{1,4}/g)?.join(" ") ?? section);
+
+  return [prefix, ...groupedSections].filter(Boolean).join(" · ");
+}
+
+function SecurityAddress({
+  address,
+  unavailableText = "address unavailable"
+}: {
+  address: string | null | undefined;
+  unavailableText?: string;
+}) {
+  const rawAddress = address?.trim() ?? "";
+  if (!rawAddress) {
+    return <span className="security-address security-address-unavailable">{unavailableText}</span>;
+  }
+
+  return (
+    <code className="security-address" data-raw-address={rawAddress} title={rawAddress}>
+      {formatSecurityAddressDisplay(rawAddress)}
+    </code>
+  );
+}
+
 type VerifyPsbtResponse = {
   status: "valid" | "warning" | "invalid";
   signed: boolean;
@@ -4172,7 +4204,9 @@ export function CreatePsbtBuilderPanel({
                   <span className="muted"> ({formatBalance(utxo.valueSats, "btc")})</span>
                 </span>
                 <code>{truncateMiddle(utxo.txid, 18)}:{utxo.vout}</code>
-                <span className="muted">{truncateMiddle(utxo.address, 18)}</span>
+                <span className="muted address-inline">
+                  Source <SecurityAddress address={utxo.address} unavailableText="unknown source address" />
+                </span>
                 <span className={`status-badge ${utxo.status === "confirmed" ? "status-online" : "status-degraded"}`}>{utxo.status}</span>
                 <span className="muted">{utxo.chain} #{utxo.index}</span>
                 {addressLabel ? <span className="label-pill">{addressLabel.label}</span> : null}
@@ -4296,7 +4330,10 @@ export function CreatePsbtBuilderPanel({
               return (
                 <div className="spending-plan-line" key={utxo.outpoint}>
                   <strong>{formatBalance(utxo.valueSats, "btc")}</strong>
-                  <span className="muted">{formatBalance(utxo.valueSats, "sats")} / {truncateMiddle(utxo.outpoint, 18)}</span>
+                  <span className="muted">{formatBalance(utxo.valueSats, "sats")} / outpoint {truncateMiddle(utxo.outpoint, 18)}</span>
+                  <span className="muted address-inline">
+                    Source <SecurityAddress address={utxo.address} unavailableText="unknown source address" />
+                  </span>
                   {addressLabel ? <span className="label-pill">{addressLabel.label}</span> : null}
                   {utxoNote ? <span className="muted">{utxoNote.note}</span> : null}
                 </div>
@@ -4309,13 +4346,20 @@ export function CreatePsbtBuilderPanel({
             {draftPlan.recipients.map((recipient, index) => (
               <div className="spending-plan-line" key={`${recipient.address}-${index}`}>
                 <strong>Recipient {index + 1}: {formatBalance(recipient.amountSats, "btc")}</strong>
-                <span className="muted">{formatBalance(recipient.amountSats, "sats")} / {truncateMiddle(recipient.address, 22)}</span>
+                <span className="muted address-inline">
+                  {formatBalance(recipient.amountSats, "sats")} / <SecurityAddress address={recipient.address} />
+                </span>
               </div>
             ))}
             {draftPlan.changeSats !== null && draftPlan.changeSats >= 546 ? (
               <div className="spending-plan-line">
                 <strong>Change: {formatBalance(draftPlan.changeSats, "btc")}</strong>
                 <span className="muted">{formatBalance(draftPlan.changeSats, "sats")} / selected when created</span>
+              </div>
+            ) : draftPlan.changeSats !== null && selectedUtxos.length > 0 ? (
+              <div className="spending-plan-line">
+                <strong>No change output</strong>
+                <span className="muted">Change is zero or below dust and may be absorbed into the fee.</span>
               </div>
             ) : null}
             {draftPlan.estimatedFeeSats !== null ? (
@@ -4327,6 +4371,10 @@ export function CreatePsbtBuilderPanel({
           </div>
         </div>
         <p className="muted">Estimated fee may change after final signing.</p>
+        <p className="muted psbt-review-guidance">
+          Before signing, compare recipient address, amount, fee, and change output on your signing device.
+          If Atlas and the signer disagree, stop.
+        </p>
         {draftPlan.errors.map((error) => <p className="status-message" key={error}>{error}</p>)}
         {draftPlan.warnings.map((warning) => <p className="psbt-status-warning muted" key={warning}>{warning}</p>)}
       </div>
@@ -4366,26 +4414,64 @@ export function CreatePsbtBuilderPanel({
           </dl>
 
           {psbtResult.changeAddress ? (
-            <p className="muted psbt-change-addr">Unused change address: {psbtResult.changeAddress}</p>
+            <p className="muted psbt-change-addr address-inline">
+              Wallet change: <SecurityAddress address={psbtResult.changeAddress} />
+            </p>
+          ) : psbtResult.changeSats > 0 ? (
+            <p className="psbt-status-warning muted psbt-change-addr">
+              Change amount is present, but the change address is unavailable. Do not sign until this is resolved.
+            </p>
           ) : (
-            <p className="muted psbt-change-addr">No change output (dust absorbed into fee)</p>
+            <p className="muted psbt-change-addr">No change output. Change is zero or below dust and may be absorbed into the fee.</p>
           )}
 
-          <div className="spending-plan-line">
-            <p className="terminal-meta">Output classification</p>
-            {psbtResult.outputs.map((output, index) => (
-              <div className="tx-related-tag" key={`${output.type}-${output.address}-${index}`}>
-                <span className="terminal-meta">
-                  {output.type === "change" ? "Unused change address" : `Recipient ${index + 1}`}
-                </span>
-                <span className="terminal-meta">{formatBalance(output.valueSats, balanceUnit)}</span>
-                <code>{truncateMiddle(output.address, 22)}</code>
-                {output.type === "change" && output.path ? (
-                  <span className="muted">{output.chain} #{output.index} / {output.path}</span>
-                ) : null}
-              </div>
-            ))}
+          <div className="psbt-review-grid">
+            <div>
+              <p className="terminal-meta">Input source addresses</p>
+              {psbtResult.inputs.map((input, index) => (
+                <div className="spending-plan-line" key={`${input.txid}:${input.vout}`}>
+                  <strong>Input {index + 1}: {formatBalance(input.valueSats, balanceUnit)}</strong>
+                  <span className="muted address-inline">
+                    Source <SecurityAddress address={input.address} unavailableText="unknown source address" />
+                  </span>
+                  <span className="muted">outpoint {input.txid}:{input.vout}</span>
+                  <span className="muted">{input.chain} #{input.index}{input.path ? ` / ${input.path}` : ""}</span>
+                </div>
+              ))}
+            </div>
+            <div>
+              <p className="terminal-meta">Output classification</p>
+              {psbtResult.outputs.map((output, index) => {
+                const recipientNumber = psbtResult.outputs
+                  .slice(0, index + 1)
+                  .filter((candidate) => candidate.type === "recipient").length;
+                return (
+                  <div className="spending-plan-line" key={`${output.type}-${output.address}-${index}`}>
+                    <strong>{output.type === "change" ? "Change address" : `Recipient ${recipientNumber}`}</strong>
+                    <span className="terminal-meta">{formatBalance(output.valueSats, balanceUnit)}</span>
+                    <SecurityAddress address={output.address} />
+                    {output.type === "change" ? (
+                      <span className="muted">
+                        {output.chain ?? "change"} {typeof output.index === "number" ? `#${output.index}` : ""}
+                        {output.path ? ` / ${output.path}` : ""}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+              {!psbtResult.outputs.some((output) => output.type === "change") ? (
+                <div className="spending-plan-line">
+                  <strong>No change output</strong>
+                  <span className="muted">No wallet change output exists in this unsigned PSBT.</span>
+                </div>
+              ) : null}
+            </div>
           </div>
+
+          <p className="muted psbt-review-guidance">
+            Before signing, compare recipient address, amount, fee, and change output on your signing device.
+            If Atlas and the signer disagree, stop.
+          </p>
 
           <div className="psbt-base64-block">
             <p className="terminal-heading">Export unsigned PSBT</p>
@@ -5276,8 +5362,8 @@ export function VerifyPsbtPanel({
                   <div className={typeLabelClass} style={{ fontWeight: "bold", fontSize: "0.85em" }}>
                     #{i} {typeLabel}{matchNote}
                   </div>
-                  <div className="muted psbt-input-row" style={{ marginLeft: "1rem" }}>
-                    {out.address ?? "no address"}
+                  <div className="muted psbt-input-row address-inline" style={{ marginLeft: "1rem" }}>
+                    <SecurityAddress address={out.address} unavailableText="no address" />
                     {" · "}
                     {formatBalance(out.valueSats, "sats")} / {(out.valueSats / 1e8).toFixed(8)} BTC
                   </div>
@@ -5296,7 +5382,9 @@ export function VerifyPsbtPanel({
             <p className="terminal-heading">Inputs</p>
             {verifyResult.inputs.map((inp, i) => (
               <div key={i} className="muted psbt-input-row">
-                #{i} {truncateMiddle(`${inp.txid}:${inp.vout}`, 24)}
+                #{i} outpoint {truncateMiddle(`${inp.txid}:${inp.vout}`, 24)}
+                {" · "}
+                <SecurityAddress address={inp.address} unavailableText="unknown source address" />
                 {" · "}
                 {inp.valueSats !== null ? formatBalance(inp.valueSats, balanceUnit) : "?"}
                 {" · "}
@@ -5894,9 +5982,10 @@ export function WalletAddressPanel({
               {nextReceiveAddress.usage}
             </span>
             <AddressLabelPill label={getAddressLabel(wallet, nextReceiveAddress.chain, nextReceiveAddress.index)} />
-            <code>{nextReceiveAddress.address}</code>
+            <SecurityAddress address={nextReceiveAddress.address} />
             <span>{nextReceiveAddress.path}</span>
-            <span className="muted">Verify wallet name, source device, and path on your cold wallet before receiving funds.</span>
+            <span className="muted">Verify this receive address on your signing device before sending large amounts.</span>
+            <span className="muted">The browser display is not the final authority.</span>
             <div className="button-row">
               <button
                 className="secondary-button compact-button"
@@ -5956,8 +6045,8 @@ export function WalletAddressPanel({
       </div>
 
       <p className="psbt-safety-notice muted">
-        A compromised browser can visually change addresses, QR codes, or clipboard contents.
-        Treat Atlas as a watch-only view and verify receive addresses on your trusted signing device when possible.
+        Verify this receive address on your signing device before sending large amounts.
+        The browser display is not the final authority.
       </p>
 
       <div className="wallet-card-header compact-section-header">
@@ -6620,7 +6709,7 @@ function AddressTable({
               </div>
               <div className="address-cell address-value">
                 <dt>Address</dt>
-                <code>{address.address}</code>
+                <SecurityAddress address={address.address} />
                 <span className="muted">{address.path}</span>
               </div>
               <div className="address-cell">
@@ -6731,7 +6820,9 @@ export function AddressQrPanel({
         {!dataUrl && !error ? <span className="muted">Rendering address QR...</span> : null}
         {error ? <span className="status-message">{error}</span> : null}
       </div>
-      <code className="address-qr-text">{address.address}</code>
+      <div className="address-qr-text">
+        <SecurityAddress address={address.address} />
+      </div>
       <div className="button-row">
         <button className="secondary-button compact-button" type="button" onClick={onCopy}>
           Copy address

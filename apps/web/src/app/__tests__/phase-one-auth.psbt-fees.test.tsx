@@ -5,6 +5,7 @@ import {
   copyTextToClipboard,
   CreatePsbtBuilderPanel,
   feeEstimateSourceLabel,
+  formatSecurityAddressDisplay,
   formatFeeRate,
   isSignedPsbtSingleQrCandidate,
   mapSelectedUtxosForPsbt,
@@ -174,7 +175,16 @@ describe("PSBT and fee UI regression", () => {
   });
 
   it("shows created PSBT change output as an unused change address with path metadata", async () => {
-    const selected = makeUtxo({ outpoint: `${"1".repeat(64)}:0`, txid: "1".repeat(64), vout: 0, valueSats: 100000 });
+    const sourceAddress = "bc1qatlasutxo00000000000000000000000000000";
+    const recipientAddress = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
+    const changeAddress = "bc1qatlaschange000000000000000000000000000";
+    const selected = makeUtxo({
+      address: sourceAddress,
+      outpoint: `${"1".repeat(64)}:0`,
+      txid: "1".repeat(64),
+      vout: 0,
+      valueSats: 100000
+    });
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/wallets/wallet-1/utxos")) {
@@ -198,7 +208,7 @@ describe("PSBT and fee UI regression", () => {
           makePsbtResult({
             outputs: [
               {
-                address: "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                address: recipientAddress,
                 chain: null,
                 index: null,
                 path: null,
@@ -206,7 +216,7 @@ describe("PSBT and fee UI regression", () => {
                 valueSats: 10000
               },
               {
-                address: "bc1qatlaschange000000000000000000000000000",
+                address: changeAddress,
                 chain: "change",
                 index: 0,
                 path: "m/84'/0'/0'/1/0",
@@ -230,14 +240,82 @@ describe("PSBT and fee UI regression", () => {
       />
     );
 
-    await userEvent.type(screen.getByLabelText(/Recipient 1 address/i), "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080");
+    await userEvent.type(screen.getByLabelText(/Recipient 1 address/i), recipientAddress);
     await userEvent.type(screen.getByLabelText(/^Amount$/i), "10000");
     await userEvent.click(screen.getByRole("button", { name: /Create unsigned PSBT/i }));
 
     expect(await screen.findByText("Unsigned PSBT ready")).toBeInTheDocument();
-    expect(screen.getAllByText(/Unused change address/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Change address|Wallet change/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatSecurityAddressDisplay(sourceAddress)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatSecurityAddressDisplay(recipientAddress)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatSecurityAddressDisplay(changeAddress)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Before signing, compare recipient address, amount, fee, and change output/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/If Atlas and the signer disagree, stop/i).length).toBeGreaterThan(0);
+    expect(document.querySelector(".psbt-result")?.textContent).not.toContain("...");
     expect(screen.getByText("change #0 / m/84'/0'/0'/1/0")).toBeInTheDocument();
     expect(screen.getAllByText(/Recipient 1/i).length).toBeGreaterThan(0);
+  });
+
+  it("shows an explicit no-change message when created PSBT has no change output", async () => {
+    const selected = makeUtxo({ outpoint: `${"4".repeat(64)}:0`, txid: "4".repeat(64), vout: 0, valueSats: 10830 });
+    const recipientAddress = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/wallets/wallet-1/utxos")) {
+        return jsonResponse({
+          addressLimit: 20,
+          chain: "both",
+          failedAddresses: [],
+          includeUnconfirmed: true,
+          status: "online",
+          summary: { confirmedBalance: 10830, totalBalance: 10830, unconfirmedBalance: 0 },
+          unit: "sats",
+          utxos: [selected],
+          walletId: "wallet-1"
+        });
+      }
+      if (url.includes("/api/fees/recommended")) {
+        return jsonResponse({ estimates: feeEstimates, source: "recommended", status: "online" });
+      }
+      if (url.includes("/api/wallets/wallet-1/psbt")) {
+        return jsonResponse(
+          makePsbtResult({
+            changeAddress: null,
+            changeSats: 0,
+            inputs: [{ ...makePsbtResult().inputs[0]!, address: selected.address, txid: selected.txid, vout: selected.vout, outpoint: selected.outpoint, valueSats: selected.valueSats }],
+            outputs: [
+              {
+                address: recipientAddress,
+                chain: null,
+                index: null,
+                path: null,
+                type: "recipient",
+                valueSats: 10000
+              }
+            ],
+            totalInputSats: selected.valueSats
+          })
+        );
+      }
+      return jsonResponse({ error: "unexpected request" }, 500);
+    });
+
+    render(
+      <CreatePsbtBuilderPanel
+        apiUrl=""
+        balanceUnit="sats"
+        initialSelectedOutpoints={[selected.outpoint]}
+        wallet={makeWallet()}
+      />
+    );
+
+    await userEvent.type(screen.getByLabelText(/Recipient 1 address/i), recipientAddress);
+    await userEvent.type(screen.getByLabelText(/^Amount$/i), "10000");
+    await userEvent.click(screen.getByRole("button", { name: /Create unsigned PSBT/i }));
+
+    expect(await screen.findByText("Unsigned PSBT ready")).toBeInTheDocument();
+    expect(screen.getAllByText(/No change output/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatSecurityAddressDisplay(recipientAddress)).length).toBeGreaterThan(0);
   });
 
   it("maps fee presets to high medium and low priorities", () => {

@@ -736,10 +736,25 @@ code {
   display: none;
 }
 
-.address-value code {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.security-address {
+  color: var(--text);
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.security-address-unavailable {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.address-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .address-qr-panel {
@@ -825,6 +840,15 @@ code {
   align-items: start;
 }
 
+.psbt-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
 .spending-plan-line {
   display: grid;
   gap: 2px;
@@ -834,6 +858,13 @@ code {
 
 .fee-line {
   color: var(--amber);
+}
+
+.psbt-review-guidance {
+  border: 1px solid rgb(216 155 69 / 26%);
+  border-radius: 6px;
+  background: rgb(216 155 69 / 8%);
+  padding: 10px 12px;
 }
 
 .spending-plan-arrow {
@@ -1123,7 +1154,8 @@ label.tx-limit-select select {
     .qr-context,
   .address-row,
   .recipient-row,
-  .spending-plan-flow {
+  .spending-plan-flow,
+  .psbt-review-grid {
     grid-template-columns: 1fr;
   }
 
