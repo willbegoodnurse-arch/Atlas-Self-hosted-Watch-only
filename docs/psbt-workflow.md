@@ -6,6 +6,8 @@ Treat the unsigned PSBT builder as a spending plan for an external cold wallet.
 
 Atlas is not the final authority for signing decisions. A compromised browser can visually alter recipients, amounts, QR codes, clipboard contents, and warnings. Always verify recipient, amount, change output, and fee on the external signing device before signing.
 
+For the focused browser display and address substitution model, see [browser-display-threat-model.md](browser-display-threat-model.md).
+
 ## Wallet Identity Check
 
 Before receiving funds or building PSBTs, verify the watch-only wallet identity against the external signer:

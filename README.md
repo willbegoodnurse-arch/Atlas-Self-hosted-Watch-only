@@ -305,6 +305,7 @@ This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only
 - [Camera QR secure context guide](docs/camera-qr-secure-context.md)
 - [Same-origin API proxy guide](docs/same-origin-api-proxy.md)
 - [PSBT workflow guide](docs/psbt-workflow.md)
+- [Browser display and address substitution threat model](docs/browser-display-threat-model.md)
 - [Self-hosted mempool fee estimates](docs/mempool-fee-estimates.md)
 - [Release and smoke test checklist](docs/release-checklist.md)
 - [Security policy](SECURITY.md)
