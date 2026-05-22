@@ -23,12 +23,10 @@ import {
   lockVault,
   deleteAddressLabel,
   deleteTransactionLabel,
-  deleteUtxoNote,
   unlockVault,
   updateWalletNotes,
   upsertAddressLabel,
   upsertTransactionLabel,
-  upsertUtxoNote,
   updateWallet
 } from "./store.js";
 import {
@@ -37,8 +35,7 @@ import {
   normalizeAddressLabelInput,
   normalizeOptionalNotes,
   normalizeTransactionLabelDeleteInput,
-  normalizeTransactionLabelInput,
-  normalizeUtxoNoteInput
+  normalizeTransactionLabelInput
 } from "./labels.js";
 import type { BitcoinNetwork, ScriptType, SourceDevice } from "./types.js";
 import { parseWalletImport } from "./import-parser.js";
@@ -103,12 +100,6 @@ type TransactionLabelBody = {
 
 type TransactionLabelDeleteBody = {
   txid?: unknown;
-};
-
-type UtxoNoteBody = {
-  txid?: unknown;
-  vout?: unknown;
-  note?: unknown;
 };
 
 type WalletAddressesQuery = {
@@ -565,27 +556,6 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
     }
   );
 
-  server.patch<{ Body: AddressLabelBody; Params: { id: string } }>(
-    "/api/wallets/:id/labels/address",
-    async (request, reply) => {
-      if (!ensureAuthenticated(request, reply)) {
-        return;
-      }
-
-      const validation = validateAddressLabelBody(request.body);
-      if (!validation.ok) {
-        return reply.code(400).send({ error: validation.error });
-      }
-
-      try {
-        const wallet = await upsertAddressLabel(request.params.id, validation.value);
-        return reply.send({ wallet: serializeWallet(wallet) });
-      } catch (error) {
-        return handleVaultError(error, reply);
-      }
-    }
-  );
-
   server.delete<{ Body: AddressLabelDeleteBody; Params: { id: string } }>(
     "/api/wallets/:id/address-labels",
     async (request, reply) => {
@@ -609,69 +579,6 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
 
   server.patch<{ Body: TransactionLabelBody; Params: { id: string } }>(
     "/api/wallets/:id/transaction-labels",
-    async (request, reply) => {
-      if (!ensureAuthenticated(request, reply)) {
-        return;
-      }
-
-      const validation = validateTransactionLabelBody(request.body);
-      if (!validation.ok) {
-        return reply.code(400).send({ error: validation.error });
-      }
-
-      try {
-        const wallet = await upsertTransactionLabel(request.params.id, validation.value);
-        return reply.send({ wallet: serializeWallet(wallet) });
-      } catch (error) {
-        return handleVaultError(error, reply);
-      }
-    }
-  );
-
-  server.patch<{ Body: UtxoNoteBody; Params: { id: string } }>(
-    "/api/wallets/:id/labels/utxo",
-    async (request, reply) => {
-      if (!ensureAuthenticated(request, reply)) {
-        return;
-      }
-
-      const validation = validateUtxoNoteBody(request.body);
-      if (!validation.ok) {
-        return reply.code(400).send({ error: validation.error });
-      }
-
-      try {
-        const wallet = await upsertUtxoNote(request.params.id, validation.value);
-        return reply.send({ wallet: serializeWallet(wallet) });
-      } catch (error) {
-        return handleVaultError(error, reply);
-      }
-    }
-  );
-
-  server.delete<{ Body: UtxoNoteBody; Params: { id: string } }>(
-    "/api/wallets/:id/labels/utxo",
-    async (request, reply) => {
-      if (!ensureAuthenticated(request, reply)) {
-        return;
-      }
-
-      const validation = validateUtxoNoteBody({ ...request.body, note: null });
-      if (!validation.ok) {
-        return reply.code(400).send({ error: validation.error });
-      }
-
-      try {
-        const wallet = await deleteUtxoNote(request.params.id, validation.value);
-        return reply.send({ wallet: serializeWallet(wallet) });
-      } catch (error) {
-        return handleVaultError(error, reply);
-      }
-    }
-  );
-
-  server.patch<{ Body: TransactionLabelBody; Params: { id: string } }>(
-    "/api/wallets/:id/labels/transaction",
     async (request, reply) => {
       if (!ensureAuthenticated(request, reply)) {
         return;
@@ -1069,26 +976,6 @@ function validateTransactionLabelDeleteBody(body: TransactionLabelDeleteBody | u
     return {
       ok: false,
       error: error instanceof Error ? error.message : "Invalid transaction label delete request"
-    };
-  }
-}
-
-function validateUtxoNoteBody(body: UtxoNoteBody | undefined):
-  | {
-      ok: true;
-      value: {
-        txid: string;
-        vout: number;
-        note: string | null;
-      };
-    }
-  | { ok: false; error: string } {
-  try {
-    return { ok: true, value: normalizeUtxoNoteInput(body ?? {}) };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Invalid UTXO note"
     };
   }
 }
