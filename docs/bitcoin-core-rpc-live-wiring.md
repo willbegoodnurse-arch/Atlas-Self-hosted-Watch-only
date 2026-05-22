@@ -1,6 +1,6 @@
 # Bitcoin Core RPC Live Wiring
 
-This guide wires Atlas to a real Raspberry Pi Bitcoin Core RPC setup for safe diagnostics only. Do not broadcast in this phase. Do not run `sendrawtransaction`.
+This guide wires Atlas to a real Raspberry Pi Bitcoin Core RPC setup. Atlas can broadcast only after signed PSBT verification returns `valid`, txHex is extractable, and the operator confirms with the checkbox plus `BROADCAST`.
 
 Target Raspberry Pi:
 
@@ -100,7 +100,7 @@ curl --user RPCUSER:RPCPASSWORD \
   http://127.0.0.1:8332/
 ```
 
-This is safe because it calls `getblockchaininfo`. Do not run `sendrawtransaction` in this phase.
+This is safe because it calls `getblockchaininfo`. Do not run `sendrawtransaction` manually for Atlas validation; use the Atlas verified signed PSBT flow.
 
 ## 7. Update Atlas .env Only After Core RPC Works
 
@@ -112,6 +112,7 @@ CORE_RPC_URL=http://127.0.0.1:8332
 CORE_RPC_USERNAME=<your_rpc_user>
 CORE_RPC_PASSWORD=<your_rpc_password>
 CORE_RPC_TIMEOUT_MS=10000
+MEMPOOL_WEB_URL=http://raspberrypi.local:8080
 ```
 
 Rules:
@@ -119,6 +120,8 @@ Rules:
 - `.env` must remain ignored by Git.
 - Use localhost if Atlas and Bitcoin Core run on the same Raspberry Pi.
 - Do not put credentials in `CORE_RPC_URL`.
+- `MEMPOOL_WEB_URL` is the browser-facing self-hosted mempool web UI, not the `/api` URL. It is used only to build `/tx/<txid>` links after Bitcoin Core accepts a broadcast.
+- Do not put credentials in `MEMPOOL_WEB_URL`; Atlas does not fall back to public mempool.space broadcast.
 - Do not expose port `8332` publicly.
 - If Bitcoin Core is on another LAN host, use `CORE_RPC_URL=http://<bitcoin-core-lan-ip>:8332` and restrict access with `rpcbind`, `rpcallowip`, and firewall rules.
 
@@ -154,9 +157,7 @@ Expected authenticated diagnostic state after enabling:
 
 `chain` may be `main`, `test`, `signet`, or `regtest`. No response should display RPC credentials or the full RPC URL.
 
-## 10. Stop Before Real Broadcast
-
-Do not broadcast yet.
+## 10. Verified Broadcast Gate
 
 The next safe validation step should be a signet/testnet broadcast or a tiny mainnet transaction after the operator verifies:
 
@@ -167,5 +168,6 @@ The next safe validation step should be a signet/testnet broadcast or a tiny mai
 - fee is acceptable
 - there are no warnings
 - the UI requires checkbox plus typing `BROADCAST`
+- the result screen shows the txid and, when `MEMPOOL_WEB_URL` is configured, a local mempool link
 
 Broadcasting is irreversible once the transaction is accepted and propagated by your node.

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { buildMempoolTransactionUrl } from "../mempool/web-url.js";
 import { InvalidPsbtError } from "../psbt/verify.js";
 import {
   VaultLockedError,
@@ -73,6 +74,18 @@ export async function registerBroadcastRoutes(
           });
         }
 
+        if (!result.signed) {
+          return reply.code(400).send({
+            error: "Broadcast blocked because the PSBT is unsigned."
+          });
+        }
+
+        if (!result.finalizable) {
+          return reply.code(400).send({
+            error: "Broadcast blocked because the signed PSBT is not finalizable."
+          });
+        }
+
         if (!result.extractable || !result.txHex) {
           return reply.code(400).send({
             error: "Broadcast unavailable because no extractable transaction hex was produced."
@@ -88,13 +101,39 @@ export async function registerBroadcastRoutes(
         return reply.send({
           status: "broadcasted",
           backend: broadcast.backend,
-          txid: broadcast.txid
+          txid: broadcast.txid,
+          message: "Broadcast accepted by Bitcoin Core.",
+          mempool: buildBroadcastMempoolHandoff(broadcast.txid)
         });
       } catch (error) {
         return handleBroadcastRouteError(error, reply);
       }
     }
   );
+}
+
+function buildBroadcastMempoolHandoff(txid: string): {
+  configured: boolean;
+  txUrl: string | null;
+  lookupStatus: "pending" | "unavailable";
+  message: string;
+} {
+  const txUrl = buildMempoolTransactionUrl(txid);
+  if (!txUrl) {
+    return {
+      configured: false,
+      txUrl: null,
+      lookupStatus: "unavailable",
+      message: "Local mempool web URL not configured."
+    };
+  }
+
+  return {
+    configured: true,
+    txUrl,
+    lookupStatus: "pending",
+    message: "Mempool lookup pending."
+  };
 }
 
 function validateBroadcastBody(body: BroadcastPsbtBody | undefined):
@@ -193,7 +232,7 @@ function handleBroadcastRouteError(error: unknown, reply: FastifyReply) {
     return reply.code(statusCode).send({
       error: error.message,
       rpcCode: error.rpcCode,
-      rpcMessage: error.rpcMessage
+      detail: error.rpcMessage
     });
   }
 

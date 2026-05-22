@@ -34,7 +34,8 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
     "CORE_RPC_URL",
     "CORE_RPC_USERNAME",
     "CORE_RPC_PASSWORD",
-    "CORE_RPC_TIMEOUT_MS"
+    "CORE_RPC_TIMEOUT_MS",
+    "MEMPOOL_WEB_URL"
   ]);
   const originalFetch = globalThis.fetch;
 
@@ -44,6 +45,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
   delete process.env.CORE_RPC_URL;
   delete process.env.CORE_RPC_USERNAME;
   delete process.env.CORE_RPC_PASSWORD;
+  delete process.env.MEMPOOL_WEB_URL;
 
   const [
     { registerBroadcastRoutes },
@@ -94,6 +96,21 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       url: "/api/broadcast/core/status"
     });
     assert.equal(unauthenticatedCoreStatus.statusCode, 401);
+
+    const unauthenticatedBroadcast = await server.inject({
+      method: "POST",
+      url: `/api/wallets/${wallet.id}/psbt/broadcast`,
+      payload: { psbtBase64: signedPsbt }
+    });
+    assert.equal(unauthenticatedBroadcast.statusCode, 401);
+
+    const rawTxHexBroadcastPath = await server.inject({
+      method: "POST",
+      url: "/api/broadcast/txhex",
+      headers,
+      payload: { txHex: "deadbeef" }
+    });
+    assert.equal(rawTxHexBroadcastPath.statusCode, 404);
 
     const disabledStatus = await server.inject({
       method: "GET",
@@ -212,6 +229,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
     process.env.CORE_RPC_URL = "http://127.0.0.1:8332";
     process.env.CORE_RPC_USERNAME = "atlas_rpc_user";
     process.env.CORE_RPC_PASSWORD = "atlas_rpc_password";
+    process.env.MEMPOOL_WEB_URL = "http://raspberrypi.local:8080";
 
     const rpcCalls: Array<{ body: { method: string; params: string[] }; auth: string | null }> = [];
     globalThis.fetch = (async (_url, init) => {
@@ -305,11 +323,34 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
     assert.equal(validBroadcast.json().status, "broadcasted");
     assert.equal(validBroadcast.json().backend, "core");
     assert.equal(validBroadcast.json().txid, BROADCAST_TXID);
+    assert.equal(validBroadcast.json().message, "Broadcast accepted by Bitcoin Core.");
+    assert.deepEqual(validBroadcast.json().mempool, {
+      configured: true,
+      txUrl: `http://raspberrypi.local:8080/tx/${BROADCAST_TXID}`,
+      lookupStatus: "pending",
+      message: "Mempool lookup pending."
+    });
     assert.equal(rpcCalls.length, 2);
     assert.equal(rpcCalls[1].body.method, "sendrawtransaction");
     assert.notEqual(rpcCalls[1].body.params[0], "deadbeef");
     assert.match(rpcCalls[1].body.params[0], /^[0-9a-f]+$/i);
     assert.doesNotMatch(validBroadcast.body, /atlas_rpc_password|deadbeef/);
+
+    process.env.MEMPOOL_WEB_URL = "http://user:secret@raspberrypi.local:8080";
+    const invalidMempoolWebUrlBroadcast = await server.inject({
+      method: "POST",
+      url: `/api/wallets/${wallet.id}/psbt/broadcast`,
+      headers,
+      payload: {
+        psbtBase64: signedPsbt,
+        addressLimit: 100
+      }
+    });
+    assert.equal(invalidMempoolWebUrlBroadcast.statusCode, 200);
+    assert.equal(invalidMempoolWebUrlBroadcast.json().mempool.configured, false);
+    assert.equal(invalidMempoolWebUrlBroadcast.json().mempool.txUrl, null);
+    assert.doesNotMatch(invalidMempoolWebUrlBroadcast.body, /user|secret/);
+    process.env.MEMPOOL_WEB_URL = "http://raspberrypi.local:8080";
 
     const fetchCountAfterValid = rpcCalls.length;
     const unsignedBroadcast = await server.inject({

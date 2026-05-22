@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   copyTextToClipboard,
+  CreatePsbtBuilderPanel,
   feeEstimateSourceLabel,
   formatFeeRate,
   isSignedPsbtSingleQrCandidate,
@@ -15,7 +16,7 @@ import {
   signedPsbtMultipartFrameMessage,
   VerifyPsbtPanel
 } from "../phase-one-auth";
-import { jsonResponse, makeUtxo, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
+import { jsonResponse, makePsbtResult, makeUtxo, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
 
 const feeEstimates = {
   economyFee: 4,
@@ -100,7 +101,19 @@ function installVerifyFetch() {
       return jsonResponse(signedVerifyResponse);
     }
     if (url.includes("/api/wallets/wallet-1/psbt/broadcast")) {
-      return jsonResponse({ backend: "core", status: "broadcasted", txid: "3".repeat(64) });
+      const txid = "3".repeat(64);
+      return jsonResponse({
+        backend: "core",
+        status: "broadcasted",
+        txid,
+        message: "Broadcast accepted by Bitcoin Core.",
+        mempool: {
+          configured: true,
+          lookupStatus: "pending",
+          message: "Mempool lookup pending.",
+          txUrl: `http://raspberrypi.local:8080/tx/${txid}`
+        }
+      });
     }
     return jsonResponse({ error: "unexpected request" }, 500);
   });
@@ -158,6 +171,73 @@ describe("PSBT and fee UI regression", () => {
       { txid: "1".repeat(64), vout: 0 },
       { txid: "2".repeat(64), vout: 1 }
     ]);
+  });
+
+  it("shows created PSBT change output as an unused change address with path metadata", async () => {
+    const selected = makeUtxo({ outpoint: `${"1".repeat(64)}:0`, txid: "1".repeat(64), vout: 0, valueSats: 100000 });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/wallets/wallet-1/utxos")) {
+        return jsonResponse({
+          addressLimit: 20,
+          chain: "both",
+          failedAddresses: [],
+          includeUnconfirmed: true,
+          status: "online",
+          summary: { confirmedBalance: 100000, totalBalance: 100000, unconfirmedBalance: 0 },
+          unit: "sats",
+          utxos: [selected],
+          walletId: "wallet-1"
+        });
+      }
+      if (url.includes("/api/fees/recommended")) {
+        return jsonResponse({ estimates: feeEstimates, source: "recommended", status: "online" });
+      }
+      if (url.includes("/api/wallets/wallet-1/psbt")) {
+        return jsonResponse(
+          makePsbtResult({
+            outputs: [
+              {
+                address: "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                chain: null,
+                index: null,
+                path: null,
+                type: "recipient",
+                valueSats: 10000
+              },
+              {
+                address: "bc1qatlaschange000000000000000000000000000",
+                chain: "change",
+                index: 0,
+                path: "m/84'/0'/0'/1/0",
+                type: "change",
+                valueSats: 88000
+              }
+            ]
+          })
+        );
+      }
+      return jsonResponse({ error: "unexpected request" }, 500);
+    });
+    globalThis.fetch = fetchMock;
+
+    render(
+      <CreatePsbtBuilderPanel
+        apiUrl=""
+        balanceUnit="sats"
+        initialSelectedOutpoints={[selected.outpoint]}
+        wallet={makeWallet()}
+      />
+    );
+
+    await userEvent.type(screen.getByLabelText(/Recipient 1 address/i), "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080");
+    await userEvent.type(screen.getByLabelText(/^Amount$/i), "10000");
+    await userEvent.click(screen.getByRole("button", { name: /Create unsigned PSBT/i }));
+
+    expect(await screen.findByText("Unsigned PSBT ready")).toBeInTheDocument();
+    expect(screen.getAllByText(/Unused change address/i).length).toBeGreaterThan(0);
+    expect(screen.getByText("change #0 / m/84'/0'/0'/1/0")).toBeInTheDocument();
+    expect(screen.getAllByText(/Recipient 1/i).length).toBeGreaterThan(0);
   });
 
   it("maps fee presets to high medium and low priorities", () => {
@@ -387,13 +467,83 @@ describe("PSBT and fee UI regression", () => {
 
     await user.type(screen.getByLabelText(/Signed PSBT/i), "signed-psbt");
     await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
-    const broadcastButton = await screen.findByRole("button", { name: /Broadcast transaction/i });
+    const broadcastButton = await screen.findByRole("button", { name: /Broadcast signed transaction/i });
 
     expect(broadcastButton).toBeDisabled();
     await user.click(screen.getByLabelText(/I verified the recipient/i));
     expect(broadcastButton).toBeDisabled();
     await user.type(screen.getByLabelText(/Type BROADCAST/i), "BROADCAST");
     expect(broadcastButton).toBeEnabled();
+  });
+
+  it("shows txid and local mempool handoff after broadcast success", async () => {
+    installVerifyFetch();
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+
+    await user.type(screen.getByLabelText(/Signed PSBT/i), "signed-psbt");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    await screen.findByText(/Verification result/i);
+    await user.click(screen.getByLabelText(/I verified the recipient/i));
+    await user.type(screen.getByLabelText(/Type BROADCAST/i), "BROADCAST");
+    await user.click(screen.getByRole("button", { name: /Broadcast signed transaction/i }));
+
+    const txid = "3".repeat(64);
+    expect((await screen.findAllByText(/Broadcast accepted by Bitcoin Core/i)).length).toBeGreaterThan(0);
+    expect(screen.getByText(new RegExp(txid))).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Copy txid/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open in local mempool/i })).toHaveAttribute(
+      "href",
+      `http://raspberrypi.local:8080/tx/${txid}`
+    );
+    expect(screen.getByRole("button", { name: /Close/i })).toBeInTheDocument();
+  });
+
+  it("keeps local mempool handoff disabled when MEMPOOL_WEB_URL is not configured", async () => {
+    installVerifyFetch();
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/broadcast/core/status")) {
+        return jsonResponse({
+          backend: "core",
+          configured: true,
+          enabled: true,
+          message: "Bitcoin Core RPC broadcast is enabled.",
+          reachable: true
+        });
+      }
+      if (url.includes("/api/wallets/wallet-1/psbt/verify")) {
+        return jsonResponse(signedVerifyResponse);
+      }
+      if (url.includes("/api/wallets/wallet-1/psbt/broadcast")) {
+        return jsonResponse({
+          backend: "core",
+          status: "broadcasted",
+          txid: "3".repeat(64),
+          message: "Broadcast accepted by Bitcoin Core.",
+          mempool: {
+            configured: false,
+            lookupStatus: "unavailable",
+            message: "Local mempool web URL not configured.",
+            txUrl: null
+          }
+        });
+      }
+      return jsonResponse({ error: "unexpected request" }, 500);
+    });
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+
+    await user.type(screen.getByLabelText(/Signed PSBT/i), "signed-psbt");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    await screen.findByText(/Verification result/i);
+    await user.click(screen.getByLabelText(/I verified the recipient/i));
+    await user.type(screen.getByLabelText(/Type BROADCAST/i), "BROADCAST");
+    await user.click(screen.getByRole("button", { name: /Broadcast signed transaction/i }));
+
+    expect((await screen.findAllByText(/Local mempool web URL not configured/i)).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: /Open in local mempool/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Local mempool web URL not configured/i })).toBeDisabled();
   });
 
   it("detects oversized single-frame signed PSBT QR payloads", () => {

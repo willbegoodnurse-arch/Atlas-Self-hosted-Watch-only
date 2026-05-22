@@ -3,6 +3,42 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 65 - Settings modal and safe runtime preferences
+
+- Added a dashboard Settings modal using the existing PortalModal safety pattern, with Display, Security, Network, Broadcast, Backup, Diagnostics, and Language sections.
+- Added in-memory display preferences for the dashboard total balance default unit and KRW estimate visibility without using browser storage or changing balance, send amount, or PSBT logic.
+- Added Korean/English Settings labels through a small dictionary helper with English fallback and no new dependency.
+- Surfaced sanitized vault, auth, runtime, mempool, market, broadcast, backup, and diagnostics status without returning or rendering secrets, wallet contents, PSBTs, txHex, RPC credentials, TOTP secrets, or session secrets.
+- Added a Settings lock-vault action using the existing vault lock flow and kept public broadcast fallback disabled as read-only status.
+- No wallet derivation/address discovery, receive/change logic, PSBT core, broadcast behavior, BBQr/Coldcard scanner logic, auth/vault internals, package dependency changes, commits, pushes, tags, or deployments were changed.
+
+## Phase 63 - Verified broadcast and local mempool handoff
+
+- Hardened signed PSBT broadcast so Atlas only submits valid, signed, finalizable, extractable transactions through the configured Bitcoin Core backend.
+- Kept the explicit checkbox plus typed `BROADCAST` confirmation gate, with warning, invalid, unsigned, and non-extractable PSBTs blocked before RPC broadcast.
+- Improved broadcast success UX to keep the result visible, show the txid, provide txid copy, and offer a local self-hosted mempool transaction link when configured.
+- Added `MEMPOOL_WEB_URL` as the browser-facing local mempool web URL for Raspberry Pi handoff links, without adding any public mempool broadcast fallback.
+- Added sanitized runtime/broadcast status coverage so RPC credentials, full txHex, PSBT text, cookies, and secrets are not returned in API responses or UI errors.
+- No BBQr/Coldcard import, wallet derivation/address discovery, receive/change chain logic, package dependency, commit, push, tag, PR, or deployment action was changed.
+
+## Phase 62 - Receive address availability and transaction confirmation display
+
+- Updated the default receive address display so used receive addresses with zero current balance no longer consume the visible receive slots.
+- Kept used receive addresses with current balance visible and preserved the actual receive index/path for every displayed address.
+- Increased the receive balance scan depth used by the UI display so a gap limit of 5 can still surface five unused receive addresses after used-empty rows are hidden.
+- Added transaction confirmation counts when both the mempool tip height and transaction block height are available, with confirmed/unconfirmed fallbacks unchanged when count data is missing.
+- Labeled PSBT change outputs as unused change addresses and included change chain/path metadata in the unsigned PSBT result summary without changing PSBT construction rules.
+- No wallet derivation/index/path renumbering, receive/change chain semantics, broadcast behavior, BBQr/Coldcard import behavior, package dependency changes, commits, pushes, tags, or deployments were changed.
+
+## Phase 61 - Coldcard BBQr scanner reliability follow-up
+
+- Fixed Coldcard BBQr collection so camera and paste paths share the same collector state and do not lose frames across fast Coldcard animation loops.
+- Added safe BBQr scanner metadata for scan count, raw length, two-character prefix, header fields, captured count, missing frame numbers, and sanitized error codes without showing frame bodies or full Generic JSON payloads.
+- Made pasted `B$2J...` frames feed the BBQr collector directly, including multi-line paste, duplicate-frame handling, conflict detection, and different-set detection without resetting existing progress on unsupported input.
+- Aligned BBQr header parsing with Coldcard's `B$` structure: encoding at byte 2, file type at byte 3, base36 total/index fields, zero-based frame indexes, and one-based UI display.
+- Added Base32 Coldcard Generic JSON BBQr coverage, Coldcard `bip84._pub` metadata extraction, and scanner/paste regression tests.
+- No PSBT builder, signed PSBT verification core, broadcast behavior, wallet derivation/address discovery, auth/session/cookie/vault/xpub reveal behavior, dependency updates, commits, pushes, tags, or deployments were changed.
+
 ## Phase 60 - Dashboard BTC/sats toggle and KRW price feed
 
 - Added a dashboard total-balance display toggle for BTC and sats without changing wallet balance, send amount, or PSBT calculation logic.

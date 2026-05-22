@@ -25,6 +25,31 @@ The helper runs typecheck, tests, build, `git diff --check`, and `npm audit --om
 
 The web regression test suite covers auth/session fallback rendering, wallet cards, wallet identity/MFP display, portal modals, inline receive QR behavior, signed PSBT verification UI, selected UTXO payload mapping, and local fee-estimate fallback copy.
 
+## Phase 65 Settings Modal Gate
+
+- Confirm the Settings button opens the modal from the dashboard toolbar.
+- Confirm the Settings modal closes only through the explicit Close button and does not close on backdrop click.
+- Confirm the dashboard default balance unit can switch between BTC and sats without changing send amount or PSBT amount behavior.
+- Confirm the KRW estimate can be hidden and shown without removing the market price endpoint or making price failures look like wallet degradation.
+- Confirm Korean and English Settings labels switch in the modal, with English fallback for invalid values.
+- Confirm the Security section shows vault status, auto-lock timeout, TOTP enabled status, watch-only status, and the existing Lock vault now action without showing secrets.
+- Confirm the Network, Broadcast, Backup, and Diagnostics sections display sanitized status only.
+- Confirm Broadcast shows backend status, local mempool web URL configured status, and public fallback disabled without exposing RPC credentials.
+- Confirm Backup shows only documentation paths and guidance, not `wallets.enc`, `auth.json`, `.env`, or vault contents.
+- Confirm Settings does not display full xpub/zpub, PSBT, txHex, RPC credentials, TOTP secret, SESSION_SECRET, cookies, sessions, or vault passwords.
+
+## Phase 61 Coldcard BBQr Scanner Gate
+
+- Confirm Coldcard Generic JSON BBQr paste captures `B$2J0700...` as frame `1/7` and does not echo the body.
+- Confirm multi-line BBQr paste accumulates frames and duplicate same-frame input does not increase the captured count.
+- Confirm unsupported paste or unsupported camera scans do not reset existing BBQr progress.
+- Confirm camera scanning shows safe metadata only: scan count, raw length, two-character prefix, encoding, file type, frame number, captured count, missing frames, and sanitized error code.
+- Confirm fast Coldcard animation can be scanned over multiple loops until missing frames reach `none`.
+- Confirm completed BBQr import hides the full Generic JSON payload while still deriving the import preview.
+- Confirm XFP/master fingerprint, account path, native SegWit key candidate, and `sourceDevice=coldcard` survive the import preview and save flow.
+- Confirm full xpub/zpub, Generic JSON, QR raw payload, PSBT, txHex, cookies, sessions, `.env`, `wallets.enc`, `auth.json`, and RPC credentials are not printed in UI status, logs, or test output.
+- Confirm broadcast files and broadcast behavior were not changed by the BBQr follow-up.
+
 ## Phase 56 Local Release Gate
 
 - Run `npm install` from the repository root before release validation, especially after moving or copying the project directory.
@@ -160,13 +185,18 @@ Do not manually patch workspace junctions or symlinks.
 - Confirm `bitcoin-cli getblockchaininfo` works on the Bitcoin Core host.
 - Confirm `GET /api/broadcast/status` shows disabled by default or core enabled only when intended.
 - Confirm `GET /api/broadcast/core/status` does not return RPC username, password, or full RPC URL.
+- Confirm `GET /api/settings/runtime` reports only sanitized broadcast status and whether `MEMPOOL_WEB_URL` is configured.
 - Confirm Bitcoin Core RPC port `8332` is not exposed publicly.
 - Confirm firewall, `rpcbind`, and `rpcallowip` restrict RPC to localhost or trusted private hosts.
 - Follow `docs/bitcoin-core-rpc-live-wiring.md` before any real broadcast attempt.
 - Confirm invalid PSBT broadcast is blocked.
 - Confirm warning PSBT broadcast is blocked.
+- Confirm unsigned and non-extractable PSBT broadcast is blocked.
 - Confirm valid signed PSBT broadcast requires checkbox plus typing `BROADCAST`.
 - Confirm a successful broadcast displays txid.
+- Confirm a successful broadcast keeps the result visible until the operator closes it.
+- Confirm `MEMPOOL_WEB_URL` shows an `Open in local mempool` transaction link only when configured.
+- Confirm no public mempool.space broadcast fallback is present.
 - Confirm there is no raw txHex paste broadcast path.
 - Use testnet/signet first where possible; otherwise use a tiny mainnet transaction first.
 - Follow `docs/tiny-broadcast-validation.md` before the first live broadcast validation.
@@ -256,8 +286,11 @@ Do not manually patch workspace junctions or symlinks.
 - View wallet dashboard.
 - View balance.
 - View receive/change addresses.
+- Confirm used empty receive addresses are hidden from the default receive list while actual derivation index/path values are preserved.
+- Confirm a gap limit of 5 still shows five unused receive addresses in the default receive list when earlier used empty receive addresses exist.
 - View UTXOs.
 - View transactions.
+- Confirm confirmed transactions show confirmation counts only when both tip height and transaction block height are available.
 - Confirm backend failures show specific messages and preserve existing data where expected.
 
 ## Labels And Notes
@@ -283,6 +316,7 @@ Do not manually patch workspace junctions or symlinks.
 - If local fee estimates are unavailable while block tip works, follow `docs/mempool-fee-estimates.md` and check precise/recommended fee endpoints, `init-data`, projected mempool blocks, and `/api/mempool`.
 - Review selected input total.
 - Review recipient outputs, change output, and fee.
+- Confirm change output is labeled as change, not receive, and includes change path/index when available.
 - Review the input -> output spending plan.
 - Create an unsigned PSBT.
 - Export text/base64 PSBT.

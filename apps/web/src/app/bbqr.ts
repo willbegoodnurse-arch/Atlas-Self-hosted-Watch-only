@@ -17,10 +17,26 @@ export type BbqrCollectorResult = {
   state: BbqrCollectorState;
   status: "captured" | "duplicate" | "complete" | "error";
   message: string;
+  errorCode?: string;
 };
 
-const bbqrPattern = /^B\$([H2Z])([A-Z])([0-9A-Z]{2})([0-9A-Z]{2})([0-9A-Z]*)$/;
+export type BbqrSafeMetadata = {
+  prefix: string;
+  rawLength: number;
+  encoding: string | null;
+  fileType: string | null;
+  total: number | null;
+  index: number | null;
+  displayIndex: number | null;
+  valid: boolean;
+  errorCode: string | null;
+};
+
 const base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const fileTypeLabels: Record<string, string> = {
+  J: "JSON",
+  U: "Unicode Text"
+};
 
 export function createBbqrCollectorState(): BbqrCollectorState {
   return {
@@ -32,40 +48,76 @@ export function createBbqrCollectorState(): BbqrCollectorState {
 }
 
 export function parseBbqrFrame(input: string): BbqrFrame | null {
-  const match = input.trim().toUpperCase().match(bbqrPattern);
-  if (!match) {
+  const trimmed = input.trim();
+  const metadata = inspectBbqrFrame(trimmed);
+  if (!metadata.valid || metadata.encoding === null || metadata.fileType === null || metadata.total === null || metadata.index === null) {
     return null;
   }
-  const total = parseInt(match[3], 36);
-  const index = parseInt(match[4], 36);
-  if (!Number.isInteger(total) || !Number.isInteger(index) || total < 1 || index < 0 || index >= total) {
+  if (metadata.encoding !== "H" && metadata.encoding !== "2" && metadata.encoding !== "Z") {
     return null;
   }
   return {
-    encoding: match[1] as "H" | "2" | "Z",
-    fileType: match[2],
-    total,
-    index,
-    data: match[5]
+    encoding: metadata.encoding,
+    fileType: metadata.fileType,
+    total: metadata.total,
+    index: metadata.index,
+    data: trimmed.slice(8).toUpperCase()
   };
+}
+
+export function inspectBbqrFrame(input: string): BbqrSafeMetadata {
+  const trimmed = input.trim();
+  const prefix = trimmed.slice(0, 2);
+  if (!trimmed.startsWith("B$")) {
+    return safeMetadata(prefix, trimmed.length, null, null, null, null, "not-bbqr");
+  }
+  if (trimmed.length < 8) {
+    return safeMetadata(prefix, trimmed.length, null, null, null, null, "short-header");
+  }
+
+  const encoding = trimmed[2]?.toUpperCase() ?? null;
+  const fileType = trimmed[3]?.toUpperCase() ?? null;
+  const totalText = trimmed.slice(4, 6).toUpperCase();
+  const indexText = trimmed.slice(6, 8).toUpperCase();
+  if (!/^[0-9A-Z]{2}$/.test(totalText) || !/^[0-9A-Z]{2}$/.test(indexText)) {
+    return safeMetadata(prefix, trimmed.length, encoding, fileType, null, null, "invalid-header-number");
+  }
+
+  const total = parseInt(totalText, 36);
+  const index = parseInt(indexText, 36);
+  if (!Number.isInteger(total) || total < 1) {
+    return safeMetadata(prefix, trimmed.length, encoding, fileType, total, index, "invalid-total");
+  }
+  if (!Number.isInteger(index) || index < 0 || index >= total) {
+    return safeMetadata(prefix, trimmed.length, encoding, fileType, total, index, "invalid-index");
+  }
+  if (encoding !== "H" && encoding !== "2" && encoding !== "Z") {
+    return safeMetadata(prefix, trimmed.length, encoding, fileType, total, index, "unsupported-encoding");
+  }
+  if (!fileType || !/^[A-Z]$/.test(fileType)) {
+    return safeMetadata(prefix, trimmed.length, encoding, fileType, total, index, "unsupported-file-type");
+  }
+
+  return safeMetadata(prefix, trimmed.length, encoding, fileType, total, index, null);
 }
 
 export function addBbqrFrame(state: BbqrCollectorState, frame: BbqrFrame): BbqrCollectorResult {
   if (state.total !== null && state.total !== frame.total) {
-    return { state, status: "error", message: "BBQr frame total mismatch. Clear BBQr frames and scan one export again." };
+    return { state, status: "error", message: "Different BBQr set detected. Clear BBQr frames and scan one export again.", errorCode: "different-set" };
   }
   if (state.encoding !== null && state.encoding !== frame.encoding) {
-    return { state, status: "error", message: "BBQr encoding mismatch. Clear BBQr frames and scan one export again." };
+    return { state, status: "error", message: "Different BBQr set detected. Clear BBQr frames and scan one export again.", errorCode: "different-set" };
   }
   if (state.fileType !== null && state.fileType !== frame.fileType) {
-    return { state, status: "error", message: "BBQr file type mismatch. Clear BBQr frames and scan one export again." };
+    return { state, status: "error", message: "Different BBQr set detected. Clear BBQr frames and scan one export again.", errorCode: "different-set" };
   }
   const existing = state.frames[frame.index];
   if (existing !== undefined && existing !== frame.data) {
     return {
       state,
       status: "error",
-      message: `BBQr frame conflict: frame ${frame.index + 1} already has different data. Clear BBQr frames and scan again.`
+      message: `BBQr frame conflict: frame ${frame.index + 1} already has different data. Clear BBQr frames and scan again.`,
+      errorCode: "frame-conflict"
     };
   }
   const nextState: BbqrCollectorState = {
@@ -120,13 +172,21 @@ export function assembleBbqrPayload(state: BbqrCollectorState): string | null {
         ? decodeBase32(encoded)
         : null;
   if (!bytes) {
-    throw new Error("Unsupported BBQr format. Zlib-compressed BBQr is not supported for wallet import yet.");
+    throw new Error("Compressed BBQr is not yet supported.");
   }
   const decoded = new TextDecoder().decode(bytes).trim();
-  if (!decoded.startsWith("{")) {
+  if (!decoded.startsWith("{") || !decoded.endsWith("}")) {
     throw new Error("Unsupported BBQr format. Decoded payload was not Coldcard Generic JSON.");
   }
   return decoded;
+}
+
+export function getCapturedBbqrFrameCount(state: BbqrCollectorState): number {
+  return Object.keys(state.frames).length;
+}
+
+export function getBbqrFileTypeLabel(fileType: string | null): string {
+  return fileType ? fileTypeLabels[fileType] ?? fileType : "unknown";
 }
 
 function decodeHex(value: string): Uint8Array {
@@ -157,4 +217,26 @@ function decodeBase32(value: string): Uint8Array {
     }
   }
   return new Uint8Array(bytes);
+}
+
+function safeMetadata(
+  prefix: string,
+  rawLength: number,
+  encoding: string | null,
+  fileType: string | null,
+  total: number | null,
+  index: number | null,
+  errorCode: string | null
+): BbqrSafeMetadata {
+  return {
+    prefix,
+    rawLength,
+    encoding,
+    fileType,
+    total,
+    index,
+    displayIndex: index === null ? null : index + 1,
+    valid: errorCode === null,
+    errorCode
+  };
 }

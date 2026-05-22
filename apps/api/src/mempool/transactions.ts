@@ -29,6 +29,7 @@ export type WalletTransaction = {
   feeSats: number | null;
   blockHeight: number | null;
   blockTime: number | null;
+  confirmations: number | null;
   relatedAddresses: RelatedAddress[];
 };
 
@@ -92,6 +93,7 @@ export async function lookupWalletTransactions(
     fetchAddressTxsPageFn?: FetchAddressTxsPageFn;
     concurrency?: number;
     pages?: number;
+    tipHeight?: number | null;
   } = {}
 ): Promise<WalletTransactionsResult> {
   const pagesPerAddress = Math.max(1, Math.min(3, options.pages ?? 1));
@@ -147,7 +149,7 @@ export async function lookupWalletTransactions(
 
   const transactions: WalletTransaction[] = [];
   for (const tx of txMap.values()) {
-    transactions.push(buildWalletTransaction(tx, addressSet));
+    transactions.push(buildWalletTransaction(tx, addressSet, options.tipHeight ?? null));
   }
 
   transactions.sort(compareTransactions);
@@ -182,7 +184,8 @@ export async function lookupWalletTransactions(
 
 function buildWalletTransaction(
   tx: MempoolTx,
-  addressSet: Map<string, WalletAddress>
+  addressSet: Map<string, WalletAddress>,
+  tipHeight: number | null
 ): WalletTransaction {
   const relatedAddresses: RelatedAddress[] = [];
   let ourInputSats = 0;
@@ -237,6 +240,8 @@ function buildWalletTransaction(
           : "unknown";
 
   const status = parseTxStatus(tx.status);
+  const blockHeight =
+    typeof tx.status?.block_height === "number" ? tx.status.block_height : null;
 
   return {
     txid: tx.txid,
@@ -244,12 +249,32 @@ function buildWalletTransaction(
     direction,
     netSats,
     feeSats: typeof tx.fee === "number" ? tx.fee : null,
-    blockHeight:
-      typeof tx.status?.block_height === "number" ? tx.status.block_height : null,
+    blockHeight,
     blockTime:
       typeof tx.status?.block_time === "number" ? tx.status.block_time : null,
+    confirmations:
+      status === "confirmed" ? calculateConfirmations(tipHeight, blockHeight) : null,
     relatedAddresses
   };
+}
+
+export function calculateConfirmations(
+  tipHeight: number | null | undefined,
+  blockHeight: number | null | undefined
+): number | null {
+  if (
+    !Number.isInteger(tipHeight) ||
+    !Number.isInteger(blockHeight) ||
+    tipHeight === null ||
+    tipHeight === undefined ||
+    blockHeight === null ||
+    blockHeight === undefined ||
+    tipHeight < blockHeight ||
+    blockHeight < 1
+  ) {
+    return null;
+  }
+  return tipHeight - blockHeight + 1;
 }
 
 function parseTxStatus(
