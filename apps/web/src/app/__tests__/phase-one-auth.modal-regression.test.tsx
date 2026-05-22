@@ -7,7 +7,9 @@ import { makeAddress } from "./phase-one-auth.test-utils";
 describe("portal and QR modal regression", () => {
   it("renders blocking scanner-style modal content through document.body and closes cleanly", async () => {
     const onClose = vi.fn();
-    const { container } = render(
+    document.body.style.overflow = "auto";
+    document.documentElement.style.overflow = "auto";
+    const { container, unmount } = render(
       <PortalModal ariaLabel="Scan watch-only import QR" panelClassName="scanner-dialog" onClose={onClose}>
         <p>Camera unavailable. Paste or import a file instead.</p>
         <button type="button" onClick={onClose}>
@@ -20,13 +22,23 @@ describe("portal and QR modal regression", () => {
     expect(document.body.querySelector(".portal-modal-root")).toBeInTheDocument();
     expect(container.querySelector(".portal-modal-root")).not.toBeInTheDocument();
     expect(document.body.querySelector(".portal-modal-backdrop")).toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.documentElement.style.overflow).toBe("hidden");
 
     fireEvent.click(document.body.querySelector(".portal-modal-backdrop") as Element);
+    expect(onClose).not.toHaveBeenCalled();
+
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledTimes(1);
+
+    unmount();
+    expect(document.body.style.overflow).toBe("auto");
+    expect(document.documentElement.style.overflow).toBe("auto");
+    document.body.style.overflow = "";
+    document.documentElement.style.overflow = "";
   });
 
   it("renders xpub reveal as a portal modal with a visible close path", async () => {
