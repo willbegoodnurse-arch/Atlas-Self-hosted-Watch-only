@@ -13,7 +13,6 @@ import {
   verifyPsbt,
   deleteWallet,
   deriveWalletAddresses,
-  deriveWalletAddressUsage,
   deriveWalletBalance,
   deriveWalletNextReceiveAddress,
   getVaultStatus,
@@ -322,92 +321,6 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
           scriptType: result.scriptType,
           usageStatus: result.usageStatus,
           addresses: result.addresses
-        });
-      } catch (error) {
-        return handleVaultError(error, reply);
-      }
-    }
-  );
-
-  server.get<{ Querystring: WalletAddressesQuery; Params: { id: string } }>(
-    "/api/wallets/:id/address-usage",
-    async (request, reply) => {
-      if (!ensureAuthenticated(request, reply)) {
-        return;
-      }
-
-      const validation = validateAddressesQuery(request.query);
-      if (!validation.ok) {
-        return reply.code(400).send({ error: validation.error });
-      }
-
-      try {
-        const { wallet, result } = await deriveWalletAddressUsage(
-          request.params.id,
-          validation.value
-        );
-        const nextReceive =
-          validation.value.chain === "receive" || validation.value.chain === "both"
-            ? await deriveWalletNextReceiveAddress(request.params.id)
-            : null;
-
-        return reply.send({
-          walletId: wallet.id,
-          network: result.network,
-          scriptType: result.scriptType,
-          usageStatus: result.usageStatus,
-          addresses: result.addresses,
-          nextUnusedReceiveAddress:
-            nextReceive?.result.nextUnusedReceiveAddress ?? null,
-          discovery: nextReceive
-            ? {
-                checkedCount: nextReceive.result.checkedCount,
-                gapLimit: nextReceive.result.gapLimit,
-                maxDiscoveryLimit: nextReceive.result.maxDiscoveryLimit,
-                complete: nextReceive.result.discoveryComplete
-              }
-            : null,
-          mempool: {
-            ...getMempoolApiConfig(),
-            lookupFailed:
-              result.lookupFailed || Boolean(nextReceive?.result.lookupFailed)
-          },
-          lookupError:
-            result.lookupFailed || nextReceive?.result.lookupFailed
-              ? "usage lookup failed"
-              : null
-        });
-      } catch (error) {
-        return handleVaultError(error, reply);
-      }
-    }
-  );
-
-  server.get<{ Params: { id: string } }>(
-    "/api/wallets/:id/next-receive-address",
-    async (request, reply) => {
-      if (!ensureAuthenticated(request, reply)) {
-        return;
-      }
-
-      try {
-        const { wallet, result } = await deriveWalletNextReceiveAddress(request.params.id);
-        return reply.send({
-          walletId: wallet.id,
-          network: result.network,
-          scriptType: result.scriptType,
-          nextUnusedReceiveAddress: result.nextUnusedReceiveAddress,
-          discovery: {
-            checkedCount: result.checkedCount,
-            gapLimit: result.gapLimit,
-            maxDiscoveryLimit: result.maxDiscoveryLimit,
-            complete: result.discoveryComplete
-          },
-          mempool: {
-            ...getMempoolApiConfig(),
-            lookupFailed: result.lookupFailed
-          },
-          lookupError: result.lookupFailed ? "usage lookup failed" : null
         });
       } catch (error) {
         return handleVaultError(error, reply);

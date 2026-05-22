@@ -8,8 +8,7 @@ import { authConfig } from "../auth/config.js";
 import {
   checkMempoolHealth,
   discoverNextUnusedReceiveAddress,
-  lookupAddressBalanceRecords,
-  lookupAddressUsageRecords
+  lookupAddressBalanceRecords
 } from "../mempool/usage.js";
 import { lookupWalletTransactions } from "../mempool/transactions.js";
 import type { WalletTransactionsResult } from "../mempool/transactions.js";
@@ -354,27 +353,6 @@ export function deriveWalletAddresses(
       chain: input.chain,
       limit: input.limit
     })
-  };
-}
-
-export async function deriveWalletAddressUsage(
-  id: string,
-  input: {
-    chain: AddressChain | "both";
-    limit: number;
-  }
-) {
-  const { wallet, result } = deriveWalletAddresses(id, input);
-  const usage = await lookupAddressUsageRecords(result.addresses);
-
-  return {
-    wallet,
-    result: {
-      ...result,
-      usageStatus: usage.lookupFailed ? "partial" : "ready",
-      addresses: usage.addresses,
-      lookupFailed: usage.lookupFailed
-    }
   };
 }
 
