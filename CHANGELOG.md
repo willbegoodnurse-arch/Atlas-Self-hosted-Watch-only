@@ -3,6 +3,15 @@
 
 ## v0.1.0 - Release Candidate
 
+## Phase 63 - Verified broadcast and local mempool handoff
+
+- Hardened signed PSBT broadcast so Atlas only submits valid, signed, finalizable, extractable transactions through the configured Bitcoin Core backend.
+- Kept the explicit checkbox plus typed `BROADCAST` confirmation gate, with warning, invalid, unsigned, and non-extractable PSBTs blocked before RPC broadcast.
+- Improved broadcast success UX to keep the result visible, show the txid, provide txid copy, and offer a local self-hosted mempool transaction link when configured.
+- Added `MEMPOOL_WEB_URL` as the browser-facing local mempool web URL for Raspberry Pi handoff links, without adding any public mempool broadcast fallback.
+- Added sanitized runtime/broadcast status coverage so RPC credentials, full txHex, PSBT text, cookies, and secrets are not returned in API responses or UI errors.
+- No BBQr/Coldcard import, wallet derivation/address discovery, receive/change chain logic, package dependency, commit, push, tag, PR, or deployment action was changed.
+
 ## Phase 62 - Receive address availability and transaction confirmation display
 
 - Updated the default receive address display so used receive addresses with zero current balance no longer consume the visible receive slots.

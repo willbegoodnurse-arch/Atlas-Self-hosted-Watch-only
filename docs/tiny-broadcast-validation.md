@@ -47,6 +47,7 @@ CORE_RPC_USERNAME=<set>
 CORE_RPC_TIMEOUT_MS=10000
 API_MODE=mempool
 MEMPOOL_API_URL=http://127.0.0.1:8080/api
+MEMPOOL_WEB_URL=http://raspberrypi.local:8080
 NEXT_PUBLIC_API_URL=/api
 INTERNAL_API_URL=http://127.0.0.1:3011
 API_HOST=127.0.0.1
@@ -96,6 +97,7 @@ Expected:
 
 - Broadcast backend shows Bitcoin Core or core.
 - Core RPC status is connected or reachable.
+- Runtime settings show whether the local mempool web URL is configured, without exposing secrets.
 - No RPC username, RPC password, full RPC URL, txHex, session cookie, or xpub is shown.
 
 Authenticated status endpoints can also be checked from a session-aware browser request:
@@ -158,8 +160,11 @@ Only proceed if all checks pass:
 1. Read the irreversible broadcast warning.
 2. Tick the confirmation checkbox.
 3. Type `BROADCAST` exactly.
-4. Click `Broadcast transaction`.
-5. Record the returned txid.
+4. Click `Broadcast signed transaction`.
+5. Confirm the result remains visible.
+6. Record the returned txid.
+7. Use `Copy txid` if needed.
+8. Use `Open in local mempool` only if it points to your self-hosted mempool web URL.
 
 Do not retry blindly if there is an error.
 
@@ -174,7 +179,7 @@ bitcoin-cli getrawtransaction <txid> true
 Or check the self-hosted mempool web UI:
 
 ```text
-http://127.0.0.1:8080/tx/<txid>
+http://raspberrypi.local:8080/tx/<txid>
 ```
 
 Or refresh Atlas if the relevant wallet view indexes the transaction.
@@ -183,6 +188,7 @@ Expected:
 
 - The txid is visible.
 - The transaction appears in the mempool or confirms later.
+- Atlas never opens a public mempool fallback automatically.
 - No duplicate broadcast retry is needed unless you have confirmed it is safe.
 
 ## Abort Conditions

@@ -9,6 +9,11 @@ import {
 const ALL_ENV_KEYS = [
   "API_MODE",
   "MEMPOOL_API_URL",
+  "MEMPOOL_WEB_URL",
+  "BROADCAST_BACKEND",
+  "CORE_RPC_URL",
+  "CORE_RPC_USERNAME",
+  "CORE_RPC_PASSWORD",
   "FULCRUM_HOST",
   "FULCRUM_PORT",
   "FULCRUM_TLS_PORT",
@@ -28,6 +33,11 @@ test("runtime settings returns only safe settings", () => {
     process.env.API_MODE = "mempool";
     process.env.MEMPOOL_API_URL =
       "https://user:pass@mempool.example/api?token=secret-token&view=compact";
+    process.env.MEMPOOL_WEB_URL = "http://raspberrypi.local:8080";
+    process.env.BROADCAST_BACKEND = "core";
+    process.env.CORE_RPC_URL = "http://127.0.0.1:8332";
+    process.env.CORE_RPC_USERNAME = "runtime_rpc_user";
+    process.env.CORE_RPC_PASSWORD = "runtime_rpc_password";
     delete process.env.FULCRUM_HOST;
     process.env.DEFAULT_NETWORK = "mainnet";
     process.env.DEFAULT_CURRENCY = "KRW";
@@ -42,19 +52,27 @@ test("runtime settings returns only safe settings", () => {
     assert.deepEqual(Object.keys(settings).sort(), [
       "apiMode",
       "backendKind",
+      "broadcastBackend",
+      "broadcastCoreConfigured",
       "defaultCurrency",
       "defaultNetwork",
       "defaultUnit",
       "fulcrum",
       "isLocalMempool",
       "mempoolApiHost",
-      "mempoolApiUrl"
+      "mempoolApiUrl",
+      "mempoolWebUrl",
+      "mempoolWebUrlConfigured"
     ]);
 
     assert.equal(settings.apiMode, "mempool");
     assert.equal(settings.backendKind, "mempool-public");
     assert.equal(settings.mempoolApiHost, "mempool.example");
     assert.equal(settings.isLocalMempool, false);
+    assert.equal(settings.mempoolWebUrl, "http://raspberrypi.local:8080");
+    assert.equal(settings.mempoolWebUrlConfigured, true);
+    assert.equal(settings.broadcastBackend, "core");
+    assert.equal(settings.broadcastCoreConfigured, true);
     assert.equal(settings.fulcrum.configured, false);
     assert.equal(settings.fulcrum.host, null);
     assert.equal(settings.defaultNetwork, "mainnet");
@@ -64,7 +82,7 @@ test("runtime settings returns only safe settings", () => {
       settings.mempoolApiUrl,
       "https://****:****@mempool.example/api?token=****&view=compact"
     );
-    assert.doesNotMatch(serialized, /do-not-return|secret-token|pass(?!port)/);
+    assert.doesNotMatch(serialized, /do-not-return|secret-token|runtime_rpc|pass(?!port)/);
   } finally {
     restoreEnv(original);
   }
@@ -76,6 +94,11 @@ test("runtime settings includes backendKind and does not expose secrets", () => 
   try {
     process.env.API_MODE = "mempool";
     process.env.MEMPOOL_API_URL = "https://mempool.space/api";
+    process.env.MEMPOOL_WEB_URL = "https://user:secret@mempool.local";
+    process.env.BROADCAST_BACKEND = "core";
+    process.env.CORE_RPC_URL = "http://127.0.0.1:8332";
+    delete process.env.CORE_RPC_USERNAME;
+    delete process.env.CORE_RPC_PASSWORD;
     delete process.env.FULCRUM_HOST;
     process.env.SESSION_SECRET = "super-secret-session-key";
     process.env.RPC_PASSWORD = "super-secret-rpc-password";
@@ -91,6 +114,10 @@ test("runtime settings includes backendKind and does not expose secrets", () => 
       )
     );
     assert.equal(settings.backendKind, "mempool-public");
+    assert.equal(settings.mempoolWebUrl, null);
+    assert.equal(settings.mempoolWebUrlConfigured, false);
+    assert.equal(settings.broadcastBackend, "core");
+    assert.equal(settings.broadcastCoreConfigured, false);
     assert.doesNotMatch(serialized, /super-secret/);
   } finally {
     restoreEnv(original);
@@ -171,10 +198,14 @@ test("runtime settings endpoint returns safe settings for authenticated users", 
   assert.equal(typeof payload.apiMode, "string");
   assert.equal(typeof payload.mempoolApiUrl, "string");
   assert.equal(typeof payload.backendKind, "string");
+  assert.equal(typeof payload.broadcastBackend, "string");
+  assert.equal(typeof payload.broadcastCoreConfigured, "boolean");
+  assert.equal(typeof payload.mempoolWebUrlConfigured, "boolean");
   assert.ok(typeof payload.isLocalMempool === "boolean");
   assert.ok(typeof payload.fulcrum === "object" && payload.fulcrum !== null);
   assert.equal(payload.sessionSecret, undefined);
   assert.equal(payload.rpcPassword, undefined);
+  assert.equal(payload.coreRpcPassword, undefined);
   await server.close();
 });
 

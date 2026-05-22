@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { getBroadcastStatus, type BroadcastBackend } from "../broadcast/index.js";
 import { getMempoolApiConfig } from "../mempool/usage.js";
 import { classifyBackendKind, isLocalMempoolUrl, type BackendKind } from "../mempool/backend.js";
+import { getMempoolWebUrl } from "../mempool/web-url.js";
 import { getFulcrumConfig, type FulcrumRuntimeConfig } from "../fulcrum/diagnostics.js";
 
 export type SafeRuntimeSettings = {
@@ -9,6 +11,10 @@ export type SafeRuntimeSettings = {
   mempoolApiUrl: string;
   mempoolApiHost: string;
   isLocalMempool: boolean;
+  mempoolWebUrl: string | null;
+  mempoolWebUrlConfigured: boolean;
+  broadcastBackend: BroadcastBackend;
+  broadcastCoreConfigured: boolean;
   fulcrum: FulcrumRuntimeConfig;
   defaultNetwork: string;
   defaultCurrency: string;
@@ -36,6 +42,8 @@ export function getSafeRuntimeSettings(): SafeRuntimeSettings {
   const backendKind = classifyBackendKind({ apiMode, mempoolApiUrl: rawUrl });
   const isLocalMempool = isLocalMempoolUrl(rawUrl);
   const mempoolApiHost = extractHost(mempoolApiUrl);
+  const mempoolWebUrl = getMempoolWebUrl();
+  const broadcastStatus = getBroadcastStatus();
 
   return {
     apiMode,
@@ -43,6 +51,10 @@ export function getSafeRuntimeSettings(): SafeRuntimeSettings {
     mempoolApiUrl,
     mempoolApiHost,
     isLocalMempool,
+    mempoolWebUrl,
+    mempoolWebUrlConfigured: mempoolWebUrl !== null,
+    broadcastBackend: broadcastStatus.backend,
+    broadcastCoreConfigured: broadcastStatus.backend === "core" && broadcastStatus.configured,
     fulcrum: getFulcrumConfig(),
     defaultNetwork: safeEnvValue(process.env.DEFAULT_NETWORK, "mainnet"),
     defaultCurrency: safeEnvValue(process.env.DEFAULT_CURRENCY, "KRW"),
