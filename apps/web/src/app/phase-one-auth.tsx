@@ -1482,7 +1482,7 @@ function VaultWorkspace({
   if (!status.initialized) {
     return (
       <div className="vault-gate">
-        <div className="toolbar-row">
+        <div className="toolbar-row dashboard-toolbar-panel">
           <p className="muted">Signed in as {session?.user?.username ?? "admin"}</p>
           <button className="secondary-button compact-button" disabled={shellBusy} type="button" onClick={onLogout}>
             Log out
@@ -1497,7 +1497,7 @@ function VaultWorkspace({
   if (!status.unlocked) {
     return (
       <div className="vault-gate">
-        <div className="toolbar-row">
+        <div className="toolbar-row dashboard-toolbar-panel">
           <p className="muted">Signed in as {session?.user?.username ?? "admin"}</p>
           <button className="secondary-button compact-button" disabled={shellBusy} type="button" onClick={onLogout}>
             Log out
@@ -1513,7 +1513,7 @@ function VaultWorkspace({
     <div className="dashboard-shell">
       <AppSidebar initialWalletId={initialWalletId} onOpenSettings={() => setSettingsOpen(true)} />
       <div className="dashboard-main">
-        <div className="toolbar-row">
+        <div className="toolbar-row dashboard-toolbar-panel">
           <p className="muted">Signed in as {session?.user?.username ?? "admin"}</p>
           <div className="button-row">
             {initialWalletId ? (
@@ -3261,6 +3261,19 @@ export function PortalModal({
   panelClassName?: string;
   onClose: () => void;
 }) {
+  useEffect(() => {
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousDocumentOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousDocumentOverflow;
+    };
+  }, []);
+
   if (typeof document === "undefined") {
     return null;
   }

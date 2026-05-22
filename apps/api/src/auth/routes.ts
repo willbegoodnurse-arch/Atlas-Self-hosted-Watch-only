@@ -19,11 +19,6 @@ type LoginBody = {
   totpCode?: string;
 };
 
-type TotpCreateBody = {
-  username?: string;
-  password?: string;
-};
-
 type TotpVerifyBody = {
   username?: string;
   password?: string;
@@ -158,36 +153,6 @@ export async function registerAuthRoutes(server: FastifyInstance): Promise<void>
           }
         : null
     };
-  });
-
-  server.post<{ Body: TotpCreateBody }>("/api/auth/totp/create", async (request, reply) => {
-    const auth = await readAuthRecord();
-    if (!auth) {
-      return reply.code(404).send({ error: "Initial setup has not been started" });
-    }
-
-    if (auth.twoFactorEnabled) {
-      return reply.code(409).send({ error: "TOTP is already enabled" });
-    }
-
-    const username = sanitizeUsername(request.body?.username);
-    const password = request.body?.password;
-
-    if (
-      !username ||
-      typeof password !== "string" ||
-      username !== auth.username ||
-      !(await argon2.verify(auth.passwordHash, password))
-    ) {
-      return reply.code(401).send({ error: "Invalid credentials" });
-    }
-
-    const qr = await createTotpQr(auth.username, auth.totpSecret);
-    return reply.send({
-      setupComplete: false,
-      twoFactorEnabled: false,
-      ...qr
-    });
   });
 
   server.post<{ Body: TotpVerifyBody }>("/api/auth/totp/verify", async (request, reply) => {

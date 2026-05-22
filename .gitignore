@@ -6,6 +6,8 @@ build/
 .env
 .env.local
 .env.production
+.env.*
+!.env.example
 
 apps/api/data/*
 !apps/api/data/.gitkeep
