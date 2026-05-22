@@ -33,6 +33,10 @@ export type BbqrSafeMetadata = {
 };
 
 const base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const fileTypeLabels: Record<string, string> = {
+  J: "JSON",
+  U: "Unicode Text"
+};
 
 export function createBbqrCollectorState(): BbqrCollectorState {
   return {
@@ -204,6 +208,10 @@ export function assembleBbqrPayload(state: BbqrCollectorState): string | null {
 
 export function getCapturedBbqrFrameCount(state: BbqrCollectorState): number {
   return Object.keys(state.frames).length;
+}
+
+export function getBbqrFileTypeLabel(fileType: string | null): string {
+  return fileType ? fileTypeLabels[fileType] ?? fileType : "unknown";
 }
 
 function decodeHex(value: string): Uint8Array {

@@ -1,84 +1,95 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WalletCreateForm } from "../phase-one-auth";
 import { jsonResponse, silenceApiLogs } from "./phase-one-auth.test-utils";
 
-const fullZpub =
-  "zpub6rtpJPNNq6CeKuycgiXu7RBRDzQcPG9uJWbKQ4NCiuVzP3wW6WspGjCD3h1gUKKwZRgo8Mzm21GEkD2HpUUHkfPrwyfcRaaWA93NSnnKTaP";
+type QrCallback = (result: { getText: () => string } | null) => void;
 
-let scannerCallback: ((result: { getText: () => string } | null) => void) | null = null;
+let qrCallback: QrCallback | null = null;
+let scannerVideoArg: unknown = null;
+let scannerStartError: Error | null = null;
 const stopScanner = vi.fn();
 
 vi.mock("@zxing/browser", () => ({
-  BrowserQRCodeReader: vi.fn().mockImplementation(function BrowserQRCodeReaderMock() {
+  BrowserQRCodeReader: vi.fn(function BrowserQRCodeReader() {
     return {
-      decodeFromVideoDevice: vi.fn(async (_deviceId, _video, callback) => {
-      scannerCallback = callback;
-      return { stop: stopScanner };
+      decodeFromVideoDevice: vi.fn(async (_deviceId, _video, callback: QrCallback) => {
+        if (scannerStartError) {
+          throw scannerStartError;
+        }
+        scannerVideoArg = _video;
+        qrCallback = callback;
+        return { stop: stopScanner };
       })
     };
   })
 }));
 
-function importTextarea(): HTMLTextAreaElement {
-  const textarea = document.querySelector("textarea.import-textarea");
-  if (!(textarea instanceof HTMLTextAreaElement)) {
-    throw new Error("Import textarea not found");
-  }
-  return textarea;
-}
+const FULL_ZPUB =
+  "zpub6rtpJPNNq6CeKuycgiXu7RBRDzQcPG9uJWbKQ4NCiuVzP3wW6WspGjCD3h1gUKKwZRgo8Mzm21GEkD2HpUUHkfPrwyfcRaaWA93NSnnKTaP";
+const base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
-function renderWalletCreateForm() {
-  render(
-    <WalletCreateForm
-      apiUrl=""
-      busy={false}
-      vaultUnlocked={true}
-      onSubmit={async () => undefined}
-    />
-  );
-}
-
-function makeColdcardJson(): string {
-  return JSON.stringify({
-    xfp: "F23A9C1D",
-    bip84: {
-      deriv: "m/84'/0'/0'",
-      _pub: fullZpub
+function base32NoPadding(payload: string): string {
+  const bytes = new TextEncoder().encode(payload);
+  let bits = 0;
+  let bitCount = 0;
+  let output = "";
+  for (const byte of bytes) {
+    bits = (bits << 8) | byte;
+    bitCount += 8;
+    while (bitCount >= 5) {
+      output += base32Alphabet[(bits >> (bitCount - 5)) & 31];
+      bitCount -= 5;
     }
-  });
+  }
+  if (bitCount > 0) {
+    output += base32Alphabet[(bits << (5 - bitCount)) & 31];
+  }
+  return output;
 }
 
-function makeBase32BbqrFrames(total = 7): string[] {
-  const encoded = base32NoPadding(new TextEncoder().encode(makeColdcardJson()));
-  const size = Math.ceil(encoded.length / total);
+function makeBbqrFrames(payload: string, total = 7): string[] {
+  const encoded = base32NoPadding(payload);
+  const chunkSize = Math.ceil(encoded.length / total / 8) * 8;
   return Array.from({ length: total }, (_, index) => {
-    const body = encoded.slice(index * size, (index + 1) * size);
-    return `B$2J${total.toString(36).padStart(2, "0").toUpperCase()}${index.toString(36).padStart(2, "0").toUpperCase()}${body}`;
+    const indexText = index.toString(36).padStart(2, "0").toUpperCase();
+    return `B$2J${total.toString(36).padStart(2, "0").toUpperCase()}${indexText}${encoded.slice(index * chunkSize, (index + 1) * chunkSize)}`;
   });
 }
 
-describe("Coldcard BBQr scanner and paste reliability", () => {
+async function openScanner() {
+  render(<WalletCreateForm apiUrl="" busy={false} vaultUnlocked={true} onSubmit={async () => undefined} />);
+  await userEvent.click(screen.getByRole("button", { name: /^QR Scan$/i }));
+  expect(await screen.findByRole("dialog", { name: /Scan watch-only import QR/i })).toBeInTheDocument();
+  await waitFor(() => expect(qrCallback).not.toBeNull());
+  expect(scannerVideoArg).toBeInstanceOf(HTMLVideoElement);
+}
+
+async function scanFrame(frame: string) {
+  await act(async () => {
+    qrCallback?.({ getText: () => frame });
+  });
+}
+
+describe("watch-only BBQr scanner", () => {
   beforeEach(() => {
     silenceApiLogs();
-    scannerCallback = null;
+    qrCallback = null;
+    scannerVideoArg = null;
+    scannerStartError = null;
     stopScanner.mockClear();
-    Object.defineProperty(window, "isSecureContext", {
-      configurable: true,
-      value: true
-    });
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: {
-        getUserMedia: vi.fn()
-      }
+      value: { getUserMedia: vi.fn() }
     });
     globalThis.fetch = vi.fn(async () =>
       jsonResponse({
         accountPath: "m/84'/0'/0'",
         firstReceiveAddress: "bc1qatlasreceive000000000000000000000000000",
         firstReceivePath: "m/84'/0'/0'/0/0",
-        importFormat: "coldcard-generic-json-bbqr",
+        importFormat: "coldcard-json",
         keyType: "zpub",
         masterFingerprint: "f23a9c1d",
         network: "mainnet",
@@ -88,85 +99,133 @@ describe("Coldcard BBQr scanner and paste reliability", () => {
     );
   });
 
-  it("manual paste captures one Coldcard BBQr frame without echoing the frame body", async () => {
-    const [frame] = makeBase32BbqrFrames();
-    renderWalletCreateForm();
+  it("increments captured BBQr frames from the first zero-based frame", async () => {
+    const frames = makeBbqrFrames(JSON.stringify({ xfp: "F23A9C1D", p2wpkh: FULL_ZPUB, p2wpkh_deriv: "m/84'/0'/0'" }));
+    await openScanner();
 
-    fireEvent.change(importTextarea(), { target: { value: frame } });
+    await scanFrame(frames[0]!);
 
-    expect(await screen.findByText("BBQr scanner status")).toBeInTheDocument();
-    expect(screen.getByText("encoding=2, type=J, frame=1/7")).toBeInTheDocument();
-    expect(screen.getByText("1/7")).toBeInTheDocument();
-    expect(screen.queryByText(frame)).not.toBeInTheDocument();
+    expect((await screen.findAllByText(/format: bbqr .* type: JSON .* frames: 1\/7/i)).length).toBeGreaterThan(0);
+    expect(screen.getByText(/scan seen: 1 \(camera\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/raw length: \d+ .* last prefix: B\$/i)).toBeInTheDocument();
+    expect(screen.getByText(/bbqr header: encoding=2, type=JSON, frame=1\/7, which=0/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/captured: 1\/7/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/missing: 2, 3, 4, 5, 6, 7/i)).toBeInTheDocument();
+    expect(screen.queryByText(/frames: 0\/7/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Coldcard Generic JSON frame 1 captured/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Missing frames: 2, 3, 4, 5, 6, 7/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/collect missing frames across multiple loops/i).length).toBeGreaterThan(0);
   });
 
-  it("manual paste accumulates multiple lines and ignores exact duplicates", async () => {
-    const frames = makeBase32BbqrFrames();
-    renderWalletCreateForm();
+  it("shows two captured frames, keeps missing frame status, and ignores duplicates", async () => {
+    const frames = makeBbqrFrames(JSON.stringify({ xfp: "F23A9C1D", p2wpkh: FULL_ZPUB, p2wpkh_deriv: "m/84'/0'/0'" }));
+    await openScanner();
 
-    fireEvent.change(importTextarea(), { target: { value: [frames[0], frames[1], frames[0]].join("\n") } });
+    await scanFrame(frames[1]!);
+    await scanFrame(frames[4]!);
+    expect((await screen.findAllByText(/format: bbqr .* frames: 2\/7/i)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Missing frames: 1, 3, 4, 6, 7/i).length).toBeGreaterThan(0);
 
-    expect(await screen.findByText("2/7")).toBeInTheDocument();
-    expect(screen.getByText("3,4,5,6,7")).toBeInTheDocument();
+    await scanFrame(frames[1]!);
+    expect(screen.getAllByText(/format: bbqr .* frames: 2\/7/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Missing frames: 1, 3, 4, 6, 7/i).length).toBeGreaterThan(0);
   });
 
-  it("unsupported paste after progress keeps the existing BBQr collector state", async () => {
-    const [frame] = makeBase32BbqrFrames();
-    renderWalletCreateForm();
+  it("keeps existing BBQr collection when unsupported QR data is scanned", async () => {
+    const frames = makeBbqrFrames(JSON.stringify({ xfp: "F23A9C1D", p2wpkh: FULL_ZPUB, p2wpkh_deriv: "m/84'/0'/0'" }));
+    await openScanner();
 
-    fireEvent.change(importTextarea(), { target: { value: frame } });
-    expect(await screen.findByText("1/7")).toBeInTheDocument();
+    await scanFrame(frames[1]!);
+    await scanFrame(frames[4]!);
+    await scanFrame("not a wallet import QR");
 
-    fireEvent.change(importTextarea(), { target: { value: "not a watch-only qr" } });
-
-    expect(screen.getByText("1/7")).toBeInTheDocument();
+    expect(screen.getAllByText(/format: bbqr .* frames: 2\/7/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Missing frames: 1, 3, 4, 6, 7/i).length).toBeGreaterThan(0);
   });
 
-  it("camera callback captures BBQr frames and completes preview only after all frames arrive", async () => {
-    const frames = makeBase32BbqrFrames();
-    renderWalletCreateForm();
+  it("keeps collector state across scanner callbacks and previews the completed Generic JSON", async () => {
+    const payload = JSON.stringify({ xfp: "F23A9C1D", p2wpkh: FULL_ZPUB, p2wpkh_deriv: "m/84'/0'/0'" });
+    const frames = makeBbqrFrames(payload);
+    await openScanner();
 
-    fireEvent.click(screen.getByRole("button", { name: "QR Scan" }));
-    await waitFor(() => expect(scannerCallback).not.toBeNull());
+    for (const frame of [frames[3], frames[0], frames[6], frames[1], frames[5], frames[2], frames[4]]) {
+      await scanFrame(frame!);
+    }
 
-    act(() => {
-      scannerCallback?.({ getText: () => frames[0] });
-    });
-    await waitFor(() => expect(screen.getAllByText("encoding=2, type=J, frame=1/7").length).toBeGreaterThan(0));
-    expect(screen.getAllByText("1/7").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/format: bbqr .* frames: 7\/7/i)).length).toBeGreaterThan(0);
+    expect(screen.getByText(/All 7 BBQr frames captured. Decoding Coldcard Generic JSON/i)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /Scan watch-only import QR/i })).toBeInTheDocument();
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/wallets/import-preview"),
+      expect.objectContaining({ body: expect.stringContaining('"sourceDevice":"coldcard"') })
+    ));
+  });
 
-    act(() => {
-      scannerCallback?.({ getText: () => "unsupported" });
-    });
-    expect(screen.getAllByText("1/7").length).toBeGreaterThan(0);
+  it("resets only when the user clears collected BBQr frames", async () => {
+    const frames = makeBbqrFrames(JSON.stringify({ xfp: "F23A9C1D", p2wpkh: FULL_ZPUB, p2wpkh_deriv: "m/84'/0'/0'" }));
+    await openScanner();
 
-    act(() => {
-      for (const frame of frames.slice(1)) {
-        scannerCallback?.({ getText: () => frame });
-      }
-    });
+    await scanFrame(frames[0]!);
+    expect((await screen.findAllByText(/format: bbqr .* frames: 1\/7/i)).length).toBeGreaterThan(0);
+    await userEvent.click(screen.getByRole("button", { name: /Reset/i }));
 
-    expect(await screen.findByDisplayValue("Coldcard Generic JSON BBQr captured. Full payload hidden.")).toBeInTheDocument();
-    expect(await screen.findByDisplayValue("f23a9c1d")).toBeInTheDocument();
-    expect(screen.queryByText(makeColdcardJson())).not.toBeInTheDocument();
+    expect(screen.queryByText(/format: bbqr/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Frames cleared/i)).toBeInTheDocument();
+  });
+
+  it("adds BBQr frames through the manual fallback textarea", async () => {
+    const frames = makeBbqrFrames(JSON.stringify({ xfp: "F23A9C1D", p2wpkh: FULL_ZPUB, p2wpkh_deriv: "m/84'/0'/0'" }));
+    await openScanner();
+
+    fireEvent.change(screen.getByLabelText(/Paste BBQr frame/i), { target: { value: frames[0]! } });
+    await userEvent.click(screen.getByRole("button", { name: /Add BBQr frame/i }));
+
+    expect((await screen.findAllByText(/format: bbqr .* frames: 1\/7/i)).length).toBeGreaterThan(0);
+    expect(screen.getByText(/scan seen: 1 \(manual\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/bbqr header: encoding=2, type=JSON, frame=1\/7, which=0/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/captured: 1\/7/i).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText(/Paste BBQr frame/i)).toHaveValue("");
+  });
+
+  it("adds multiple pasted BBQr frame lines through the manual fallback", async () => {
+    const frames = makeBbqrFrames(JSON.stringify({ xfp: "F23A9C1D", p2wpkh: FULL_ZPUB, p2wpkh_deriv: "m/84'/0'/0'" }));
+    await openScanner();
+
+    fireEvent.change(screen.getByLabelText(/Paste BBQr frame/i), { target: { value: `${frames[0]}\n${frames[3]}` } });
+    await userEvent.click(screen.getByRole("button", { name: /Add BBQr frame/i }));
+
+    expect((await screen.findAllByText(/format: bbqr .* frames: 2\/7/i)).length).toBeGreaterThan(0);
+  });
+
+  it("does not reset BBQr collection for unrelated scanner modal controls", async () => {
+    const frames = makeBbqrFrames(JSON.stringify({ xfp: "F23A9C1D", p2wpkh: FULL_ZPUB, p2wpkh_deriv: "m/84'/0'/0'" }));
+    await openScanner();
+
+    await scanFrame(frames[0]!);
+    await userEvent.click(screen.getByRole("dialog", { name: /Scan watch-only import QR/i }));
+
+    expect(screen.getAllByText(/format: bbqr .* frames: 1\/7/i).length).toBeGreaterThan(0);
+  });
+
+  it("rejects private material from completed BBQr without echoing the payload", async () => {
+    const wif = "5KYZdUEo39z3FPrtuX2QbbwGnNP5zTd7yyr2SC1j299sBCnWjss";
+    const frames = makeBbqrFrames(JSON.stringify({ xfp: "F23A9C1D", p2wpkh: FULL_ZPUB, private_key: wif }), 1);
+    await openScanner();
+
+    await scanFrame(frames[0]!);
+
+    expect(await screen.findByText(/Never enter private keys/i)).toBeInTheDocument();
+    expect(document.body.textContent ?? "").not.toContain(wif);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("shows a fallback message when the scanner cannot start", async () => {
+    scannerStartError = Object.assign(new Error("scanner module failed"), { name: "NotReadableError" });
+    render(<WalletCreateForm apiUrl="" busy={false} vaultUnlocked={true} onSubmit={async () => undefined} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /^QR Scan$/i }));
+
+    expect(await screen.findByText(/Camera is already in use/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Use Paste/i })).toBeInTheDocument();
   });
 });
-
-function base32NoPadding(bytes: Uint8Array): string {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  let bits = 0;
-  let bitCount = 0;
-  let output = "";
-  for (const byte of bytes) {
-    bits = (bits << 8) | byte;
-    bitCount += 8;
-    while (bitCount >= 5) {
-      output += alphabet[(bits >> (bitCount - 5)) & 31];
-      bitCount -= 5;
-    }
-  }
-  if (bitCount > 0) {
-    output += alphabet[(bits << (5 - bitCount)) & 31];
-  }
-  return output;
-}
