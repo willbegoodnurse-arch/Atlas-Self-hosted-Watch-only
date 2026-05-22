@@ -268,8 +268,11 @@ Do not manually patch workspace junctions or symlinks.
 - View wallet dashboard.
 - View balance.
 - View receive/change addresses.
+- Confirm used empty receive addresses are hidden from the default receive list while actual derivation index/path values are preserved.
+- Confirm a gap limit of 5 still shows five unused receive addresses in the default receive list when earlier used empty receive addresses exist.
 - View UTXOs.
 - View transactions.
+- Confirm confirmed transactions show confirmation counts only when both tip height and transaction block height are available.
 - Confirm backend failures show specific messages and preserve existing data where expected.
 
 ## Labels And Notes
@@ -295,6 +298,7 @@ Do not manually patch workspace junctions or symlinks.
 - If local fee estimates are unavailable while block tip works, follow `docs/mempool-fee-estimates.md` and check precise/recommended fee endpoints, `init-data`, projected mempool blocks, and `/api/mempool`.
 - Review selected input total.
 - Review recipient outputs, change output, and fee.
+- Confirm change output is labeled as change, not receive, and includes change path/index when available.
 - Review the input -> output spending plan.
 - Create an unsigned PSBT.
 - Export text/base64 PSBT.

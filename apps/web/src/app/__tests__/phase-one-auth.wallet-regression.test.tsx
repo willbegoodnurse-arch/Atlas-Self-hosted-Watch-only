@@ -1,7 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthShell, DashboardBalanceHero, WalletCard, WalletCreateForm, WalletIdentityPanel } from "../phase-one-auth";
+import {
+  AuthShell,
+  DashboardBalanceHero,
+  formatTransactionStatus,
+  selectDefaultReceiveAddresses,
+  WalletAddressPanel,
+  WalletCard,
+  WalletCreateForm,
+  WalletIdentityPanel
+} from "../phase-one-auth";
 import { jsonResponse, makeAddress, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
 
 const FULL_ZPUB =
@@ -178,6 +187,105 @@ describe("wallet list and identity regression", () => {
 
     expect(await screen.findAllByText("not provided")).toHaveLength(2);
     expect(screen.getByText(/Master fingerprint was not provided/i)).toBeInTheDocument();
+  });
+
+  it("selects receive display addresses without letting used empty rows consume the gap-limit slots", () => {
+    const addresses = [
+      makeAddress({ index: 0, usage: "used", totalBalance: 0, path: "m/84'/0'/0'/0/0" }),
+      makeAddress({ index: 1, usage: "used", totalBalance: 12_000, path: "m/84'/0'/0'/0/1" }),
+      makeAddress({ index: 2, usage: "unused", path: "m/84'/0'/0'/0/2" }),
+      makeAddress({ index: 3, usage: "unused", path: "m/84'/0'/0'/0/3" }),
+      makeAddress({ index: 4, usage: "unused", path: "m/84'/0'/0'/0/4" }),
+      makeAddress({ index: 5, usage: "unused", path: "m/84'/0'/0'/0/5" }),
+      makeAddress({ index: 6, usage: "unused", path: "m/84'/0'/0'/0/6" })
+    ];
+
+    const selected = selectDefaultReceiveAddresses(addresses, 5);
+
+    expect(selected.map((address) => address.index)).toEqual([2, 3, 4, 5, 6]);
+    expect(selected.map((address) => address.path)).toEqual([
+      "m/84'/0'/0'/0/2",
+      "m/84'/0'/0'/0/3",
+      "m/84'/0'/0'/0/4",
+      "m/84'/0'/0'/0/5",
+      "m/84'/0'/0'/0/6"
+    ]);
+  });
+
+  it("keeps used receive addresses visible when they still hold balance", () => {
+    const selected = selectDefaultReceiveAddresses(
+      [
+        makeAddress({ index: 0, usage: "used", totalBalance: 0 }),
+        makeAddress({ index: 1, usage: "used", totalBalance: 12_000 }),
+        makeAddress({ index: 2, usage: "unused" })
+      ],
+      5
+    );
+
+    expect(selected.map((address) => address.index)).toEqual([2, 1]);
+  });
+
+  it("formats confirmation counts only when count data is available", () => {
+    expect(formatTransactionStatus({ status: "confirmed", confirmations: 1 })).toBe("confirmed · 1 confirmation");
+    expect(formatTransactionStatus({ status: "confirmed", confirmations: 6 })).toBe("confirmed · 6 confirmations");
+    expect(formatTransactionStatus({ status: "confirmed", confirmations: null })).toBe("confirmed");
+    expect(formatTransactionStatus({ status: "unconfirmed", confirmations: null })).toBe("unconfirmed");
+  });
+
+  it("renders the receive list with unused addresses after hiding used empty rows", async () => {
+    const wallet = makeWallet({ gapLimit: 5 });
+    const addresses = [
+      makeAddress({ address: "bc1qusedempty0000000000000000000000000000", index: 0, usage: "used", totalBalance: 0 }),
+      ...Array.from({ length: 5 }, (_, offset) =>
+        makeAddress({
+          address: `bc1qunused${offset + 1}0000000000000000000000000000`,
+          index: offset + 1,
+          path: `m/84'/0'/0'/0/${offset + 1}`,
+          usage: "unused"
+        })
+      )
+    ];
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toContain("limit=25");
+      return jsonResponse({
+        addresses,
+        changeBalance: { confirmedBalance: 0, totalBalance: 0, unconfirmedBalance: 0 },
+        confirmedBalance: 0,
+        discovery: { checkedCount: 6, complete: true, gapLimit: 5, maxDiscoveryLimit: 100 },
+        failedAddresses: [],
+        lookupError: null,
+        nextReceiveLookupError: null,
+        nextUnusedReceiveAddress: addresses[1],
+        receiveBalance: { confirmedBalance: 0, totalBalance: 0, unconfirmedBalance: 0 },
+        status: "online",
+        totalBalance: 0,
+        unconfirmedBalance: 0,
+        unit: "sats",
+        usageStatus: "ready",
+        walletId: wallet.id
+      });
+    });
+
+    render(
+      <WalletAddressPanel
+        apiUrl=""
+        balanceUnit="sats"
+        mempoolBadgeStatus="online"
+        refreshToken={0}
+        setBalanceUnit={() => undefined}
+        wallet={wallet}
+        onBalanceStatusChange={() => undefined}
+        onWalletChange={() => undefined}
+      />
+    );
+
+    expect((await screen.findAllByText("bc1qunused10000000000000000000000000000")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("bc1qunused50000000000000000000000000000").length).toBeGreaterThan(0);
+    expect(screen.queryByText("bc1qusedempty0000000000000000000000000000")).not.toBeInTheDocument();
+    expect(screen.getByText(/Used empty receive addresses are hidden/i)).toBeInTheDocument();
+    expect(screen.getAllByText("#5").length).toBeGreaterThan(0);
+    expect(screen.getByText("m/84'/0'/0'/0/5")).toBeInTheDocument();
   });
 
   it("shows a specific setup-state login error instead of a generic forbidden message", async () => {

@@ -266,6 +266,14 @@ test("createWalletPsbt: change output is included when change >= dust", async ()
   const changeOutput = result.outputs.find((o) => o.type === "change");
   assert.ok(changeOutput);
   assert.equal(changeOutput.address, changeAddr0);
+  assert.equal(changeOutput.chain, "change");
+  assert.equal(changeOutput.index, 0);
+  assert.equal(changeOutput.path, "m/84'/0'/0'/1/0");
+  const recipientOutput = result.outputs.find((o) => o.type === "recipient");
+  assert.ok(recipientOutput);
+  assert.equal(recipientOutput.chain, null);
+  assert.equal(recipientOutput.index, null);
+  assert.equal(recipientOutput.path, null);
 });
 
 test("createWalletPsbt: no change output when change is dust", async () => {
