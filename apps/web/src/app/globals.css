@@ -1335,19 +1335,38 @@ h2 {
   gap: 6px;
 }
 
-.sidebar-nav a {
+.sidebar-nav .sidebar-link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 0;
   border: 1px solid transparent;
+  border-left: 3px solid transparent;
   border-radius: 8px;
+  background: transparent;
   color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.2;
   padding: 10px 12px;
   text-decoration: none;
+  box-shadow: none;
 }
 
-.sidebar-nav a:hover,
-.sidebar-nav a:focus-visible {
+.sidebar-nav .sidebar-link:hover,
+.sidebar-nav .sidebar-link:focus-visible {
   border-color: var(--line-strong);
+  border-left-color: var(--line-strong);
   background: var(--panel-strong);
   outline: none;
+}
+
+.sidebar-nav .sidebar-link.is-active,
+.sidebar-nav .sidebar-link[aria-current="page"] {
+  border-color: var(--line-strong);
+  border-left-color: var(--amber);
+  background: var(--amber-soft);
+  color: #fff;
 }
 
 .sidebar-security {
@@ -1982,7 +2001,7 @@ code,
     padding-bottom: 2px;
   }
 
-  .sidebar-nav a {
+  .sidebar-nav .sidebar-link {
     white-space: nowrap;
   }
 
