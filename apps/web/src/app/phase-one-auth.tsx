@@ -18,6 +18,7 @@ import {
   assembleBbqrPayload,
   createBbqrCollectorState,
   getCapturedBbqrFrameCount,
+  getBbqrFileTypeLabel,
   getMissingBbqrFrames,
   inspectBbqrFrame,
   parseBbqrFrame,
@@ -1638,6 +1639,8 @@ export function WalletCreateForm({
   const [scanEventCount, setScanEventCount] = useState(0);
   const [lastScanMetadata, setLastScanMetadata] = useState<BbqrSafeMetadata | null>(null);
   const [lastScanErrorCode, setLastScanErrorCode] = useState<string | null>(null);
+  const [lastScanSource, setLastScanSource] = useState<"camera" | "manual" | "paste" | null>(null);
+  const [manualBbqrFrame, setManualBbqrFrame] = useState("");
   const [hideImportPayload, setHideImportPayload] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [preview, setPreview] = useState<WalletImportPreviewResponse | null>(null);
@@ -1675,6 +1678,7 @@ export function WalletCreateForm({
   const canSave = !saveDisabledReason;
   const capturedBbqrFrames = getCapturedBbqrFrameCount(bbqrState);
   const missingBbqrFrames = getMissingBbqrFrames(bbqrState);
+  const bbqrFileTypeLabel = getBbqrFileTypeLabel(bbqrState.fileType ?? lastScanMetadata?.fileType ?? null);
 
   useEffect(() => {
     return () => {
@@ -1922,11 +1926,13 @@ export function WalletCreateForm({
     setBbqrState(emptyState);
     setLastScanMetadata(null);
     setLastScanErrorCode(null);
+    setLastScanSource(null);
     setScannerMessage("Frames cleared. Point the camera at the animated QR again.");
   }
 
-  function captureBbqrFrame(scannedValue: string, source: "camera" | "paste") {
+  function captureBbqrFrame(scannedValue: string, source: "camera" | "manual" | "paste") {
     setScanEventCount((count) => count + 1);
+    setLastScanSource(source);
     const metadata = inspectBbqrFrame(scannedValue);
     setLastScanMetadata(metadata);
     setLastScanErrorCode(metadata.errorCode);
@@ -1952,17 +1958,27 @@ export function WalletCreateForm({
         setHideImportPayload(true);
         setSourceDevice("coldcard");
         setImportMethod(source === "camera" ? "qr" : "paste");
-        setScannerMessage("All BBQr frames captured. Previewing watch-only wallet import.");
-        if (source === "camera") {
-          stopScanner();
-          setScannerOpen(false);
-        }
+        setScannerMessage(`All ${frame.total} BBQr frames captured. Decoding Coldcard Generic JSON...`);
         return;
       }
       setScannerMessage(result.message);
     } catch (error) {
       setScannerMessage(error instanceof Error ? error.message : "Unsupported BBQr format.");
     }
+  }
+
+  function submitManualBbqrFrame() {
+    const frames = manualBbqrFrame
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (frames.length === 0) {
+      return;
+    }
+    for (const frame of frames) {
+      captureBbqrFrame(frame, "manual");
+    }
+    setManualBbqrFrame("");
   }
 
   function tryImportFromFrames() {
@@ -2093,13 +2109,14 @@ export function WalletCreateForm({
           placeholder="Paste xpub/ypub/zpub/tpub/upub/vpub, [fingerprint/path]xpub, descriptor, JSON, or UR text"
         />
       </label>
-      {qrFrameFormat === "bbqr" || capturedBbqrFrames > 0 || lastScanMetadata ? (
+      {!scannerOpen && (qrFrameFormat === "bbqr" || capturedBbqrFrames > 0 || lastScanMetadata) ? (
         <BbqrProgressPanel
           captured={capturedBbqrFrames}
           lastErrorCode={lastScanErrorCode}
           lastMetadata={lastScanMetadata}
           missingFrames={missingBbqrFrames}
           scanEventCount={scanEventCount}
+          scanSource={lastScanSource}
           total={bbqrState.total}
         />
       ) : null}
@@ -2262,7 +2279,7 @@ export function WalletCreateForm({
           <video ref={scannerVideo} className="scanner-video" muted playsInline />
           {qrFrameFormat ? (
             <p className="muted">
-              format: {qrFrameFormat} &bull; frames: {qrFrameFormat === "bbqr" ? capturedBbqrFrames : qrFrames.length}{qrFrameTotal ? `/${qrFrameTotal}` : ""}
+              format: {qrFrameFormat}{qrFrameFormat === "bbqr" ? ` • type: ${bbqrFileTypeLabel}` : ""} &bull; frames: {qrFrameFormat === "bbqr" ? capturedBbqrFrames : qrFrames.length}{qrFrameTotal ? `/${qrFrameTotal}` : ""}
             </p>
           ) : null}
           {qrFrameFormat === "bbqr" || capturedBbqrFrames > 0 || lastScanMetadata ? (
@@ -2272,9 +2289,29 @@ export function WalletCreateForm({
               lastMetadata={lastScanMetadata}
               missingFrames={missingBbqrFrames}
               scanEventCount={scanEventCount}
+              scanSource={lastScanSource}
               total={bbqrState.total}
             />
           ) : null}
+          <label className="form-stack">
+            <span>Paste BBQr frame</span>
+            <textarea
+              aria-label="Paste BBQr frame"
+              className="import-textarea"
+              value={manualBbqrFrame}
+              onChange={(event) => setManualBbqrFrame(event.target.value)}
+              placeholder="Paste one or more B$2J... frames, one per line"
+              rows={3}
+            />
+          </label>
+          <button
+            className="secondary-button compact-button"
+            disabled={!manualBbqrFrame.trim()}
+            type="button"
+            onClick={submitManualBbqrFrame}
+          >
+            Add BBQr frame
+          </button>
           {qrFrames.length > 0 || capturedBbqrFrames > 0 ? (
             <div className="tab-row">
               <button className="secondary-button compact-button" type="button" onClick={resetFrames}>
@@ -2303,6 +2340,7 @@ function BbqrProgressPanel({
   lastMetadata,
   missingFrames,
   scanEventCount,
+  scanSource,
   total
 }: {
   captured: number;
@@ -2310,11 +2348,27 @@ function BbqrProgressPanel({
   lastMetadata: BbqrSafeMetadata | null;
   missingFrames: number[];
   scanEventCount: number;
+  scanSource: "camera" | "manual" | "paste" | null;
   total: number | null;
 }) {
+  const fileTypeLabel = getBbqrFileTypeLabel(lastMetadata?.fileType ?? null);
   return (
     <div className="terminal-panel import-preview">
       <p className="terminal-heading">BBQr scanner status</p>
+      <p>scan seen: {scanEventCount}{scanSource ? ` (${scanSource})` : ""}</p>
+      <p>raw length: {lastMetadata?.rawLength ?? 0} • last prefix: {lastMetadata?.prefix || "none"}</p>
+      {lastMetadata?.valid ? (
+        <p>
+          bbqr header: encoding={lastMetadata.encoding}, type={fileTypeLabel}, frame={lastMetadata.displayIndex}/{lastMetadata.total}, which={lastMetadata.index}
+        </p>
+      ) : null}
+      <p>captured: {captured}{total ? `/${total}` : ""}</p>
+      <p>missing: {missingFrames.length ? missingFrames.join(", ") : "none"}</p>
+      {missingFrames.length > 0 ? <p>Missing frames: {missingFrames.join(", ")}</p> : null}
+      <p>last error: {lastErrorCode ?? "none"}</p>
+      {missingFrames.length > 0 ? (
+        <p className="muted">Keep the QR visible. Atlas will collect missing frames across multiple loops.</p>
+      ) : null}
       <dl className="identity-grid">
         <div>
           <dt>Scan seen</dt>
@@ -2332,7 +2386,7 @@ function BbqrProgressPanel({
           <dt>BBQr header</dt>
           <dd>
             {lastMetadata?.valid
-              ? `encoding=${lastMetadata.encoding}, type=${lastMetadata.fileType}, frame=${lastMetadata.displayIndex}/${lastMetadata.total}`
+              ? `encoding=${lastMetadata.encoding}, type=${fileTypeLabel}, frame=${lastMetadata.displayIndex}/${lastMetadata.total}`
               : "not valid yet"}
           </dd>
         </div>
