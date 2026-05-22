@@ -1211,11 +1211,19 @@ function AppSidebar({
   initialWalletId?: string | null;
   onOpenSettings: () => void;
 }) {
+  const dashboardActive = !initialWalletId;
+
   return (
     <aside className="app-sidebar" aria-label="Navigation">
       <nav className="sidebar-nav">
-        <a href="/">Dashboard</a>
-        <a href="/#import-wallet">Import wallet</a>
+        <a
+          aria-current={dashboardActive ? "page" : undefined}
+          className={dashboardActive ? "sidebar-link is-active" : "sidebar-link"}
+          href="/"
+        >
+          Dashboard
+        </a>
+        <a className="sidebar-link" href="/#import-wallet">Import wallet</a>
         <button type="button" className="sidebar-link" onClick={onOpenSettings}>
           Settings
         </button>
