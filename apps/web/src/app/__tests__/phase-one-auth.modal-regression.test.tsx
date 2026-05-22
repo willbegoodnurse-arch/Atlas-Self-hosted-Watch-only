@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { AddressQrPanel, PortalModal, XpubRevealModal } from "../phase-one-auth";
+import { AddressQrPanel, formatSecurityAddressDisplay, PortalModal, XpubRevealModal } from "../phase-one-auth";
 import { makeAddress } from "./phase-one-auth.test-utils";
 
 describe("portal and QR modal regression", () => {
@@ -66,7 +66,7 @@ describe("portal and QR modal regression", () => {
 
     expect(screen.getByRole("region", { name: /receive address QR/i })).toBeInTheDocument();
     expect(screen.getByAltText("Address QR code")).toBeInTheDocument();
-    expect(screen.getByText(makeAddress().address)).toBeInTheDocument();
+    expect(screen.getByText(formatSecurityAddressDisplay(makeAddress().address))).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(document.body.querySelector(".portal-modal-root")).not.toBeInTheDocument();
   });

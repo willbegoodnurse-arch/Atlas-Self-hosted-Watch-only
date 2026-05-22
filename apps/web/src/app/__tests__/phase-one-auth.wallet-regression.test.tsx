@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AuthShell,
   DashboardBalanceHero,
+  formatSecurityAddressDisplay,
   formatTransactionStatus,
   selectDefaultReceiveAddresses,
   WalletAddressPanel,
@@ -280,10 +281,12 @@ describe("wallet list and identity regression", () => {
       />
     );
 
-    expect((await screen.findAllByText("bc1qunused10000000000000000000000000000")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("bc1qunused50000000000000000000000000000").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(formatSecurityAddressDisplay("bc1qunused10000000000000000000000000000"))).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatSecurityAddressDisplay("bc1qunused50000000000000000000000000000")).length).toBeGreaterThan(0);
     expect(screen.queryByText("bc1qusedempty0000000000000000000000000000")).not.toBeInTheDocument();
     expect(screen.getByText(/Used empty receive addresses are hidden/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Verify this receive address on your signing device before sending large amounts/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/The browser display is not the final authority/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText("#5").length).toBeGreaterThan(0);
     expect(screen.getByText("m/84'/0'/0'/0/5")).toBeInTheDocument();
   });
