@@ -10,7 +10,7 @@ const XPUB =
   "xpub6BvTm7YLvSRVjijq48yLuTA3eThj9nqZjsCyd48QXLW1cgmkThmXaWRiRJv7j59nxRSkPD2ux97rSFAFPFppMEUAsE7Zoqt8oBYguJz2Mtb";
 const WIF = "5KYZdUEo39z3FPrtuX2QbbwGnNP5zTd7yyr2SC1j299sBCnWjss";
 
-test("label and note routes store metadata safely", async () => {
+test("modern label routes store metadata safely", async () => {
   process.env.DATA_DIR = await mkdtemp(path.join(os.tmpdir(), "watch-wallet-labels-"));
   process.env.SESSION_SECRET = "route-test-session-secret";
 
@@ -44,7 +44,7 @@ test("label and note routes store metadata safely", async () => {
 
   const addressResponse = await server.inject({
     method: "PATCH",
-    url: `/api/wallets/${wallet.id}/labels/address`,
+    url: `/api/wallets/${wallet.id}/address-labels`,
     headers,
     payload: {
       chain: "receive",
@@ -60,38 +60,9 @@ test("label and note routes store metadata safely", async () => {
   assert.equal(addressPayload.wallet.addressLabels[0].label, "<script>alert(1)</script>");
   assert.doesNotMatch(addressResponse.body, new RegExp(XPUB));
 
-  const utxoResponse = await server.inject({
-    method: "PATCH",
-    url: `/api/wallets/${wallet.id}/labels/utxo`,
-    headers,
-    payload: {
-      txid: "a".repeat(64),
-      vout: 1,
-      note: "Available for PSBT planning"
-    }
-  });
-
-  assert.equal(utxoResponse.statusCode, 200);
-  assert.equal(utxoResponse.json().wallet.utxoNotes[0].note, "Available for PSBT planning");
-  assert.doesNotMatch(utxoResponse.body, new RegExp(XPUB));
-
-  const clearUtxoResponse = await server.inject({
-    method: "PATCH",
-    url: `/api/wallets/${wallet.id}/labels/utxo`,
-    headers,
-    payload: {
-      txid: "a".repeat(64),
-      vout: 1,
-      note: ""
-    }
-  });
-
-  assert.equal(clearUtxoResponse.statusCode, 200);
-  assert.deepEqual(clearUtxoResponse.json().wallet.utxoNotes, []);
-
   const txResponse = await server.inject({
     method: "PATCH",
-    url: `/api/wallets/${wallet.id}/labels/transaction`,
+    url: `/api/wallets/${wallet.id}/transaction-labels`,
     headers,
     payload: {
       txid: "b".repeat(64),
@@ -104,7 +75,7 @@ test("label and note routes store metadata safely", async () => {
 
   const clearTxResponse = await server.inject({
     method: "PATCH",
-    url: `/api/wallets/${wallet.id}/labels/transaction`,
+    url: `/api/wallets/${wallet.id}/transaction-labels`,
     headers,
     payload: {
       txid: "b".repeat(64),
@@ -117,12 +88,13 @@ test("label and note routes store metadata safely", async () => {
 
   const secretResponse = await server.inject({
     method: "PATCH",
-    url: `/api/wallets/${wallet.id}/labels/utxo`,
+    url: `/api/wallets/${wallet.id}/address-labels`,
     headers,
     payload: {
-      txid: "c".repeat(64),
-      vout: 0,
-      note: WIF
+      chain: "receive",
+      index: 1,
+      address: "bc1qsecretaddress",
+      label: WIF
     }
   });
 
@@ -132,12 +104,13 @@ test("label and note routes store metadata safely", async () => {
   store.lockVault();
   const lockedResponse = await server.inject({
     method: "PATCH",
-    url: `/api/wallets/${wallet.id}/labels/utxo`,
+    url: `/api/wallets/${wallet.id}/address-labels`,
     headers,
     payload: {
-      txid: "d".repeat(64),
-      vout: 0,
-      note: "Tracked UTXO"
+      chain: "receive",
+      index: 2,
+      address: "bc1qlockedaddress",
+      label: "Locked vault label"
     }
   });
 
