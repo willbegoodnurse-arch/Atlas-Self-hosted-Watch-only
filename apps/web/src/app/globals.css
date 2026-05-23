@@ -737,6 +737,8 @@ code {
 }
 
 .security-address {
+  display: inline-block;
+  max-width: 100%;
   color: var(--text);
   overflow-wrap: anywhere;
   white-space: normal;
@@ -849,11 +851,33 @@ code {
   padding-top: 12px;
 }
 
+.psbt-review-column {
+  min-width: 0;
+}
+
 .spending-plan-line {
   display: grid;
   gap: 2px;
+  min-width: 0;
   border-top: 1px solid var(--line);
   padding: 8px 0;
+  overflow-wrap: anywhere;
+}
+
+.spending-plan-line > * {
+  min-width: 0;
+}
+
+.psbt-advanced-input-details {
+  margin-top: 4px;
+}
+
+.psbt-advanced-input-details summary {
+  font-size: 12px;
+}
+
+.psbt-advanced-input-details .technical-line {
+  margin-top: 6px;
 }
 
 .fee-line {

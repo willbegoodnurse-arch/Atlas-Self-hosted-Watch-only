@@ -10,6 +10,7 @@ import type {
 } from "@watch-wallet/bitcoin";
 import { lookupWalletUtxos } from "../mempool/utxos.js";
 import { lookupAddressUsageRecords } from "../mempool/usage.js";
+import type { AddressUsage } from "../mempool/usage.js";
 import type { WalletRecord } from "../vault/types.js";
 
 export const DUST_THRESHOLD_SATS = 546;
@@ -63,6 +64,7 @@ export type CreatePsbtOutputSummary = {
   chain: "receive" | "change" | null;
   index: number | null;
   path: string | null;
+  usage: AddressUsage | null;
 };
 
 export type CreatePsbtResult = {
@@ -75,6 +77,8 @@ export type CreatePsbtResult = {
   totalInputSats: number;
   changeAddress: string | null;
   changeSats: number;
+  changeAddressUsage: AddressUsage | null;
+  changeAddressWarning: string | null;
 };
 
 export class InvalidPsbtParamsError extends Error {}
@@ -221,6 +225,8 @@ type ChangeAddressResult = {
   address: string;
   path: string;
   index: number;
+  usage: AddressUsage;
+  warning: string | null;
 };
 
 async function findNextChangeAddress(
@@ -249,7 +255,13 @@ async function findNextChangeAddress(
 
   const firstUnused = usageResult.addresses.find((a) => a.usage === "unused");
   if (firstUnused) {
-    return { address: firstUnused.address, path: firstUnused.path, index: firstUnused.index };
+    return {
+      address: firstUnused.address,
+      path: firstUnused.path,
+      index: firstUnused.index,
+      usage: "unused",
+      warning: null
+    };
   }
 
   // All unknown or all used — fall back to change #0
@@ -257,7 +269,13 @@ async function findNextChangeAddress(
   if (!fallback) {
     throw new InvalidPsbtParamsError("Could not derive change address");
   }
-  return { address: fallback.address, path: fallback.path, index: fallback.index };
+  return {
+    address: fallback.address,
+    path: fallback.path,
+    index: fallback.index,
+    usage: "unknown",
+    warning: "Change address usage could not be verified as unused. Confirm the change address on your signer before signing."
+  };
 }
 
 export async function createWalletPsbt(
@@ -402,14 +420,17 @@ export async function createWalletPsbt(
       type: o.type,
       chain: o.type === "change" ? "change" : null,
       index: o.type === "change" ? changeAddress?.index ?? null : null,
-      path: o.type === "change" ? changeAddress?.path ?? null : null
+      path: o.type === "change" ? changeAddress?.path ?? null : null,
+      usage: o.type === "change" ? changeAddress?.usage ?? null : null
     })),
     feeSats: selection.feeSats,
     feeRateSatsPerVbyte: input.feeRateSatsPerVbyte,
     estimatedVbytes: selection.estimatedVbytes,
     totalInputSats: selection.totalInputSats,
     changeAddress: changeAddress?.address ?? null,
-    changeSats: selection.changeSats
+    changeSats: selection.changeSats,
+    changeAddressUsage: changeAddress?.usage ?? null,
+    changeAddressWarning: changeAddress?.warning ?? null
   };
 }
 

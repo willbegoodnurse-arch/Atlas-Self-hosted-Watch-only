@@ -87,6 +87,11 @@ const allUnusedStatsFn = async (_addr: string): Promise<unknown> => ({
   mempool_stats: { tx_count: 0, funded_txo_count: 0, funded_txo_sum: 0, spent_txo_count: 0, spent_txo_sum: 0 }
 });
 
+const allUsedStatsFn = async (_addr: string): Promise<unknown> => ({
+  chain_stats: { tx_count: 1, funded_txo_count: 1, funded_txo_sum: 50000, spent_txo_count: 0, spent_txo_sum: 0 },
+  mempool_stats: { tx_count: 0, funded_txo_count: 0, funded_txo_sum: 0, spent_txo_count: 0, spent_txo_sum: 0 }
+});
+
 // ---------------------------------------------------------------------------
 // estimatePsbtVbytes
 // ---------------------------------------------------------------------------
@@ -269,11 +274,34 @@ test("createWalletPsbt: change output is included when change >= dust", async ()
   assert.equal(changeOutput.chain, "change");
   assert.equal(changeOutput.index, 0);
   assert.equal(changeOutput.path, "m/84'/0'/0'/1/0");
+  assert.equal(changeOutput.usage, "unused");
+  assert.equal(result.changeAddressUsage, "unused");
+  assert.equal(result.changeAddressWarning, null);
   const recipientOutput = result.outputs.find((o) => o.type === "recipient");
   assert.ok(recipientOutput);
   assert.equal(recipientOutput.chain, null);
   assert.equal(recipientOutput.index, null);
   assert.equal(recipientOutput.path, null);
+  assert.equal(recipientOutput.usage, null);
+});
+
+test("createWalletPsbt: warns when change address usage cannot be proven unused", async () => {
+  const fetchFn = makeFetchFn({ [receiveAddr0]: [confirmedUtxo50k] });
+
+  const result = await createWalletPsbt(
+    baseWallet,
+    { recipientAddress: externalRecipient, amountSats: 10000, feeRateSatsPerVbyte: 1 },
+    { fetchUtxosFn: fetchFn, fetchAddressStatsFn: allUsedStatsFn }
+  );
+
+  assert.equal(result.changeAddress, changeAddr0);
+  assert.equal(result.changeAddressUsage, "unknown");
+  assert.match(result.changeAddressWarning ?? "", /could not be verified as unused/i);
+  const changeOutput = result.outputs.find((o) => o.type === "change");
+  assert.ok(changeOutput);
+  assert.equal(changeOutput.chain, "change");
+  assert.equal(changeOutput.index, 0);
+  assert.equal(changeOutput.usage, "unknown");
 });
 
 test("createWalletPsbt: no change output when change is dust", async () => {

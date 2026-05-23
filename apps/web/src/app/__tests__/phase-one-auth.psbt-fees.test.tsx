@@ -19,6 +19,22 @@ import {
 } from "../phase-one-auth";
 import { jsonResponse, makePsbtResult, makeUtxo, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
 
+const signedScannerMock = vi.hoisted(() => ({
+  callback: null as ((result: { getText: () => string } | null) => void) | null,
+  stop: vi.fn()
+}));
+
+vi.mock("@zxing/browser", () => ({
+  BrowserQRCodeReader: vi.fn().mockImplementation(function BrowserQRCodeReaderMock() {
+    return {
+      decodeFromVideoDevice: vi.fn(async (_deviceId, _video, callback) => {
+        signedScannerMock.callback = callback;
+        return { stop: signedScannerMock.stop };
+      })
+    };
+  })
+}));
+
 const feeEstimates = {
   economyFee: 4,
   fastestFee: 18,
@@ -125,6 +141,8 @@ function installVerifyFetch() {
 describe("PSBT and fee UI regression", () => {
   beforeEach(() => {
     silenceApiLogs();
+    signedScannerMock.callback = null;
+    signedScannerMock.stop.mockClear();
   });
 
   it("keeps recommended fee presets available when Atlas returns normal fee estimates", () => {
@@ -221,9 +239,12 @@ describe("PSBT and fee UI regression", () => {
                 index: 0,
                 path: "m/84'/0'/0'/1/0",
                 type: "change",
+                usage: "unused",
                 valueSats: 88000
               }
-            ]
+            ],
+            changeAddressUsage: "unused",
+            changeAddressWarning: null
           })
         );
       }
@@ -252,7 +273,9 @@ describe("PSBT and fee UI regression", () => {
     expect(screen.getAllByText(/Before signing, compare recipient address, amount, fee, and change output/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/If Atlas and the signer disagree, stop/i).length).toBeGreaterThan(0);
     expect(document.querySelector(".psbt-result")?.textContent).not.toContain("...");
-    expect(screen.getByText("change #0 / m/84'/0'/0'/1/0")).toBeInTheDocument();
+    expect(screen.getByText(/change #0 \/ m\/84'\/0'\/0'\/1\/0 \/ usage unused/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Show outpoint/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Outpoint \(txid:vout\):/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Recipient 1/i).length).toBeGreaterThan(0);
   });
 
@@ -429,6 +452,40 @@ describe("PSBT and fee UI regression", () => {
     expect(await screen.findByRole("dialog", { name: /Scan signed PSBT QR/i })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Use Paste fallback/i }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: /Scan signed PSBT QR/i })).not.toBeInTheDocument());
+  });
+
+  it("shows feedback for unsupported signed PSBT QR payloads", async () => {
+    installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+    await waitFor(() => expect(signedScannerMock.callback).not.toBeNull());
+
+    signedScannerMock.callback?.({ getText: () => "not a psbt" });
+
+    expect(await screen.findByText(/not a supported signed PSBT payload/i)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /Scan signed PSBT QR/i })).toBeInTheDocument();
+  });
+
+  it("verifies a valid single-frame signed PSBT QR scan", async () => {
+    const fetchMock = installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+    await waitFor(() => expect(signedScannerMock.callback).not.toBeNull());
+
+    signedScannerMock.callback?.({ getText: () => "cHNidP8Bsigned" });
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Scan signed PSBT QR/i })).not.toBeInTheDocument());
+    expect(await screen.findByText(/Verification result/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/wallets/wallet-1/psbt/verify"),
+      expect.objectContaining({
+        body: expect.stringContaining('"psbtBase64":"cHNidP8Bsigned"')
+      })
+    );
   });
 
   it("captures a partial multipart signed PSBT frame without verifying yet", async () => {
