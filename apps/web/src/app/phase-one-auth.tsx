@@ -658,9 +658,93 @@ export function isSignedPsbtSingleQrCandidate(payload: string): boolean {
   return payload.trim().length > 0 && payload.trim().length <= SIGNED_PSBT_SINGLE_QR_MAX_CHARS;
 }
 
-function isLikelyPsbtBase64Payload(payload: string): boolean {
+function extractSignedPsbtBase64Payload(payload: string): {
+  psbtBase64: string | null;
+  message: string;
+  unsupported: boolean;
+  invalid: boolean;
+} {
   const trimmed = payload.trim();
-  return trimmed.startsWith("cHNidP8B") && /^[A-Za-z0-9+/=\s]+$/.test(trimmed);
+  const compact = trimmed.replace(/\s+/g, "");
+  const lower = trimmed.toLowerCase();
+
+  if (!trimmed) {
+    return {
+      psbtBase64: null,
+      message: "QR scan was empty. Keep the signed PSBT QR in view.",
+      unsupported: false,
+      invalid: true
+    };
+  }
+
+  if (lower.startsWith("ur:crypto-psbt")) {
+    return {
+      psbtBase64: null,
+      message: "Multipart signed PSBT QR detected, but this format is not supported yet. Use base64 PSBT QR, paste, or file import.",
+      unsupported: true,
+      invalid: false
+    };
+  }
+
+  if (trimmed.startsWith("B$")) {
+    return {
+      psbtBase64: null,
+      message: "Multipart signed PSBT QR detected, but this format is not supported yet. Use base64 PSBT QR, paste, or file import.",
+      unsupported: true,
+      invalid: false
+    };
+  }
+
+  const psbtPrefix = trimmed.match(/^psbt:\s*(.+)$/i);
+  if (psbtPrefix?.[1]) {
+    return classifySignedPsbtBase64Candidate(psbtPrefix[1], "Signed PSBT QR detected. Verifying signed PSBT...");
+  }
+
+  if (lower.startsWith("bitcoin:")) {
+    try {
+      const query = trimmed.includes("?") ? trimmed.slice(trimmed.indexOf("?")) : "";
+      const params = new URLSearchParams(query);
+      const psbt = params.get("psbt");
+      if (psbt) {
+        return classifySignedPsbtBase64Candidate(decodeURIComponent(psbt), "Signed PSBT QR detected. Verifying signed PSBT...");
+      }
+    } catch {
+      return {
+        psbtBase64: null,
+        message: "Invalid PSBT QR payload. Use base64 PSBT QR, paste, or file import.",
+        unsupported: false,
+        invalid: true
+      };
+    }
+  }
+
+  return classifySignedPsbtBase64Candidate(compact, "Signed PSBT QR detected. Verifying signed PSBT...");
+}
+
+function classifySignedPsbtBase64Candidate(candidate: string, successMessage: string) {
+  const compact = candidate.trim().replace(/\s+/g, "");
+  if (!compact.startsWith("cHNidP8B")) {
+    return {
+      psbtBase64: null,
+      message: "QR scanned, but it is not a supported signed PSBT payload. Use a base64 PSBT QR or paste/file import.",
+      unsupported: true,
+      invalid: false
+    };
+  }
+  if (!/^[A-Za-z0-9+/=]+$/.test(compact)) {
+    return {
+      psbtBase64: null,
+      message: "Invalid PSBT QR payload. Use base64 PSBT QR, paste, or file import.",
+      unsupported: false,
+      invalid: true
+    };
+  }
+  return {
+    psbtBase64: compact,
+    message: successMessage,
+    unsupported: false,
+    invalid: false
+  };
 }
 
 export function formatSecurityAddressDisplay(address: string): string {
@@ -4650,10 +4734,7 @@ export function VerifyPsbtPanel({
           (result) => {
             if (!result) return;
             const scannedValue = result.getText().trim();
-            if (!scannedValue) {
-              setSignedScannerMessage("QR scan was empty. Keep the signed PSBT QR in view.");
-              return;
-            }
+            setSignedScannerMessage(`QR detected. Payload length ${scannedValue.length}. Classifying signed PSBT payload...`);
             const multipartFrame = parseMultipartPsbtFrame(scannedValue);
             if (multipartFrame) {
               const scannerResult = captureMultipartFrame(multipartFrame);
@@ -4668,13 +4749,14 @@ export function VerifyPsbtPanel({
               setSignedScannerMessage(SIGNED_PSBT_QR_TOO_LARGE_MESSAGE);
               return;
             }
-            if (!isLikelyPsbtBase64Payload(scannedValue)) {
-              setSignedScannerMessage("QR scanned, but it is not a supported signed PSBT payload. Use a base64 PSBT QR or paste/file import.");
+            const classification = extractSignedPsbtBase64Payload(scannedValue);
+            if (!classification.psbtBase64) {
+              setSignedScannerMessage(classification.message);
               return;
             }
-            setSignedPsbtInput(scannedValue, "Signed PSBT QR scanned. Verifying signed PSBT...");
+            setSignedPsbtInput(classification.psbtBase64, classification.message);
             closeSignedScanner();
-            void verifySignedPsbt(scannedValue);
+            void verifySignedPsbt(classification.psbtBase64);
           }
         );
         setSignedScannerMessage("Point the camera at a single-frame signed PSBT QR.");

@@ -468,6 +468,51 @@ describe("PSBT and fee UI regression", () => {
     expect(screen.getByRole("dialog", { name: /Scan signed PSBT QR/i })).toBeInTheDocument();
   });
 
+  it("shows invalid feedback for malformed PSBT-like QR payloads", async () => {
+    const fetchMock = installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+    await waitFor(() => expect(signedScannerMock.callback).not.toBeNull());
+
+    signedScannerMock.callback?.({ getText: () => "cHNidP8B!!!!" });
+
+    expect(await screen.findByText(/Invalid PSBT QR payload/i)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /Scan signed PSBT QR/i })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/psbt/verify"), expect.anything());
+  });
+
+  it("shows explicit unsupported feedback for signed PSBT UR QR payloads", async () => {
+    const fetchMock = installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+    await waitFor(() => expect(signedScannerMock.callback).not.toBeNull());
+
+    signedScannerMock.callback?.({ getText: () => "ur:crypto-psbt/1-3/lpaoaxlfaohhaadaao" });
+
+    expect(await screen.findByText(/Multipart signed PSBT QR detected, but this format is not supported yet/i)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /Scan signed PSBT QR/i })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/psbt/verify"), expect.anything());
+  });
+
+  it("shows explicit unsupported feedback for signed PSBT BBQr payloads", async () => {
+    const fetchMock = installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+    await waitFor(() => expect(signedScannerMock.callback).not.toBeNull());
+
+    signedScannerMock.callback?.({ getText: () => "B$2P0100ABCDEF" });
+
+    expect(await screen.findByText(/Multipart signed PSBT QR detected, but this format is not supported yet/i)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /Scan signed PSBT QR/i })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/psbt/verify"), expect.anything());
+  });
+
   it("verifies a valid single-frame signed PSBT QR scan", async () => {
     const fetchMock = installVerifyFetch();
     Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
@@ -477,6 +522,26 @@ describe("PSBT and fee UI regression", () => {
     await waitFor(() => expect(signedScannerMock.callback).not.toBeNull());
 
     signedScannerMock.callback?.({ getText: () => "cHNidP8Bsigned" });
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Scan signed PSBT QR/i })).not.toBeInTheDocument());
+    expect(await screen.findByText(/Verification result/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/wallets/wallet-1/psbt/verify"),
+      expect.objectContaining({
+        body: expect.stringContaining('"psbtBase64":"cHNidP8Bsigned"')
+      })
+    );
+  });
+
+  it("verifies a signed PSBT QR scan with a psbt prefix", async () => {
+    const fetchMock = installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+    await waitFor(() => expect(signedScannerMock.callback).not.toBeNull());
+
+    signedScannerMock.callback?.({ getText: () => "psbt:\n cHNidP8Bsigned" });
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: /Scan signed PSBT QR/i })).not.toBeInTheDocument());
     expect(await screen.findByText(/Verification result/i)).toBeInTheDocument();
