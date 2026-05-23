@@ -148,6 +148,7 @@ describe("Coldcard BBQr scanner and paste reliability", () => {
 
     expect(await screen.findByDisplayValue("Coldcard Generic JSON BBQr captured. Full payload hidden.")).toBeInTheDocument();
     expect(await screen.findByDisplayValue("f23a9c1d")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Scan watch-only import QR/i })).not.toBeInTheDocument());
     expect(screen.queryByText(makeColdcardJson())).not.toBeInTheDocument();
   });
 });

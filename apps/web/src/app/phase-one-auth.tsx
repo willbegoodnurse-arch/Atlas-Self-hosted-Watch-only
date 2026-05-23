@@ -484,6 +484,7 @@ export type CreatePsbtResponse = {
     chain?: "receive" | "change" | null;
     index?: number | null;
     path?: string | null;
+    usage?: "used" | "unused" | "unknown" | null;
   }>;
   feeSats: number;
   feeRateSatsPerVbyte: number;
@@ -491,6 +492,8 @@ export type CreatePsbtResponse = {
   totalInputSats: number;
   changeAddress: string | null;
   changeSats: number;
+  changeAddressUsage?: "used" | "unused" | "unknown" | null;
+  changeAddressWarning?: string | null;
 };
 
 export type FeeEstimatesResponse = {
@@ -653,6 +656,11 @@ export const SIGNED_PSBT_CAMERA_FALLBACK_MESSAGE =
 
 export function isSignedPsbtSingleQrCandidate(payload: string): boolean {
   return payload.trim().length > 0 && payload.trim().length <= SIGNED_PSBT_SINGLE_QR_MAX_CHARS;
+}
+
+function isLikelyPsbtBase64Payload(payload: string): boolean {
+  const trimmed = payload.trim();
+  return trimmed.startsWith("cHNidP8B") && /^[A-Za-z0-9+/=\s]+$/.test(trimmed);
 }
 
 export function formatSecurityAddressDisplay(address: string): string {
@@ -2478,11 +2486,18 @@ export function WalletCreateForm({
     try {
       const payload = assembleBbqrPayload(result.state);
       if (payload) {
+        const payloadDetection = detectImportMetadata(payload, network, "coldcard");
         setImportText(payload);
         setHideImportPayload(true);
         setSourceDevice("coldcard");
         setImportMethod(source === "camera" ? "qr" : "paste");
-        setScannerMessage(`All ${frame.total} BBQr frames captured. Decoding Coldcard Generic JSON...`);
+        if (payloadDetection.extendedPublicKey && !payloadDetection.privateInput && !payloadDetection.unsupportedReason) {
+          setScannerMessage(`All ${frame.total} BBQr frames captured. Import preview is loading.`);
+          stopScanner();
+          setScannerOpen(false);
+        } else {
+          setScannerMessage(payloadDetection.unsupportedReason ?? "Complete BBQr payload is not a supported Coldcard Generic JSON watch-only export.");
+        }
         return;
       }
       setScannerMessage(result.message);
@@ -4330,10 +4345,14 @@ export function CreatePsbtBuilderPanel({
               return (
                 <div className="spending-plan-line" key={utxo.outpoint}>
                   <strong>{formatBalance(utxo.valueSats, "btc")}</strong>
-                  <span className="muted">{formatBalance(utxo.valueSats, "sats")} / outpoint {truncateMiddle(utxo.outpoint, 18)}</span>
+                  <span className="muted">{formatBalance(utxo.valueSats, "sats")}</span>
                   <span className="muted address-inline">
-                    Source <SecurityAddress address={utxo.address} unavailableText="unknown source address" />
+                    Source <SecurityAddress address={utxo.address} unavailableText="source address unavailable" />
                   </span>
+                  <details className="metadata-details psbt-advanced-input-details">
+                    <summary>Show outpoint</summary>
+                    <p className="muted technical-line">Outpoint (txid:vout): {utxo.outpoint}</p>
+                  </details>
                   {addressLabel ? <span className="label-pill">{addressLabel.label}</span> : null}
                   {utxoNote ? <span className="muted">{utxoNote.note}</span> : null}
                 </div>
@@ -4424,22 +4443,28 @@ export function CreatePsbtBuilderPanel({
           ) : (
             <p className="muted psbt-change-addr">No change output. Change is zero or below dust and may be absorbed into the fee.</p>
           )}
+          {psbtResult.changeAddressWarning ? (
+            <p className="psbt-status-warning muted psbt-change-addr">{psbtResult.changeAddressWarning}</p>
+          ) : null}
 
           <div className="psbt-review-grid">
-            <div>
+            <div className="psbt-review-column">
               <p className="terminal-meta">Input source addresses</p>
               {psbtResult.inputs.map((input, index) => (
                 <div className="spending-plan-line" key={`${input.txid}:${input.vout}`}>
                   <strong>Input {index + 1}: {formatBalance(input.valueSats, balanceUnit)}</strong>
                   <span className="muted address-inline">
-                    Source <SecurityAddress address={input.address} unavailableText="unknown source address" />
+                    Source <SecurityAddress address={input.address} unavailableText="source address unavailable" />
                   </span>
-                  <span className="muted">outpoint {input.txid}:{input.vout}</span>
                   <span className="muted">{input.chain} #{input.index}{input.path ? ` / ${input.path}` : ""}</span>
+                  <details className="metadata-details psbt-advanced-input-details">
+                    <summary>Show outpoint</summary>
+                    <p className="muted technical-line">Outpoint (txid:vout): {input.txid}:{input.vout}</p>
+                  </details>
                 </div>
               ))}
             </div>
-            <div>
+            <div className="psbt-review-column">
               <p className="terminal-meta">Output classification</p>
               {psbtResult.outputs.map((output, index) => {
                 const recipientNumber = psbtResult.outputs
@@ -4454,6 +4479,7 @@ export function CreatePsbtBuilderPanel({
                       <span className="muted">
                         {output.chain ?? "change"} {typeof output.index === "number" ? `#${output.index}` : ""}
                         {output.path ? ` / ${output.path}` : ""}
+                        {output.usage ? ` / usage ${output.usage}` : ""}
                       </span>
                     ) : null}
                   </div>
@@ -4624,12 +4650,17 @@ export function VerifyPsbtPanel({
           (result) => {
             if (!result) return;
             const scannedValue = result.getText().trim();
+            if (!scannedValue) {
+              setSignedScannerMessage("QR scan was empty. Keep the signed PSBT QR in view.");
+              return;
+            }
             const multipartFrame = parseMultipartPsbtFrame(scannedValue);
             if (multipartFrame) {
               const scannerResult = captureMultipartFrame(multipartFrame);
               setSignedScannerMessage(scannerResult.message);
               if (scannerResult.completePsbt) {
                 closeSignedScanner();
+                void verifySignedPsbt(scannerResult.completePsbt);
               }
               return;
             }
@@ -4637,8 +4668,13 @@ export function VerifyPsbtPanel({
               setSignedScannerMessage(SIGNED_PSBT_QR_TOO_LARGE_MESSAGE);
               return;
             }
-            setSignedPsbtInput(scannedValue, "Signed PSBT QR scanned. Review and verify before broadcast.");
+            if (!isLikelyPsbtBase64Payload(scannedValue)) {
+              setSignedScannerMessage("QR scanned, but it is not a supported signed PSBT payload. Use a base64 PSBT QR or paste/file import.");
+              return;
+            }
+            setSignedPsbtInput(scannedValue, "Signed PSBT QR scanned. Verifying signed PSBT...");
             closeSignedScanner();
+            void verifySignedPsbt(scannedValue);
           }
         );
         setSignedScannerMessage("Point the camera at a single-frame signed PSBT QR.");
@@ -7498,7 +7534,7 @@ function jsonImportCandidate(
   }
   if (typeof candidate === "object" && candidate !== null && !Array.isArray(candidate)) {
     const record = candidate as Record<string, unknown>;
-    const key = extractExtendedPublicKey(String(record.xpub ?? record.ypub ?? record.zpub ?? record.tpub ?? record.upub ?? record.vpub ?? record.value ?? ""));
+    const key = extractExtendedPublicKey(String(record._pub ?? record.xpub ?? record.ypub ?? record.zpub ?? record.tpub ?? record.upub ?? record.vpub ?? record.value ?? ""));
     const path = typeof record.deriv === "string"
       ? record.deriv
       : typeof record.derivation === "string"
