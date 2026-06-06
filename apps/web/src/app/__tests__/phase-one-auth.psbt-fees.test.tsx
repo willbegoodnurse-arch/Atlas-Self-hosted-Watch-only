@@ -85,6 +85,7 @@ function installVerifyFetch() {
     }
     if (url.includes("/api/wallets/wallet-1/psbt/verify")) {
       const body = JSON.parse(String(init?.body ?? "{}"));
+      const expected = body.expected ?? {};
       if (body.psbtBase64 === "unsigned-psbt") {
         return jsonResponse({
           ...signedVerifyResponse,
@@ -98,7 +99,24 @@ function installVerifyFetch() {
       if (body.psbtBase64 === "invalid-psbt") {
         return jsonResponse({ error: "Could not parse PSBT" }, 400);
       }
-      return jsonResponse(signedVerifyResponse);
+      return jsonResponse({
+        ...signedVerifyResponse,
+        checks: {
+          ...signedVerifyResponse.checks,
+          amountMatches: expected.amountSats !== undefined ? expected.amountSats === 90000 : null,
+          changeAddressMatches: expected.changeAddress !== undefined
+            ? expected.changeAddress === "bc1qatlaschange000000000000000000000000000"
+            : null,
+          feeMatches: expected.feeSats !== undefined ? expected.feeSats === 700 : null,
+          recipientMatches: expected.recipientAddress !== undefined
+            ? expected.recipientAddress === "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"
+            : null
+        },
+        errors: expected.recipientAddress === "missing-recipient"
+          ? ["The expected recipient address was not found in this PSBT's outputs."]
+          : signedVerifyResponse.errors,
+        status: expected.recipientAddress === "missing-recipient" ? "invalid" : signedVerifyResponse.status
+      });
     }
     if (url.includes("/api/wallets/wallet-1/psbt/broadcast")) {
       const txid = "3".repeat(64);
@@ -314,6 +332,52 @@ describe("PSBT and fee UI regression", () => {
     expect(screen.getByText(/Coldcard Vault/)).toBeInTheDocument();
     expect(screen.getByText(/5 sat\/vB/)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/psbt/broadcast"), expect.anything());
+  });
+
+  it("shows a signed PSBT verification checklist and broadcast readiness summary", async () => {
+    installVerifyFetch();
+    const user = userEvent.setup();
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+
+    await user.click(screen.getByText(/Optional safety checks/i));
+    await user.type(screen.getByLabelText(/Expected recipient address/i), "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080");
+    await user.type(screen.getByLabelText(/Expected amount/i), "90000");
+    await user.type(screen.getByLabelText(/Expected change address/i), "bc1qatlaschange000000000000000000000000000");
+    await user.type(screen.getByLabelText(/Expected fee/i), "700");
+    await user.type(screen.getByLabelText(/Signed PSBT/i), "signed-psbt");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+
+    const checklist = await screen.findByRole("group", { name: /Verification checklist/i });
+    expect(checklist).toHaveTextContent(/Signed by external walletPASS/i);
+    expect(checklist).toHaveTextContent(/Expected recipientPASS/i);
+    expect(checklist).toHaveTextContent(/Expected amountPASS/i);
+    expect(checklist).toHaveTextContent(/Expected changePASS/i);
+    expect(checklist).toHaveTextContent(/Expected feePASS/i);
+
+    const readiness = screen.getByRole("group", { name: /Broadcast readiness/i });
+    expect(readiness).toHaveTextContent(/Verification statusPASS/i);
+    expect(readiness).toHaveTextContent(/Extractable transactionPASS/i);
+    expect(readiness).toHaveTextContent(/Bitcoin Core backendPASS/i);
+    expect(readiness).toHaveTextContent(/Manual confirmationPENDING/i);
+  });
+
+  it("surfaces failed expected checks before broadcast controls", async () => {
+    installVerifyFetch();
+    const user = userEvent.setup();
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+
+    await user.click(screen.getByText(/Optional safety checks/i));
+    await user.type(screen.getByLabelText(/Expected recipient address/i), "missing-recipient");
+    await user.type(screen.getByLabelText(/Signed PSBT/i), "signed-psbt");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+
+    const checklist = await screen.findByRole("group", { name: /Verification checklist/i });
+    expect(checklist).toHaveTextContent(/Expected recipientFAIL/i);
+    expect(screen.getAllByText(/The expected recipient address was not found/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("group", { name: /Broadcast readiness/i })).toHaveTextContent(/Verification statusFAIL/i);
+    expect(screen.getByText(/Broadcast disabled because this signed PSBT is invalid/i)).toBeInTheDocument();
   });
 
   it("loads a signed PSBT file into the verification textarea", async () => {

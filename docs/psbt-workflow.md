@@ -43,15 +43,12 @@ Current export options:
 - Text/base64 copy.
 - Download text file.
 - Single QR when the PSBT is small enough.
+- BBQr animated QR for compatible Coldcard-oriented PSBT flows.
+- Animated UR `crypto-psbt` QR for compatible BC-UR signing wallets.
 
 QR display/export can work over plain HTTP because it does not use the camera. Camera QR scanning is different: Brave/Chrome may require HTTPS or localhost and may block `http://172.30.x.x` LAN origins. If camera scanning is unavailable, use text PSBT import/export. See [camera-qr-secure-context.md](camera-qr-secure-context.md).
 
-Deferred export options:
-
-- Animated QR.
-- BBQr.
-
-Animated QR and BBQr require tested fragmentation and encoding support. They are intentionally deferred.
+BBQr and Animated UR exports have automated round-trip coverage, but hardware-device compatibility should still be validated when the relevant signing devices are available. See [qr-compatibility.md](qr-compatibility.md).
 
 ## Signed PSBT Verification
 
@@ -60,13 +57,15 @@ After external signing:
 1. Bring the signed PSBT back to Atlas.
 2. Paste it into Signed PSBT Verification.
 3. Optionally enter expected recipient, expected amount, expected change address, and expected fee.
-4. Review status, warnings, and errors.
-5. Verify every output.
-6. Review unknown or external outputs carefully.
-7. Copy txHex only if the PSBT is signed, finalized/extractable, and the details are safe.
-8. If broadcast is disabled, copy txHex only when you intentionally want to use another trusted tool.
-9. If Bitcoin Core broadcast is enabled, confirm outputs and fee, read the irreversible warning, check the confirmation box, type `BROADCAST`, and click Broadcast transaction.
-10. Record the returned txid.
+4. Review the verification checklist and expected-check results.
+5. Review status, warnings, and errors.
+6. Verify every output.
+7. Review unknown or external outputs carefully.
+8. Review broadcast readiness. A valid, extractable PSBT is still not broadcast until the backend and manual confirmation gates pass.
+9. Copy txHex only if the PSBT is signed, finalized/extractable, and the details are safe.
+10. If broadcast is disabled, copy txHex only when you intentionally want to use another trusted tool.
+11. If Bitcoin Core broadcast is enabled, confirm outputs and fee, read the irreversible warning, check the confirmation box, type `BROADCAST`, and click Broadcast transaction.
+12. Record the returned txid.
 
 Atlas does not sign. If `BROADCAST_BACKEND=core` is configured, Atlas can broadcast an already-signed transaction through Bitcoin Core RPC only after verification returns `valid` and the user explicitly confirms.
 

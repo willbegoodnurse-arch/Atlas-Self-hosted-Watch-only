@@ -5294,6 +5294,91 @@ export function VerifyPsbtPanel({
     riskLevel === "LOW" ? "psbt-status-valid"
     : riskLevel === "MEDIUM" ? "psbt-status-warning"
     : "psbt-status-invalid";
+
+  const expectedCheckRows = verifyResult ? [
+    {
+      label: "Expected recipient",
+      status: expectedRecipient.trim()
+        ? verifyResult.checks.recipientMatches === true
+          ? "PASS"
+          : verifyResult.checks.recipientMatches === false
+            ? "FAIL"
+            : "PENDING"
+        : "SKIPPED",
+      detail: expectedRecipient.trim() || "No expected recipient provided"
+    },
+    {
+      label: "Expected amount",
+      status: expectedAmount.trim()
+        ? verifyResult.checks.amountMatches === true
+          ? "PASS"
+          : verifyResult.checks.amountMatches === false
+            ? "FAIL"
+            : "PENDING"
+        : "SKIPPED",
+      detail: expectedAmount.trim() ? `${expectedAmount.trim()} sats` : "No expected amount provided"
+    },
+    {
+      label: "Expected change",
+      status: expectedChange.trim()
+        ? verifyResult.checks.changeAddressMatches === true
+          ? "PASS"
+          : verifyResult.checks.changeAddressMatches === false
+            ? "FAIL"
+            : "PENDING"
+        : "SKIPPED",
+      detail: expectedChange.trim() || "No expected change address provided"
+    },
+    {
+      label: "Expected fee",
+      status: expectedFee.trim()
+        ? verifyResult.checks.feeMatches === true
+          ? "PASS"
+          : verifyResult.checks.feeMatches === false
+            ? "FAIL"
+            : "PENDING"
+        : "SKIPPED",
+      detail: expectedFee.trim() ? `${expectedFee.trim()} sats` : "No expected fee provided"
+    }
+  ] : [];
+
+  const verificationChecklistRows = verifyResult ? [
+    {
+      label: "Signed by external wallet",
+      status: verifyResult.signed ? "PASS" : "FAIL",
+      detail: verifyResult.signed ? "Signatures detected" : "No signatures detected"
+    },
+    {
+      label: "Final transaction extractable",
+      status: verifyResult.extractable ? "PASS" : "FAIL",
+      detail: verifyResult.extractable ? "txHex available" : "No extractable txHex"
+    },
+    {
+      label: "Wallet input ownership",
+      status: walletInputCount === verifyResult.inputs.length ? "PASS" : "WARN",
+      detail: `${walletInputCount} of ${verifyResult.inputs.length} inputs recognized as wallet-owned`
+    },
+    {
+      label: "Unknown outputs",
+      status: unknownCount === 0 ? "PASS" : "FAIL",
+      detail: unknownCount === 0 ? "No unknown outputs" : `${unknownCount} unknown output(s)`
+    },
+    {
+      label: "External outputs",
+      status: externalCount === 0 || verifyResult.checks.recipientMatches === true ? "PASS" : "WARN",
+      detail: externalCount === 0
+        ? "No unverified external outputs"
+        : `${externalCount} external output(s); expected recipient check ${verifyResult.checks.recipientMatches === true ? "passed" : "not confirmed"}`
+    },
+    ...expectedCheckRows
+  ] : [];
+
+  const checklistStatusClass = (status: string) =>
+    status === "PASS" ? "psbt-status-valid"
+    : status === "FAIL" ? "psbt-status-invalid"
+    : status === "WARN" ? "psbt-status-warning"
+    : "muted";
+
   const broadcastReady =
     verifyResult?.status === "valid" && verifyResult.extractable && Boolean(verifyResult.txHex);
   const broadcastBackendReady =
@@ -5307,6 +5392,30 @@ export function VerifyPsbtPanel({
     !broadcastBackendReady ||
     !broadcastConfirmed ||
     broadcastConfirmText !== "BROADCAST";
+  const broadcastReadinessRows = verifyResult ? [
+    {
+      label: "Verification status",
+      status: verifyResult.status === "valid" ? "PASS" : "FAIL",
+      detail: verifyResult.status
+    },
+    {
+      label: "Extractable transaction",
+      status: verifyResult.extractable && Boolean(verifyResult.txHex) ? "PASS" : "FAIL",
+      detail: verifyResult.txHex ? "txHex ready" : "txHex unavailable"
+    },
+    {
+      label: "Bitcoin Core backend",
+      status: broadcastBackendReady ? "PASS" : "WARN",
+      detail: broadcastBackendReady ? "Configured and reachable" : "Disabled, unconfigured, or unreachable"
+    },
+    {
+      label: "Manual confirmation",
+      status: broadcastConfirmed && broadcastConfirmText === "BROADCAST" ? "PASS" : "PENDING",
+      detail: broadcastConfirmed && broadcastConfirmText === "BROADCAST"
+        ? "Broadcast confirmation entered"
+        : "Checkbox and BROADCAST text required"
+    }
+  ] : [];
 
   const safetyMessages: string[] = [];
   if (verifyResult) {
@@ -5615,6 +5724,17 @@ export function VerifyPsbtPanel({
             ) : null}
           </dl>
 
+          <div className="psbt-verify-section" role="group" aria-label="Verification checklist">
+            <p className="terminal-heading">Verification checklist</p>
+            {verificationChecklistRows.map((row) => (
+              <div className="muted psbt-input-row" key={row.label}>
+                <strong>{row.label}</strong>
+                <span className={checklistStatusClass(row.status)}>{row.status}</span>
+                <span>{row.detail}</span>
+              </div>
+            ))}
+          </div>
+
           {/* Human-readable safety messages */}
           {safetyMessages.length > 0 ? (
             <div className="psbt-verify-section">
@@ -5744,6 +5864,17 @@ export function VerifyPsbtPanel({
               This app does not sign transactions. Broadcasting sends an already-signed
               transaction to Bitcoin Core and cannot be undone.
             </p>
+
+            <div className="psbt-verify-section" role="group" aria-label="Broadcast readiness">
+              <p className="terminal-heading">Broadcast readiness</p>
+              {broadcastReadinessRows.map((row) => (
+                <div className="muted psbt-input-row" key={row.label}>
+                  <strong>{row.label}</strong>
+                  <span className={checklistStatusClass(row.status)}>{row.status}</span>
+                  <span>{row.detail}</span>
+                </div>
+              ))}
+            </div>
 
             {!verifyResult.extractable || !verifyResult.txHex ? (
               <p className="psbt-status-warning muted">
