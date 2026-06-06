@@ -15,6 +15,7 @@ import { registerFulcrumStatusRoute } from "./fulcrum/diagnostics.js";
 import { registerBroadcastRoutes } from "./broadcast/routes.js";
 import { redactSensitive } from "./vault/redact.js";
 import { collectRuntimeSecurityErrors, collectRuntimeSecurityWarnings } from "./security/runtime-warnings.js";
+import { registerTrustedOriginGuard } from "./security/trusted-origin.js";
 
 const port = Number(process.env.API_PORT ?? 3011);
 const host = process.env.API_HOST ?? "0.0.0.0";
@@ -78,6 +79,8 @@ await server.register(cors, {
 await server.register(cookie, {
   secret: authConfig.sessionSecret
 });
+
+await registerTrustedOriginGuard(server, authConfig.webOrigins);
 
 await server.register(rateLimit, {
   max: 120,

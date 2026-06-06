@@ -227,6 +227,7 @@ Important variables:
 - `WEB_ORIGIN`: comma-separated frontend origins allowed by the API.
 - `COOKIE_SECURE`: `false` for local HTTP development, `true` behind HTTPS in production.
 - In `NODE_ENV=production`, Atlas refuses to start with a weak/default `SESSION_SECRET`, missing or wildcard `WEB_ORIGIN`, or HTTPS `WEB_ORIGIN` while `COOKIE_SECURE=false`.
+- State-changing `/api` requests are accepted only from trusted `WEB_ORIGIN` browser origins. Atlas checks `Origin` first and falls back to the `Referer` origin when `Origin` is absent.
 - `INTERNAL_API_URL`: server-side URL used by the Next.js web server to proxy `/api/*` to Atlas API.
 - `NEXT_PUBLIC_API_URL`: browser-visible API base. Prefer `/api` for same-origin mode; direct URLs remain available for legacy testing.
 - `MEMPOOL_API_URL`: mempool-compatible HTTP backend.
