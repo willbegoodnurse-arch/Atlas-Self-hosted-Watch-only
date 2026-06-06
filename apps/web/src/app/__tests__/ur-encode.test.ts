@@ -1,7 +1,7 @@
 import { URDecoder } from "@ngraveio/bc-ur";
 import { Buffer } from "buffer";
 import { describe, expect, it } from "vitest";
-import { encodeUrPsbt } from "../ur-encode";
+import { createUrPsbtDecoder, decodeUrPsbtPart, encodeUrPsbt } from "../ur-encode";
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -73,5 +73,33 @@ describe("encodeUrPsbt", () => {
     const frames = encodeUrPsbt(LARGE_PSBT_BASE64);
 
     expect(Math.max(...frames.map((frame) => frame.length))).toBeLessThanOrEqual(500);
+  });
+
+  it("decodes a single UR crypto-psbt frame to base64", () => {
+    const decoder = createUrPsbtDecoder();
+    const frames = encodeUrPsbt(SMALL_PSBT_BASE64);
+    const result = decodeUrPsbtPart(decoder, frames[0]);
+
+    expect(result.status).toBe("complete");
+    expect(result.psbtBase64).toBe(SMALL_PSBT_BASE64);
+  });
+
+  it("collects fragmented UR crypto-psbt frames out of order", () => {
+    const decoder = createUrPsbtDecoder();
+    const frames = encodeUrPsbt(LARGE_PSBT_BASE64, { maxFragmentLength: 120 });
+    const shuffledFrames = [
+      ...frames.filter((_, index) => index % 2 === 1),
+      ...frames.filter((_, index) => index % 2 === 0)
+    ];
+    let latest = decodeUrPsbtPart(decoder, shuffledFrames[0]);
+
+    expect(latest.status).toBe("partial");
+
+    for (const frame of shuffledFrames.slice(1)) {
+      latest = decodeUrPsbtPart(decoder, frame);
+    }
+
+    expect(latest.status).toBe("complete");
+    expect(latest.psbtBase64).toBe(LARGE_PSBT_BASE64);
   });
 });
