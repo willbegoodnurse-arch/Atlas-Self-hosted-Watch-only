@@ -17,7 +17,6 @@ type AuthGuard = (request: FastifyRequest, reply: FastifyReply) => unknown;
 
 type BroadcastPsbtBody = {
   psbtBase64?: string;
-  txHex?: unknown;
   expected?: {
     recipientAddress?: string;
     amountSats?: number;
