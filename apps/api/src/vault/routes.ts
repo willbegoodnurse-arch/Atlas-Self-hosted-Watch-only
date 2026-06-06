@@ -44,6 +44,13 @@ import {
 import type { BitcoinNetwork, ScriptType, SourceDevice } from "./types.js";
 import { parseWalletImport } from "./import-parser.js";
 import {
+  VaultUnlockLockedError,
+  assertVaultUnlockAllowed,
+  buildVaultUnlockAttemptKey,
+  clearVaultUnlockFailures,
+  recordVaultUnlockFailure
+} from "./unlock-attempts.js";
+import {
   InsufficientFundsError,
   InvalidPsbtParamsError,
   UnsupportedScriptTypeError
@@ -176,7 +183,8 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
   });
 
   server.post<{ Body: VaultPasswordBody }>("/api/vault/unlock", async (request, reply) => {
-    if (!ensureAuthenticated(request, reply)) {
+    const session = requireAuthenticatedSession(request, reply);
+    if (!session) {
       return;
     }
 
@@ -185,10 +193,29 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
       return reply.code(400).send({ error: vaultPassword.error });
     }
 
+    const attemptKey = buildVaultUnlockAttemptKey({
+      ip: request.ip,
+      username: session.username
+    });
+
+    try {
+      assertVaultUnlockAllowed(attemptKey);
+    } catch (error) {
+      if (error instanceof VaultUnlockLockedError) {
+        reply.header("Retry-After", String(error.retryAfterSeconds));
+        return reply.code(429).send({ error: "Too many vault unlock attempts" });
+      }
+      throw error;
+    }
+
     try {
       await unlockVault(vaultPassword.value);
+      clearVaultUnlockFailures(attemptKey);
       return reply.send(await getVaultStatus());
     } catch (error) {
+      if (isInvalidVaultPasswordError(error)) {
+        recordVaultUnlockFailure(attemptKey);
+      }
       return handleVaultError(error, reply);
     }
   });
@@ -851,6 +878,10 @@ function ensureAuthenticated(request: FastifyRequest, reply: FastifyReply): bool
   return Boolean(requireAuthenticatedSession(request, reply));
 }
 
+function isInvalidVaultPasswordError(error: unknown): boolean {
+  return error instanceof Error && /Unsupported state|authenticate|bad decrypt|Invalid vault/.test(error.message);
+}
+
 function validateCreateWalletBody(body: WalletCreateBody | undefined):
   | {
       ok: true;
@@ -1283,7 +1314,7 @@ function handleVaultError(error: unknown, reply: FastifyReply) {
     return reply.code(400).send({ error: redactSensitive(error.message) });
   }
 
-  if (error instanceof Error && /Unsupported state|authenticate|bad decrypt|Invalid vault/.test(error.message)) {
+  if (isInvalidVaultPasswordError(error)) {
     return reply.code(401).send({ error: "Invalid vault password" });
   }
 
