@@ -26,7 +26,7 @@ import {
   type BbqrCollectorState
 } from "./bbqr";
 import { encodeBbqrPsbt } from "./bbqr-encode";
-import { encodeUrPsbt } from "./ur-encode";
+import { createUrPsbtDecoder, decodeUrPsbtPart, encodeUrPsbt } from "./ur-encode";
 export { signedPsbtMultipartFrameMessage } from "./psbt-multipart";
 
 type SessionResponse = {
@@ -4881,6 +4881,7 @@ export function VerifyPsbtPanel({
   const [multipartState, setMultipartState] = useState<MultipartPsbtState>(() => createMultipartPsbtState());
   const [multipartMessage, setMultipartMessage] = useState("");
   const multipartStateRef = useRef<MultipartPsbtState>(createMultipartPsbtState());
+  const urPsbtDecoderRef = useRef(createUrPsbtDecoder());
   const signedScannerControls = useRef<IScannerControls | null>(null);
   const signedScannerVideo = useRef<HTMLVideoElement | null>(null);
   const signedFileInput = useRef<HTMLInputElement | null>(null);
@@ -4945,6 +4946,15 @@ export function VerifyPsbtPanel({
               }
               return;
             }
+            if (scannedValue.toLowerCase().startsWith("ur:crypto-psbt")) {
+              const scannerResult = captureUrPsbtPart(scannedValue);
+              setSignedScannerMessage(scannerResult.message);
+              if (scannerResult.completePsbt) {
+                closeSignedScanner();
+                void verifySignedPsbt(scannerResult.completePsbt);
+              }
+              return;
+            }
             if (!isSignedPsbtSingleQrCandidate(scannedValue)) {
               setSignedScannerMessage(SIGNED_PSBT_QR_TOO_LARGE_MESSAGE);
               return;
@@ -4988,7 +4998,21 @@ export function VerifyPsbtPanel({
       return;
     }
 
+    if (trimmed.toLowerCase().startsWith("ur:crypto-psbt")) {
+      const result = captureUrPsbtPart(trimmed);
+      if (!result.completePsbt) {
+        setVerifyMessage(result.message);
+        setVerifyStatus(result.status === "error" ? "error" : "idle");
+        setVerifyResult(null);
+        resetBroadcastConfirmation();
+        return;
+      }
+      await verifySignedPsbt(result.completePsbt);
+      return;
+    }
+
     clearMultipartFrames();
+    resetUrPsbtFrames();
     await verifySignedPsbt(trimmed);
   }
 
@@ -5052,6 +5076,41 @@ export function VerifyPsbtPanel({
     return { completePsbt: null, message: result.message, status: "idle" };
   }
 
+  function captureUrPsbtPart(part: string): {
+    completePsbt: string | null;
+    message: string;
+    status: "idle" | "error";
+  } {
+    const result = decodeUrPsbtPart(urPsbtDecoderRef.current, part);
+    setVerifyResult(null);
+    resetBroadcastConfirmation();
+
+    if (result.status === "error") {
+      setVerifyMessage(result.message);
+      setVerifyStatus("error");
+      return { completePsbt: null, message: result.message, status: "error" };
+    }
+
+    if (result.status === "complete") {
+      setPsbtInput(result.psbtBase64);
+      clearMultipartFrames();
+      resetUrPsbtFrames();
+      setVerifyStatus("idle");
+      setVerifyMessage(result.message);
+      return { completePsbt: result.psbtBase64, message: result.message, status: "idle" };
+    }
+
+    setPsbtInput("");
+    clearMultipartFrames();
+    setVerifyMessage(result.message);
+    setVerifyStatus("idle");
+    return { completePsbt: null, message: result.message, status: "idle" };
+  }
+
+  function resetUrPsbtFrames() {
+    urPsbtDecoderRef.current = createUrPsbtDecoder();
+  }
+
   function clearMultipartFrames(message = "") {
     const emptyState = createMultipartPsbtState();
     multipartStateRef.current = emptyState;
@@ -5065,6 +5124,7 @@ export function VerifyPsbtPanel({
   function setSignedPsbtInput(value: string, message = "") {
     setPsbtInput(value);
     clearMultipartFrames();
+    resetUrPsbtFrames();
     setVerifyResult(null);
     setVerifyStatus("idle");
     setVerifyMessage(message);

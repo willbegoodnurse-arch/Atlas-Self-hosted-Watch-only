@@ -1,4 +1,4 @@
-import { UR, UREncoder } from "@ngraveio/bc-ur";
+import { UR, URDecoder, UREncoder } from "@ngraveio/bc-ur";
 import { Buffer } from "buffer";
 
 function base64ToBytes(base64: string): Uint8Array {
@@ -8,6 +8,14 @@ function base64ToBytes(base64: string): Uint8Array {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 function encodeCborByteString(bytes: Uint8Array): Buffer {
@@ -48,4 +56,65 @@ export function encodeUrPsbt(
   const ur = new UR(cbor, "crypto-psbt");
   const encoder = new UREncoder(ur, options?.maxFragmentLength ?? 200);
   return encoder.encodeWhole();
+}
+
+export type DecodeUrPsbtPartResult =
+  | {
+      status: "complete";
+      psbtBase64: string;
+      message: string;
+    }
+  | {
+      status: "partial";
+      psbtBase64: null;
+      message: string;
+      progress: number;
+      receivedIndexes: number[];
+      expectedPartCount: number;
+    }
+  | {
+      status: "error";
+      psbtBase64: null;
+      message: string;
+    };
+
+export function createUrPsbtDecoder(): URDecoder {
+  return new URDecoder(undefined, "crypto-psbt");
+}
+
+export function decodeUrPsbtPart(decoder: URDecoder, part: string): DecodeUrPsbtPartResult {
+  try {
+    decoder.receivePart(part.trim());
+    if (decoder.isError()) {
+      return {
+        status: "error",
+        psbtBase64: null,
+        message: decoder.resultError() || "Unable to decode UR crypto-psbt frame."
+      };
+    }
+    if (decoder.isSuccess()) {
+      const bytes = decoder.resultUR().decodeCBOR();
+      return {
+        status: "complete",
+        psbtBase64: bytesToBase64(bytes),
+        message: "UR crypto-psbt complete. Ready to verify signed PSBT."
+      };
+    }
+    const progress = decoder.getProgress();
+    const percent = Math.max(0, Math.min(100, Math.round(progress * 100)));
+    return {
+      status: "partial",
+      psbtBase64: null,
+      message: `UR crypto-psbt frame captured (${percent}% complete). Keep scanning frames.`,
+      progress,
+      receivedIndexes: decoder.receivedPartIndexes(),
+      expectedPartCount: decoder.expectedPartCount()
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      psbtBase64: null,
+      message: error instanceof Error ? error.message : "Unable to decode UR crypto-psbt frame."
+    };
+  }
 }

@@ -16,6 +16,7 @@ import {
   signedPsbtMultipartFrameMessage,
   VerifyPsbtPanel
 } from "../phase-one-auth";
+import { encodeUrPsbt } from "../ur-encode";
 import { jsonResponse, makePsbtResult, makeUtxo, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
 
 const feeEstimates = {
@@ -474,6 +475,50 @@ describe("PSBT and fee UI regression", () => {
       expect.stringContaining("/api/wallets/wallet-1/psbt/verify"),
       expect.objectContaining({
         body: expect.stringContaining('"psbtBase64":"signed-psbt"')
+      })
+    );
+  });
+
+  it("decodes single-frame signed PSBT UR before verification", async () => {
+    const fetchMock = installVerifyFetch();
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    const signedPsbtBase64 = btoa("signed-psbt");
+    const urFrame = encodeUrPsbt(signedPsbtBase64)[0];
+
+    await user.type(screen.getByLabelText(/Signed PSBT/i), urFrame);
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+
+    expect(await screen.findByText(/Verification result/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/wallets/wallet-1/psbt/verify"),
+      expect.objectContaining({
+        body: expect.stringContaining(`"psbtBase64":"${signedPsbtBase64}"`)
+      })
+    );
+  });
+
+  it("collects fragmented signed PSBT UR frames out of order before verification", async () => {
+    const fetchMock = installVerifyFetch();
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    const signedPsbtInput = screen.getByLabelText(/Signed PSBT/i);
+    const signedPsbtBase64 = btoa("signed-psbt".repeat(80));
+    const frames = encodeUrPsbt(signedPsbtBase64, { maxFragmentLength: 20 });
+    const reorderedFrames = [frames[1], frames[0], ...frames.slice(2)];
+
+    expect(frames.length).toBeGreaterThan(1);
+
+    for (const frame of reorderedFrames) {
+      fireEvent.change(signedPsbtInput, { target: { value: frame } });
+      await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    }
+
+    expect(await screen.findByText(/Verification result/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/wallets/wallet-1/psbt/verify"),
+      expect.objectContaining({
+        body: expect.stringContaining(`"psbtBase64":"${signedPsbtBase64}"`)
       })
     );
   });
