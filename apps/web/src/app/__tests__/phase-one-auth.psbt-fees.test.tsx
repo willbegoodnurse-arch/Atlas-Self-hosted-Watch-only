@@ -12,6 +12,7 @@ import {
   resolveFeeEstimateUiState,
   SIGNED_PSBT_CAMERA_FALLBACK_MESSAGE,
   SIGNED_PSBT_QR_TOO_LARGE_MESSAGE,
+  SIGNED_PSBT_UNSUPPORTED_UR_MESSAGE,
   selectFeePresetRate,
   signedPsbtMultipartFrameMessage,
   VerifyPsbtPanel
@@ -521,6 +522,62 @@ describe("PSBT and fee UI regression", () => {
         body: expect.stringContaining(`"psbtBase64":"${signedPsbtBase64}"`)
       })
     );
+  });
+
+  it("shows partial signed PSBT UR progress and lets the user clear collected frames", async () => {
+    const fetchMock = installVerifyFetch();
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    const signedPsbtBase64 = btoa("signed-psbt".repeat(80));
+    const frames = encodeUrPsbt(signedPsbtBase64, { maxFragmentLength: 20 });
+
+    fireEvent.change(screen.getByLabelText(/Signed PSBT/i), { target: { value: frames[0] } });
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+
+    expect(await screen.findByText(/UR crypto-psbt frame captured/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Clear UR frames/i })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/psbt/verify"), expect.anything());
+
+    await user.click(screen.getByRole("button", { name: /Clear UR frames/i }));
+
+    expect(screen.queryByRole("button", { name: /Clear UR frames/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Signed PSBT UR frames cleared/i)).toBeInTheDocument();
+  });
+
+  it("resets partial signed PSBT UR state when verifying pasted base64", async () => {
+    const fetchMock = installVerifyFetch();
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    const signedPsbtInput = screen.getByLabelText(/Signed PSBT/i);
+    const frames = encodeUrPsbt(btoa("signed-psbt".repeat(80)), { maxFragmentLength: 20 });
+
+    fireEvent.change(signedPsbtInput, { target: { value: frames[0] } });
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+    expect(await screen.findByText(/UR crypto-psbt frame captured/i)).toBeInTheDocument();
+
+    fireEvent.change(signedPsbtInput, { target: { value: "signed-psbt" } });
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+
+    expect(await screen.findByText(/Verification result/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Clear UR frames/i })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/wallets/wallet-1/psbt/verify"),
+      expect.objectContaining({
+        body: expect.stringContaining('"psbtBase64":"signed-psbt"')
+      })
+    );
+  });
+
+  it("rejects unsupported signed PSBT UR types before verification", async () => {
+    const fetchMock = installVerifyFetch();
+    const user = userEvent.setup();
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+
+    await user.type(screen.getByLabelText(/Signed PSBT/i), "ur:crypto-hdkey/abcd");
+    await user.click(screen.getByRole("button", { name: /Verify signed PSBT/i }));
+
+    expect(await screen.findByText(SIGNED_PSBT_UNSUPPORTED_UR_MESSAGE)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/psbt/verify"), expect.anything());
   });
 
   it("handles duplicate multipart frames and rejects conflicting multipart frames", async () => {
