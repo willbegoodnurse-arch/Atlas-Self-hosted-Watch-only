@@ -25,6 +25,7 @@ import {
   type BbqrSafeMetadata,
   type BbqrCollectorState
 } from "./bbqr";
+import { encodeBbqrPsbt } from "./bbqr-encode";
 export { signedPsbtMultipartFrameMessage } from "./psbt-multipart";
 
 type SessionResponse = {
@@ -4100,6 +4101,10 @@ export function CreatePsbtBuilderPanel({
   const [exportFormat, setExportFormat] = useState<"text" | "qr" | "animated" | "bbqr">("text");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [qrExportMessage, setQrExportMessage] = useState("");
+  const [bbqrFrames, setBbqrFrames] = useState<string[]>([]);
+  const [bbqrFrameIndex, setBbqrFrameIndex] = useState(0);
+  const [bbqrDataUrl, setBbqrDataUrl] = useState("");
+  const [bbqrExportMessage, setBbqrExportMessage] = useState("");
 
   useEffect(() => {
     void refreshBuilderUtxos();
@@ -4144,6 +4149,56 @@ export function CreatePsbtBuilderPanel({
         setQrExportMessage("This PSBT is too large for a single QR. Use text export or wait for animated QR / BBQr support.");
       });
   }, [psbtResult, exportFormat]);
+
+  useEffect(() => {
+    if (!psbtResult || exportFormat !== "bbqr") {
+      setBbqrFrames([]);
+      setBbqrFrameIndex(0);
+      setBbqrDataUrl("");
+      setBbqrExportMessage("");
+      return;
+    }
+    try {
+      const frames = encodeBbqrPsbt(psbtResult.psbtBase64);
+      setBbqrFrames(frames);
+      setBbqrFrameIndex(0);
+      setBbqrExportMessage("");
+    } catch {
+      setBbqrFrames([]);
+      setBbqrFrameIndex(0);
+      setBbqrDataUrl("");
+      setBbqrExportMessage("BBQr encoding failed. Use text export instead.");
+    }
+  }, [psbtResult, exportFormat]);
+
+  useEffect(() => {
+    if (bbqrFrames.length === 0) {
+      setBbqrDataUrl("");
+      return;
+    }
+    let cancelled = false;
+    void QRCode.toDataURL(bbqrFrames[bbqrFrameIndex], {
+      errorCorrectionLevel: "L",
+      margin: 2,
+      width: 320
+    }).then((dataUrl) => {
+      if (!cancelled) setBbqrDataUrl(dataUrl);
+    }).catch(() => {
+      if (!cancelled) {
+        setBbqrDataUrl("");
+        setBbqrExportMessage("Failed to render BBQr frame. Use text export instead.");
+      }
+    });
+    return () => { cancelled = true; };
+  }, [bbqrFrames, bbqrFrameIndex]);
+
+  useEffect(() => {
+    if (bbqrFrames.length <= 1) return;
+    const timer = setInterval(() => {
+      setBbqrFrameIndex((prev) => (prev + 1) % bbqrFrames.length);
+    }, 500);
+    return () => clearInterval(timer);
+  }, [bbqrFrames]);
 
   async function refreshBuilderUtxos() {
     setUtxoLoadStatus("loading");
@@ -4656,10 +4711,10 @@ export function CreatePsbtBuilderPanel({
                 <option value="text">Text</option>
                 <option value="qr">QR</option>
                 <option value="animated" disabled>Animated QR - coming later</option>
-                <option value="bbqr" disabled>BBQr - coming later</option>
+                <option value="bbqr">BBQr animated QR</option>
               </select>
               <span className="muted psbt-field-hint">
-                Animated QR and BBQr require tested fragmentation/encoding support and are intentionally deferred.
+                Animated UR QR is intentionally deferred. BBQr is available for compatible signing wallets.
               </span>
             </label>
             {exportFormat === "text" ? (
@@ -4680,8 +4735,23 @@ export function CreatePsbtBuilderPanel({
                 )}
               </>
             ) : null}
-            {exportFormat === "animated" || exportFormat === "bbqr" ? (
-              <p className="muted">Animated QR and BBQr require tested fragmentation/encoding support and are intentionally deferred.</p>
+            {exportFormat === "animated" ? (
+              <p className="muted">Animated QR (UR) requires tested fragmentation/encoding support and is intentionally deferred.</p>
+            ) : null}
+            {exportFormat === "bbqr" ? (
+              <>
+                <p className="muted">Scan this animated BBQr with a compatible signing wallet (e.g. Coldcard Q).</p>
+                {bbqrExportMessage ? (
+                  <p className="status-message">{bbqrExportMessage}</p>
+                ) : bbqrDataUrl ? (
+                  <>
+                    <img alt="BBQr PSBT frame" className="qr-preview" src={bbqrDataUrl} />
+                    <p className="muted">Frame {bbqrFrameIndex + 1} / {bbqrFrames.length}</p>
+                  </>
+                ) : (
+                  <p className="status-message">Preparing BBQr frames...</p>
+                )}
+              </>
             ) : null}
             <div className="psbt-actions">
               <button className="compact-button" type="button" onClick={() => void copyPsbt()}>
