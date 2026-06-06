@@ -93,6 +93,7 @@ Important environment notes:
 
 - `SESSION_SECRET` must be strong and random for real deployments.
 - `WEB_ORIGIN` must include every frontend origin the browser will use.
+- In `NODE_ENV=production`, the API refuses to start with a weak/default `SESSION_SECRET`, missing or wildcard `WEB_ORIGIN`, or HTTPS `WEB_ORIGIN` while `COOKIE_SECURE=false`.
 - `INTERNAL_API_URL` is used by the Next.js web server to proxy `/api/*` to Atlas API.
 - `NEXT_PUBLIC_API_URL=/api` lets the browser use the web origin instead of reaching the API port directly.
 - `VAULT_AUTO_LOCK_MINUTES` controls server-side vault inactivity locking.

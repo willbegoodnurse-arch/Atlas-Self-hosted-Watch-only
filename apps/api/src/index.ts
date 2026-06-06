@@ -14,7 +14,7 @@ import { registerVaultRoutes } from "./vault/routes.js";
 import { registerFulcrumStatusRoute } from "./fulcrum/diagnostics.js";
 import { registerBroadcastRoutes } from "./broadcast/routes.js";
 import { redactSensitive } from "./vault/redact.js";
-import { collectRuntimeSecurityWarnings } from "./security/runtime-warnings.js";
+import { collectRuntimeSecurityErrors, collectRuntimeSecurityWarnings } from "./security/runtime-warnings.js";
 
 const port = Number(process.env.API_PORT ?? 3011);
 const host = process.env.API_HOST ?? "0.0.0.0";
@@ -56,6 +56,14 @@ server.addHook("onRequest", async (_request, reply) => {
   reply.header("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
   reply.header("Permissions-Policy", "camera=(self), clipboard-read=(self), clipboard-write=(self)");
 });
+
+const runtimeSecurityErrors = collectRuntimeSecurityErrors();
+for (const error of runtimeSecurityErrors) {
+  server.log.error({ event: "runtime_security_error" }, error);
+}
+if (runtimeSecurityErrors.length > 0) {
+  process.exit(1);
+}
 
 for (const warning of collectRuntimeSecurityWarnings()) {
   server.log.warn({ event: "runtime_security_warning" }, warning);

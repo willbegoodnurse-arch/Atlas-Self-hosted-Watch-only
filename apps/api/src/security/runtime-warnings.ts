@@ -39,6 +39,36 @@ export function collectRuntimeSecurityWarnings(env: EnvLike = process.env): stri
   return warnings;
 }
 
+export function collectRuntimeSecurityErrors(env: EnvLike = process.env): string[] {
+  const errors: string[] = [];
+  const production = (env.NODE_ENV ?? "development") === "production";
+  if (!production) {
+    return errors;
+  }
+
+  const sessionSecret = env.SESSION_SECRET ?? "";
+  const webOrigin = env.WEB_ORIGIN ?? "";
+  const cookieSecure = env.COOKIE_SECURE === "true";
+
+  if (isWeakSessionSecret(sessionSecret)) {
+    errors.push("Production SESSION_SECRET is missing, default, or too short. Set a long random value before starting Atlas.");
+  }
+
+  if (!webOrigin.trim()) {
+    errors.push("Production WEB_ORIGIN is required. Set exact trusted browser origins before starting Atlas.");
+  }
+
+  if (hasWildcardOrigin(webOrigin)) {
+    errors.push("Production WEB_ORIGIN must not include wildcard or null origins.");
+  }
+
+  if (!cookieSecure && hasHttpsOrigin(webOrigin)) {
+    errors.push("COOKIE_SECURE must be true when any production WEB_ORIGIN uses HTTPS.");
+  }
+
+  return errors;
+}
+
 export function parseTrustedWebOrigins(value: string | undefined): string[] {
   const configured = value
     ?.split(",")
@@ -58,6 +88,20 @@ function hasWildcardOrigin(value: string): boolean {
     .split(",")
     .map((origin) => origin.trim())
     .some((origin) => origin === "*" || origin === "null");
+}
+
+function hasHttpsOrigin(value: string): boolean {
+  return value
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+    .some((origin) => {
+      try {
+        return new URL(origin).protocol === "https:";
+      } catch {
+        return false;
+      }
+    });
 }
 
 function isPublicHttpUrl(value: string): boolean {
