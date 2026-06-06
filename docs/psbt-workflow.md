@@ -55,7 +55,7 @@ BBQr and Animated UR exports have automated round-trip coverage, but hardware-de
 After external signing:
 
 1. Bring the signed PSBT back to Atlas.
-2. Paste it into Signed PSBT Verification as base64, pNofM multipart text, or `ur:crypto-psbt` single/animated UR frames.
+2. Paste it into Signed PSBT Verification as base64, pNofM multipart text, or `ur:crypto-psbt` single/animated UR frames. Other `ur:*` types are rejected in this signed PSBT flow.
 3. Optionally enter expected recipient, expected amount, expected change address, and expected fee.
 4. Review the verification checklist and expected-check results.
 5. Review status, warnings, and errors.

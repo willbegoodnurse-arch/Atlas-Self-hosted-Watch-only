@@ -653,6 +653,8 @@ export const SIGNED_PSBT_QR_TOO_LARGE_MESSAGE =
   "This signed PSBT may be too large for single-frame QR. Use file upload or paste for now.";
 export const SIGNED_PSBT_CAMERA_FALLBACK_MESSAGE =
   "Camera scanning requires HTTPS, localhost, or a trusted tunnel such as Tailscale Serve. You can still paste or upload a signed PSBT manually.";
+export const SIGNED_PSBT_UNSUPPORTED_UR_MESSAGE =
+  "Signed PSBT UR import requires ur:crypto-psbt. Use base64, pNofM multipart text, or a signed PSBT file for other formats.";
 
 export function isSignedPsbtSingleQrCandidate(payload: string): boolean {
   return payload.trim().length > 0 && payload.trim().length <= SIGNED_PSBT_SINGLE_QR_MAX_CHARS;
@@ -4880,6 +4882,7 @@ export function VerifyPsbtPanel({
   const [signedScannerMessage, setSignedScannerMessage] = useState("");
   const [multipartState, setMultipartState] = useState<MultipartPsbtState>(() => createMultipartPsbtState());
   const [multipartMessage, setMultipartMessage] = useState("");
+  const [urPsbtMessage, setUrPsbtMessage] = useState("");
   const multipartStateRef = useRef<MultipartPsbtState>(createMultipartPsbtState());
   const urPsbtDecoderRef = useRef(createUrPsbtDecoder());
   const signedScannerControls = useRef<IScannerControls | null>(null);
@@ -4955,6 +4958,12 @@ export function VerifyPsbtPanel({
               }
               return;
             }
+            if (scannedValue.toLowerCase().startsWith("ur:")) {
+              resetUrPsbtFrames();
+              clearMultipartFrames();
+              setSignedScannerMessage(SIGNED_PSBT_UNSUPPORTED_UR_MESSAGE);
+              return;
+            }
             if (!isSignedPsbtSingleQrCandidate(scannedValue)) {
               setSignedScannerMessage(SIGNED_PSBT_QR_TOO_LARGE_MESSAGE);
               return;
@@ -5011,6 +5020,16 @@ export function VerifyPsbtPanel({
       return;
     }
 
+    if (trimmed.toLowerCase().startsWith("ur:")) {
+      clearMultipartFrames();
+      resetUrPsbtFrames();
+      setVerifyResult(null);
+      setVerifyStatus("error");
+      setVerifyMessage(SIGNED_PSBT_UNSUPPORTED_UR_MESSAGE);
+      resetBroadcastConfirmation();
+      return;
+    }
+
     clearMultipartFrames();
     resetUrPsbtFrames();
     await verifySignedPsbt(trimmed);
@@ -5055,6 +5074,7 @@ export function VerifyPsbtPanel({
     multipartStateRef.current = result.state;
     setMultipartState(result.state);
     setMultipartMessage(result.message);
+    resetUrPsbtFrames();
     setVerifyMessage(result.message);
     setVerifyResult(null);
     resetBroadcastConfirmation();
@@ -5086,6 +5106,7 @@ export function VerifyPsbtPanel({
     resetBroadcastConfirmation();
 
     if (result.status === "error") {
+      setUrPsbtMessage("");
       setVerifyMessage(result.message);
       setVerifyStatus("error");
       return { completePsbt: null, message: result.message, status: "error" };
@@ -5102,13 +5123,22 @@ export function VerifyPsbtPanel({
 
     setPsbtInput("");
     clearMultipartFrames();
+    setUrPsbtMessage(result.message);
     setVerifyMessage(result.message);
     setVerifyStatus("idle");
     return { completePsbt: null, message: result.message, status: "idle" };
   }
 
-  function resetUrPsbtFrames() {
+  function resetUrPsbtFrames(message = "") {
     urPsbtDecoderRef.current = createUrPsbtDecoder();
+    setUrPsbtMessage(message);
+  }
+
+  function clearUrPsbtFrames(message = "") {
+    resetUrPsbtFrames();
+    if (message) {
+      setVerifyMessage(message);
+    }
   }
 
   function clearMultipartFrames(message = "") {
@@ -5581,7 +5611,7 @@ export function VerifyPsbtPanel({
           </div>
         ) : null}
         <label className="psbt-field">
-          <span>Signed PSBT (base64)</span>
+          <span>Signed PSBT (base64 / multipart / UR)</span>
           <textarea
             className="psbt-textarea"
             value={psbtInput}
@@ -5601,6 +5631,18 @@ export function VerifyPsbtPanel({
               onClick={() => clearMultipartFrames("Multipart signed PSBT frames cleared.")}
             >
               Clear multipart frames
+            </button>
+          </div>
+        ) : null}
+        {urPsbtMessage ? (
+          <div className="psbt-safety-notice muted">
+            <p>{urPsbtMessage}</p>
+            <button
+              className="secondary-button compact-button"
+              type="button"
+              onClick={() => clearUrPsbtFrames("Signed PSBT UR frames cleared.")}
+            >
+              Clear UR frames
             </button>
           </div>
         ) : null}
@@ -5673,7 +5715,7 @@ export function VerifyPsbtPanel({
         </button>
       </div>
 
-      {verifyMessage && verifyMessage !== multipartMessage ? (
+      {verifyMessage && verifyMessage !== multipartMessage && verifyMessage !== urPsbtMessage ? (
         <p className="status-message">{verifyMessage}</p>
       ) : null}
 
@@ -5683,7 +5725,7 @@ export function VerifyPsbtPanel({
             <h2>Scan signed PSBT QR</h2>
           </div>
           <p className="muted">
-            Scan signed PSBT QR frames. Atlas can collect pNofM multipart frames or import a single-frame signed PSBT QR for verification only.
+            Scan signed PSBT QR frames. Atlas can collect pNofM multipart frames, ur:crypto-psbt animated frames, or import a single-frame signed PSBT QR for verification only.
           </p>
           <video ref={signedScannerVideo} className="scanner-video" muted playsInline />
           <div className="scanner-fallback-row">
