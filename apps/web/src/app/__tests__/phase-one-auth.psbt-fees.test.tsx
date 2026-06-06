@@ -662,6 +662,12 @@ describe("PSBT and fee UI regression", () => {
       "href",
       `http://raspberrypi.local:8080/tx/${txid}`
     );
+    const broadcastCall = vi.mocked(globalThis.fetch).mock.calls.find(([input]) =>
+      String(input).includes("/api/wallets/wallet-1/psbt/broadcast")
+    );
+    expect(JSON.parse(String(broadcastCall?.[1]?.body))).toMatchObject({
+      confirmationText: "BROADCAST"
+    });
     expect(screen.getByRole("button", { name: /Close/i })).toBeInTheDocument();
   });
 

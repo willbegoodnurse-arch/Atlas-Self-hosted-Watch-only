@@ -5262,6 +5262,7 @@ export function VerifyPsbtPanel({
           method: "POST",
           body: JSON.stringify({
             psbtBase64: trimmed,
+            confirmationText: broadcastConfirmText,
             expected: Object.keys(expected).length > 0 ? expected : undefined,
             addressLimit
           }),
