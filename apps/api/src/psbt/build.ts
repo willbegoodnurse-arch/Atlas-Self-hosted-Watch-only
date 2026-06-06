@@ -247,17 +247,16 @@ async function findNextChangeAddress(
     fetchAddressStats: options.fetchAddressStatsFn
   });
 
+  if (usageResult.lookupFailed) {
+    throw new InvalidPsbtParamsError("Change address lookup failed. Try again before creating a PSBT with change.");
+  }
+
   const firstUnused = usageResult.addresses.find((a) => a.usage === "unused");
   if (firstUnused) {
     return { address: firstUnused.address, path: firstUnused.path, index: firstUnused.index };
   }
 
-  // All unknown or all used — fall back to change #0
-  const fallback = changeAddrs.addresses[0];
-  if (!fallback) {
-    throw new InvalidPsbtParamsError("Could not derive change address");
-  }
-  return { address: fallback.address, path: fallback.path, index: fallback.index };
+  throw new InvalidPsbtParamsError("No unused change address found within the address scan limit.");
 }
 
 export async function createWalletPsbt(

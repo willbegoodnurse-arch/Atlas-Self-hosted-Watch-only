@@ -87,6 +87,15 @@ const allUnusedStatsFn = async (_addr: string): Promise<unknown> => ({
   mempool_stats: { tx_count: 0, funded_txo_count: 0, funded_txo_sum: 0, spent_txo_count: 0, spent_txo_sum: 0 }
 });
 
+const allUsedStatsFn = async (_addr: string): Promise<unknown> => ({
+  chain_stats: { tx_count: 1, funded_txo_count: 1, funded_txo_sum: 50000, spent_txo_count: 0, spent_txo_sum: 0 },
+  mempool_stats: { tx_count: 0, funded_txo_count: 0, funded_txo_sum: 0, spent_txo_count: 0, spent_txo_sum: 0 }
+});
+
+const failingStatsFn = async (_addr: string): Promise<unknown> => {
+  throw new Error("stats unavailable");
+};
+
 // ---------------------------------------------------------------------------
 // estimatePsbtVbytes
 // ---------------------------------------------------------------------------
@@ -477,6 +486,34 @@ test("createWalletPsbt: throws when change address is unavailable and change is 
         { fetchUtxosFn: fetchFn, fetchAddressStatsFn: allUnusedStatsFn }
       ),
     InvalidPsbtParamsError
+  );
+});
+
+test("createWalletPsbt: blocks change output when change usage lookup fails", async () => {
+  const fetchFn = makeFetchFn({ [receiveAddr0]: [confirmedUtxo50k] });
+
+  await assert.rejects(
+    () =>
+      createWalletPsbt(
+        baseWallet,
+        { recipientAddress: externalRecipient, amountSats: 10000, feeRateSatsPerVbyte: 1 },
+        { fetchUtxosFn: fetchFn, fetchAddressStatsFn: failingStatsFn }
+      ),
+    /Change address lookup failed/
+  );
+});
+
+test("createWalletPsbt: blocks change output when no unused change address is found", async () => {
+  const fetchFn = makeFetchFn({ [receiveAddr0]: [confirmedUtxo50k] });
+
+  await assert.rejects(
+    () =>
+      createWalletPsbt(
+        baseWallet,
+        { recipientAddress: externalRecipient, amountSats: 10000, feeRateSatsPerVbyte: 1 },
+        { fetchUtxosFn: fetchFn, fetchAddressStatsFn: allUsedStatsFn }
+      ),
+    /No unused change address found/
   );
 });
 

@@ -1382,10 +1382,10 @@ function validateCreatePsbtBody(body: CreatePsbtBody | undefined):
   if (
     typeof feeRateSatsPerVbyte !== "number" ||
     !Number.isFinite(feeRateSatsPerVbyte) ||
-    feeRateSatsPerVbyte < 1 ||
+    feeRateSatsPerVbyte <= 0 ||
     feeRateSatsPerVbyte > 1000
   ) {
-    return { ok: false, error: "feeRateSatsPerVbyte must be a number from 1 to 1000" };
+    return { ok: false, error: "feeRateSatsPerVbyte must be greater than 0 and at most 1000" };
   }
 
   const recipientsValidation = validatePsbtRecipients(body);
