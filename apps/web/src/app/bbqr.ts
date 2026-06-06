@@ -200,7 +200,7 @@ function decodeHex(value: string): Uint8Array {
   return bytes;
 }
 
-function decodeBase32(value: string): Uint8Array {
+export function decodeBase32(value: string): Uint8Array {
   const clean = value.replace(/=+$/g, "").toUpperCase();
   if (!/^[A-Z2-7]*$/.test(clean)) {
     throw new Error("Invalid BBQr base32 payload.");
