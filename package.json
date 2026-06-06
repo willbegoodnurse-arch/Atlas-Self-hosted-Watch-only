@@ -16,6 +16,7 @@
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run build --workspace=packages/bitcoin --workspace=packages/ui && npm run typecheck --workspaces --if-present",
+    "lint:security": "node scripts/security-audit.mjs",
     "dev:web": "npm --workspace @watch-wallet/web run dev",
     "dev:api": "npm --workspace @watch-wallet/api run dev"
   }
