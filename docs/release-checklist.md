@@ -10,7 +10,7 @@ npm.cmd run typecheck
 npm.cmd test
 npm.cmd run build
 git diff --check
-npm.cmd audit --omit=dev
+npm.cmd run lint:security
 ```
 
 On non-Windows shells, `npm` is usually fine instead of `npm.cmd`.
@@ -21,7 +21,7 @@ On shells with Bash available, run the local release helper:
 ./scripts/check-local-release.sh
 ```
 
-The helper runs typecheck, tests, build, `git diff --check`, and `npm audit --omit=dev`. It does not run `npm install`, `npm update`, `npm audit fix`, `npm audit fix --force`, commit, push, tag, deploy, or read `.env`.
+The helper runs typecheck, tests, build, `git diff --check`, and `npm run lint:security`. It does not run `npm install`, `npm update`, `npm audit fix`, `npm audit fix --force`, commit, push, tag, deploy, or read `.env`.
 
 The web regression test suite covers auth/session fallback rendering, wallet cards, wallet identity/MFP display, portal modals, inline receive QR behavior, signed PSBT verification UI, selected UTXO payload mapping, and local fee-estimate fallback copy.
 
@@ -57,22 +57,22 @@ The web regression test suite covers auth/session fallback rendering, wallet car
 - Run `npm run test`.
 - Run `npm run build`.
 - Run `git diff --check`.
-- Run `npm audit --omit=dev`.
+- Run `npm run lint:security`.
 - Confirm `git status --short` contains only intentional documentation or script changes before committing.
 - Do not commit generated build output.
 - Do not read, print, or modify `.env`, `wallets.enc`, `auth.json`, cookies, sessions, xpubs, PSBTs, txHex, or RPC credentials during local release validation.
 
 ### npm Audit Handling
 
-As of Phase 56, `npm audit --omit=dev` reports a moderate finding through Next's internal PostCSS dependency:
+`npm run lint:security` runs `npm audit --omit=dev --json` and accepts only the documented moderate finding through Next's internal PostCSS dependency:
 
 - Installed Next version: `next@15.5.18`.
 - Reported vulnerable dependency path: Next internal `postcss@8.4.31`.
 - Current status: `npm update next` is already up to date within the Next 15 line in this workspace.
 - Current policy: do not run `npm audit fix` or `npm audit fix --force`.
 - Reason: npm's force fix can select unsafe or breaking dependency changes.
-- Follow-up: re-run `npm update next` and `npm audit --omit=dev` when a newer Next 15 patch is available.
-- Release rule: high or critical production dependency findings require review before release.
+- Follow-up: re-run `npm update next` and `npm run lint:security` when a newer Next 15 patch is available.
+- Release rule: unexpected production dependency findings fail `npm run lint:security` and require review before release.
 
 ### Workspace Link Recovery
 

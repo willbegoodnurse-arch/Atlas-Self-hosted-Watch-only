@@ -167,7 +167,7 @@ npm.cmd run typecheck
 npm.cmd test
 npm.cmd run build
 git diff --check
-npm.cmd audit --omit=dev
+npm.cmd run lint:security
 ```
 
 On shells with Bash available, the local release helper runs the same non-deploying checks except dependency installation:
@@ -176,7 +176,7 @@ On shells with Bash available, the local release helper runs the same non-deploy
 ./scripts/check-local-release.sh
 ```
 
-The helper does not run `npm install`, `npm update`, `npm audit fix`, `npm audit fix --force`, commit, push, tag, deploy, or read `.env`. Use the full smoke checklist in [docs/release-checklist.md](docs/release-checklist.md).
+The helper does not run `npm install`, `npm update`, `npm audit fix`, `npm audit fix --force`, commit, push, tag, deploy, or read `.env`. `npm.cmd run lint:security` accepts only the documented Next/PostCSS advisory and fails on unexpected production dependency vulnerabilities. Use the full smoke checklist in [docs/release-checklist.md](docs/release-checklist.md).
 
 ## Docker Compose
 
