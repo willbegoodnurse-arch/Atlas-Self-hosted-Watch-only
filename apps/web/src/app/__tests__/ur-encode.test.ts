@@ -18,6 +18,15 @@ const LARGE_PSBT_BASE64 = bytesToBase64(
   new Uint8Array(Array.from({ length: 1600 }, (_, index) => index % 251))
 );
 
+function decodeUrFrames(frames: string[]): Buffer {
+  const decoder = new URDecoder(undefined, "crypto-psbt");
+  for (const frame of frames) {
+    decoder.receivePart(frame);
+  }
+  expect(decoder.isSuccess()).toBe(true);
+  return Buffer.from(decoder.resultUR().decodeCBOR());
+}
+
 describe("encodeUrPsbt", () => {
   it("produces crypto-psbt UR frames", () => {
     const frames = encodeUrPsbt(SMALL_PSBT_BASE64);
@@ -31,15 +40,7 @@ describe("encodeUrPsbt", () => {
 
     for (const original of inputs) {
       const frames = encodeUrPsbt(original, { maxFragmentLength: 120 });
-      const decoder = new URDecoder(undefined, "crypto-psbt");
-
-      for (const frame of frames) {
-        decoder.receivePart(frame);
-      }
-
-      expect(decoder.isSuccess()).toBe(true);
-      const decodedBytes = decoder.resultUR().decodeCBOR();
-      expect(Buffer.from(decodedBytes).toString("base64")).toBe(original);
+      expect(decodeUrFrames(frames).toString("base64")).toBe(original);
     }
   });
 
@@ -48,5 +49,29 @@ describe("encodeUrPsbt", () => {
 
     expect(frames.length).toBeGreaterThan(1);
     expect(frames[0]).toMatch(/^ur:crypto-psbt\/1-[0-9]+\//);
+  });
+
+  it("round-trips fragmented UR frames when received out of order", () => {
+    const frames = encodeUrPsbt(LARGE_PSBT_BASE64, { maxFragmentLength: 120 });
+    const shuffledFrames = [
+      ...frames.filter((_, index) => index % 2 === 1),
+      ...frames.filter((_, index) => index % 2 === 0)
+    ];
+
+    expect(frames.length).toBeGreaterThan(1);
+    expect(decodeUrFrames(shuffledFrames).toString("base64")).toBe(LARGE_PSBT_BASE64);
+  });
+
+  it("preserves PSBT magic bytes after bc-ur decoding", () => {
+    const frames = encodeUrPsbt(SMALL_PSBT_BASE64);
+    const decoded = decodeUrFrames(frames);
+
+    expect(Array.from(decoded.slice(0, 5))).toEqual([0x70, 0x73, 0x62, 0x74, 0xff]);
+  });
+
+  it("keeps default animated UR frame payloads within a QR-friendly size", () => {
+    const frames = encodeUrPsbt(LARGE_PSBT_BASE64);
+
+    expect(Math.max(...frames.map((frame) => frame.length))).toBeLessThanOrEqual(500);
   });
 });
