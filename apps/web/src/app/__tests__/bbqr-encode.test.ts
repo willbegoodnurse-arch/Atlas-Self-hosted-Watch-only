@@ -13,6 +13,8 @@ function bytesToBase64(bytes: Uint8Array): string {
 const SMALL_PSBT_BASE64 = btoa("small-psbt-payload");
 const MEDIUM_PSBT_BASE64 = btoa("x".repeat(500));
 const LARGE_PSBT_BASE64 = btoa("y".repeat(2000));
+const PSBT_MAGIC_BYTES = new Uint8Array([0x70, 0x73, 0x62, 0x74, 0xff, 0x01, 0x00]);
+const PSBT_MAGIC_BASE64 = bytesToBase64(PSBT_MAGIC_BYTES);
 
 describe("encodeBbqrPsbt", () => {
   it("produces frames that parseBbqrFrame can parse with correct headers", () => {
@@ -56,6 +58,35 @@ describe("encodeBbqrPsbt", () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.total).toBe(1);
     expect(parsed!.index).toBe(0);
+  });
+
+  it("uses B$2P plus two-character base36 total and zero-based index fields", () => {
+    const singleFrame = encodeBbqrPsbt(PSBT_MAGIC_BASE64);
+    const multiFrame = encodeBbqrPsbt(LARGE_PSBT_BASE64, { maxFrameDataChars: 100 });
+
+    expect(singleFrame[0].slice(0, 8)).toBe("B$2P0100");
+    expect(multiFrame[0].slice(0, 8)).toMatch(/^B\$2P[0-9A-Z]{2}00$/);
+    expect(multiFrame[1].slice(0, 8)).toMatch(/^B\$2P[0-9A-Z]{2}01$/);
+    expect(multiFrame[multiFrame.length - 1].slice(4, 6)).toBe(
+      multiFrame.length.toString(36).toUpperCase().padStart(2, "0")
+    );
+    expect(multiFrame[multiFrame.length - 1].slice(6, 8)).toBe(
+      (multiFrame.length - 1).toString(36).toUpperCase().padStart(2, "0")
+    );
+  });
+
+  it("preserves PSBT magic bytes after reassembling generated BBQr frames", () => {
+    const frames = encodeBbqrPsbt(PSBT_MAGIC_BASE64, { maxFrameDataChars: 8 });
+    const combinedData = frames
+      .map((frame) => parseBbqrFrame(frame)!)
+      .sort((a, b) => a.index - b.index)
+      .map((frame) => frame.data)
+      .join("");
+
+    const decodedBytes = decodeBase32(combinedData);
+
+    expect(Array.from(decodedBytes.slice(0, 5))).toEqual([0x70, 0x73, 0x62, 0x74, 0xff]);
+    expect(bytesToBase64(decodedBytes)).toBe(PSBT_MAGIC_BASE64);
   });
 
   it("produces more frames when maxFrameDataChars is smaller", () => {
