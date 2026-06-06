@@ -17,6 +17,7 @@ type AuthGuard = (request: FastifyRequest, reply: FastifyReply) => unknown;
 
 type BroadcastPsbtBody = {
   psbtBase64?: string;
+  confirmationText?: string;
   expected?: {
     recipientAddress?: string;
     amountSats?: number;
@@ -153,6 +154,10 @@ function validateBroadcastBody(body: BroadcastPsbtBody | undefined):
   const psbtBase64 = body?.psbtBase64;
   if (typeof psbtBase64 !== "string" || psbtBase64.trim().length === 0) {
     return { ok: false, error: "psbtBase64 is required" };
+  }
+
+  if (body?.confirmationText !== "BROADCAST") {
+    return { ok: false, error: "Broadcast confirmation text must be BROADCAST" };
   }
 
   const rawLimit = body?.addressLimit;

@@ -100,7 +100,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
     const unauthenticatedBroadcast = await server.inject({
       method: "POST",
       url: `/api/wallets/${wallet.id}/psbt/broadcast`,
-      payload: { psbtBase64: signedPsbt }
+      payload: { psbtBase64: signedPsbt, confirmationText: "BROADCAST" }
     });
     assert.equal(unauthenticatedBroadcast.statusCode, 401);
 
@@ -143,7 +143,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       method: "POST",
       url: `/api/wallets/${wallet.id}/psbt/broadcast`,
       headers,
-      payload: { psbtBase64: signedPsbt }
+      payload: { psbtBase64: signedPsbt, confirmationText: "BROADCAST" }
     });
     assert.equal(disabledBroadcast.statusCode, 503);
     assert.match(disabledBroadcast.json().error, /disabled/i);
@@ -166,7 +166,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       method: "POST",
       url: `/api/wallets/${wallet.id}/psbt/broadcast`,
       headers,
-      payload: { psbtBase64: signedPsbt }
+      payload: { psbtBase64: signedPsbt, confirmationText: "BROADCAST" }
     });
     assert.equal(unknownBackendBroadcast.statusCode, 503);
     assert.match(unknownBackendBroadcast.json().error, /disabled/i);
@@ -199,7 +199,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       method: "POST",
       url: `/api/wallets/${wallet.id}/psbt/broadcast`,
       headers,
-      payload: { psbtBase64: signedPsbt }
+      payload: { psbtBase64: signedPsbt, confirmationText: "BROADCAST" }
     });
     assert.equal(missingConfigBroadcast.statusCode, 503);
     assert.match(missingConfigBroadcast.json().error, /not configured/i);
@@ -309,12 +309,40 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       });
     }) as typeof fetch;
 
+    const missingConfirmationBroadcast = await server.inject({
+      method: "POST",
+      url: `/api/wallets/${wallet.id}/psbt/broadcast`,
+      headers,
+      payload: {
+        psbtBase64: signedPsbt,
+        addressLimit: 100
+      }
+    });
+    assert.equal(missingConfirmationBroadcast.statusCode, 400);
+    assert.match(missingConfirmationBroadcast.json().error, /confirmation/i);
+    assert.equal(rpcCalls.length, 1);
+
+    const typoConfirmationBroadcast = await server.inject({
+      method: "POST",
+      url: `/api/wallets/${wallet.id}/psbt/broadcast`,
+      headers,
+      payload: {
+        psbtBase64: signedPsbt,
+        confirmationText: "broadcast",
+        addressLimit: 100
+      }
+    });
+    assert.equal(typoConfirmationBroadcast.statusCode, 400);
+    assert.match(typoConfirmationBroadcast.json().error, /BROADCAST/);
+    assert.equal(rpcCalls.length, 1);
+
     const validBroadcast = await server.inject({
       method: "POST",
       url: `/api/wallets/${wallet.id}/psbt/broadcast`,
       headers,
       payload: {
         psbtBase64: signedPsbt,
+        confirmationText: "BROADCAST",
         txHex: "deadbeef",
         addressLimit: 100
       }
@@ -343,6 +371,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       headers,
       payload: {
         psbtBase64: signedPsbt,
+        confirmationText: "BROADCAST",
         addressLimit: 100
       }
     });
@@ -357,7 +386,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       method: "POST",
       url: `/api/wallets/${wallet.id}/psbt/broadcast`,
       headers,
-      payload: { psbtBase64: unsignedPsbt }
+      payload: { psbtBase64: unsignedPsbt, confirmationText: "BROADCAST" }
     });
     assert.equal(unsignedBroadcast.statusCode, 400);
     assert.match(unsignedBroadcast.json().error, /invalid/i);
@@ -369,6 +398,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       headers,
       payload: {
         psbtBase64: signedPsbt,
+        confirmationText: "BROADCAST",
         expected: { feeSats: 1 }
       }
     });
@@ -380,7 +410,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       method: "POST",
       url: `/api/wallets/${wallet.id}/psbt/broadcast`,
       headers,
-      payload: { psbtBase64: "not a psbt" }
+      payload: { psbtBase64: "not a psbt", confirmationText: "BROADCAST" }
     });
     assert.equal(invalidBroadcast.statusCode, 400);
     assert.match(invalidBroadcast.json().error, /invalid/i);
@@ -390,7 +420,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       method: "POST",
       url: "/api/wallets/wallet_missing/psbt/broadcast",
       headers,
-      payload: { psbtBase64: signedPsbt }
+      payload: { psbtBase64: signedPsbt, confirmationText: "BROADCAST" }
     });
     assert.equal(missingWalletBroadcast.statusCode, 404);
     assert.equal(missingWalletBroadcast.json().error, "Wallet not found");
@@ -411,7 +441,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       method: "POST",
       url: `/api/wallets/${wallet.id}/psbt/broadcast`,
       headers,
-      payload: { psbtBase64: signedPsbt }
+      payload: { psbtBase64: signedPsbt, confirmationText: "BROADCAST" }
     });
     assert.equal(rejectedBroadcast.statusCode, 502);
     assert.match(rejectedBroadcast.json().error, /rejected/i);
@@ -433,7 +463,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       method: "POST",
       url: `/api/wallets/${wallet.id}/psbt/broadcast`,
       headers,
-      payload: { psbtBase64: signedPsbt }
+      payload: { psbtBase64: signedPsbt, confirmationText: "BROADCAST" }
     });
     assert.equal(hexLeakBroadcast.statusCode, 502);
     assert.doesNotMatch(hexLeakBroadcast.body, new RegExp(leakedHex));
@@ -455,7 +485,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       method: "POST",
       url: `/api/wallets/${wallet.id}/psbt/broadcast`,
       headers,
-      payload: { psbtBase64: signedPsbt }
+      payload: { psbtBase64: signedPsbt, confirmationText: "BROADCAST" }
     });
     assert.equal(alreadyKnownBroadcast.statusCode, 409);
     assert.match(alreadyKnownBroadcast.json().error, /already.*known/i);
@@ -465,7 +495,7 @@ test("broadcast routes require auth, verification, and configured Bitcoin Core R
       method: "POST",
       url: `/api/wallets/${wallet.id}/psbt/broadcast`,
       headers,
-      payload: { psbtBase64: signedPsbt }
+      payload: { psbtBase64: signedPsbt, confirmationText: "BROADCAST" }
     });
     assert.equal(lockedBroadcast.statusCode, 423);
     assert.equal(lockedBroadcast.json().error, "Vault is locked");

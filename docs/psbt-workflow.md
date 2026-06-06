@@ -67,7 +67,7 @@ After external signing:
 11. If Bitcoin Core broadcast is enabled, confirm outputs and fee, read the irreversible warning, check the confirmation box, type `BROADCAST`, and click Broadcast transaction.
 12. Record the returned txid.
 
-Atlas does not sign. If `BROADCAST_BACKEND=core` is configured, Atlas can broadcast an already-signed transaction through Bitcoin Core RPC only after verification returns `valid` and the user explicitly confirms.
+Atlas does not sign. If `BROADCAST_BACKEND=core` is configured, Atlas can broadcast an already-signed transaction through Bitcoin Core RPC only after verification returns `valid` and the broadcast API receives the exact `BROADCAST` confirmation text.
 
 For a first live broadcast validation, use testnet/signet where possible. If mainnet is used, use a tiny amount only and follow [tiny-broadcast-validation.md](tiny-broadcast-validation.md).
 

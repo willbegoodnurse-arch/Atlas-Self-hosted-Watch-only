@@ -59,7 +59,7 @@ Atlas is watch-only by design.
 - The app never asks for seed phrases or private keys.
 - The app rejects xprv, yprv, zprv, WIF private keys, and seed phrase-looking input.
 - The app never signs transactions.
-- Broadcast is disabled by default. When configured, Atlas can broadcast an already-signed transaction through Bitcoin Core RPC only after server-side signed PSBT verification returns `valid`.
+- Broadcast is disabled by default. When configured, Atlas can broadcast an already-signed transaction through Bitcoin Core RPC only after server-side signed PSBT verification returns `valid` and the broadcast API receives the exact `BROADCAST` confirmation text.
 - Atlas does not broadcast unsigned, invalid, or warning PSBTs.
 - Broadcasting is irreversible after the transaction is accepted and propagated by your node.
 - Extended public keys are privacy-sensitive. Anyone with a full xpub, ypub, or zpub can monitor wallet history and future addresses.
@@ -260,7 +260,7 @@ Signed PSBT verification:
 5. Copy txHex only if the signed PSBT is extractable and you intentionally want to broadcast elsewhere.
 6. If Bitcoin Core RPC broadcast is configured, explicitly confirm broadcast only after the signed PSBT is `valid`.
 
-This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only, disabled by default, irreversible after submission, and requires explicit confirmation. See [docs/psbt-workflow.md](docs/psbt-workflow.md) and [docs/bitcoin-core-rpc-broadcast.md](docs/bitcoin-core-rpc-broadcast.md).
+This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only, disabled by default, irreversible after submission, and requires explicit UI and server-side confirmation. See [docs/psbt-workflow.md](docs/psbt-workflow.md) and [docs/bitcoin-core-rpc-broadcast.md](docs/bitcoin-core-rpc-broadcast.md).
 
 ## Known Limitations
 
