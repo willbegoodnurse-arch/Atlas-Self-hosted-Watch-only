@@ -7,13 +7,14 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
-        INTERNAL_API_URL: ${INTERNAL_API_URL:-http://watch-wallet-api:3011}
+        INTERNAL_API_URL: ${INTERNAL_API_URL:-http://127.0.0.1:3011}
     container_name: watch-wallet-web
-    ports:
-      - "${WEB_PORT:-3010}:3000"
+    network_mode: "host"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api}
-      - INTERNAL_API_URL=${INTERNAL_API_URL:-http://watch-wallet-api:3011}
+      - INTERNAL_API_URL=${INTERNAL_API_URL:-http://127.0.0.1:3011}
+      - PORT=${WEB_PORT:-3010}
+      - HOSTNAME=127.0.0.1
     depends_on:
       - watch-wallet-api
     restart: unless-stopped
@@ -23,17 +24,13 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     container_name: watch-wallet-api
-    # API port 3011 is Docker-internal only. Do NOT publish to host.
-    # The web container accesses this via http://watch-wallet-api:3011
-    # Caddy/browser should NOT access 3011 directly.
-    expose:
-      - "3011"
+    network_mode: "host"
     env_file:
       - .env
     environment:
       - DATA_DIR=/app/apps/api/data
-      - API_HOST=0.0.0.0
-      - HOST=0.0.0.0
+      - API_HOST=127.0.0.1
+      - HOST=127.0.0.1
     volumes:
       - ./apps/api/data:/app/apps/api/data
     restart: unless-stopped

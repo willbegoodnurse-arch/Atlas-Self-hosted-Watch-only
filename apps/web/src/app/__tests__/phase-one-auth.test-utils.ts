@@ -72,6 +72,8 @@ export function makeUtxo(patch: Partial<WalletUtxo> = {}): WalletUtxo {
 export function makePsbtResult(patch: Partial<CreatePsbtResponse> = {}): CreatePsbtResponse {
   return {
     changeAddress: "bc1qatlaschange000000000000000000000000000",
+    changeAddressUsage: "unused",
+    changeAddressWarning: null,
     changeSats: 88000,
     estimatedVbytes: 140,
     feeRateSatsPerVbyte: 5,
@@ -91,7 +93,11 @@ export function makePsbtResult(patch: Partial<CreatePsbtResponse> = {}): CreateP
     outputs: [
       {
         address: "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+        chain: null,
+        index: null,
+        path: null,
         type: "recipient",
+        usage: null,
         valueSats: 10000
       }
     ],

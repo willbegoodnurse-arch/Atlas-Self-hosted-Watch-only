@@ -5,6 +5,7 @@ import {
   copyTextToClipboard,
   CreatePsbtBuilderPanel,
   feeEstimateSourceLabel,
+  formatSecurityAddressDisplay,
   formatFeeRate,
   isSignedPsbtSingleQrCandidate,
   mapSelectedUtxosForPsbt,
@@ -19,6 +20,22 @@ import {
 } from "../phase-one-auth";
 import { encodeUrPsbt } from "../ur-encode";
 import { jsonResponse, makePsbtResult, makeUtxo, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
+
+const signedScannerMock = vi.hoisted(() => ({
+  callback: null as ((result: { getText: () => string } | null) => void) | null,
+  stop: vi.fn()
+}));
+
+vi.mock("@zxing/browser", () => ({
+  BrowserQRCodeReader: vi.fn().mockImplementation(function BrowserQRCodeReaderMock() {
+    return {
+      decodeFromVideoDevice: vi.fn(async (_deviceId, _video, callback) => {
+        signedScannerMock.callback = callback;
+        return { stop: signedScannerMock.stop };
+      })
+    };
+  })
+}));
 
 const feeEstimates = {
   economyFee: 4,
@@ -144,6 +161,8 @@ function installVerifyFetch() {
 describe("PSBT and fee UI regression", () => {
   beforeEach(() => {
     silenceApiLogs();
+    signedScannerMock.callback = null;
+    signedScannerMock.stop.mockClear();
   });
 
   it("keeps recommended fee presets available when Atlas returns normal fee estimates", () => {
@@ -194,7 +213,16 @@ describe("PSBT and fee UI regression", () => {
   });
 
   it("shows created PSBT change output as an unused change address with path metadata", async () => {
-    const selected = makeUtxo({ outpoint: `${"1".repeat(64)}:0`, txid: "1".repeat(64), vout: 0, valueSats: 100000 });
+    const sourceAddress = "bc1qatlasutxo00000000000000000000000000000";
+    const recipientAddress = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
+    const changeAddress = "bc1qatlaschange000000000000000000000000000";
+    const selected = makeUtxo({
+      address: sourceAddress,
+      outpoint: `${"1".repeat(64)}:0`,
+      txid: "1".repeat(64),
+      vout: 0,
+      valueSats: 100000
+    });
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/wallets/wallet-1/utxos")) {
@@ -218,7 +246,7 @@ describe("PSBT and fee UI regression", () => {
           makePsbtResult({
             outputs: [
               {
-                address: "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+                address: recipientAddress,
                 chain: null,
                 index: null,
                 path: null,
@@ -226,14 +254,17 @@ describe("PSBT and fee UI regression", () => {
                 valueSats: 10000
               },
               {
-                address: "bc1qatlaschange000000000000000000000000000",
+                address: changeAddress,
                 chain: "change",
                 index: 0,
                 path: "m/84'/0'/0'/1/0",
                 type: "change",
+                usage: "unused",
                 valueSats: 88000
               }
-            ]
+            ],
+            changeAddressUsage: "unused",
+            changeAddressWarning: null
           })
         );
       }
@@ -250,14 +281,84 @@ describe("PSBT and fee UI regression", () => {
       />
     );
 
-    await userEvent.type(screen.getByLabelText(/Recipient 1 address/i), "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080");
+    await userEvent.type(screen.getByLabelText(/Recipient 1 address/i), recipientAddress);
     await userEvent.type(screen.getByLabelText(/^Amount$/i), "10000");
     await userEvent.click(screen.getByRole("button", { name: /Create unsigned PSBT/i }));
 
     expect(await screen.findByText("Unsigned PSBT ready")).toBeInTheDocument();
-    expect(screen.getAllByText(/Unused change address/i).length).toBeGreaterThan(0);
-    expect(screen.getByText("change #0 / m/84'/0'/0'/1/0")).toBeInTheDocument();
+    expect(screen.getAllByText(/Change address|Wallet change/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatSecurityAddressDisplay(sourceAddress)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatSecurityAddressDisplay(recipientAddress)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatSecurityAddressDisplay(changeAddress)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Before signing, compare recipient address, amount, fee, and change output/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/If Atlas and the signer disagree, stop/i).length).toBeGreaterThan(0);
+    expect(document.querySelector(".psbt-result")?.textContent).not.toContain("...");
+    expect(screen.getByText(/change #0 \/ m\/84'\/0'\/0'\/1\/0 \/ usage unused/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Show outpoint/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Outpoint \(txid:vout\):/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Recipient 1/i).length).toBeGreaterThan(0);
+  });
+
+  it("shows an explicit no-change message when created PSBT has no change output", async () => {
+    const selected = makeUtxo({ outpoint: `${"4".repeat(64)}:0`, txid: "4".repeat(64), vout: 0, valueSats: 10830 });
+    const recipientAddress = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/wallets/wallet-1/utxos")) {
+        return jsonResponse({
+          addressLimit: 20,
+          chain: "both",
+          failedAddresses: [],
+          includeUnconfirmed: true,
+          status: "online",
+          summary: { confirmedBalance: 10830, totalBalance: 10830, unconfirmedBalance: 0 },
+          unit: "sats",
+          utxos: [selected],
+          walletId: "wallet-1"
+        });
+      }
+      if (url.includes("/api/fees/recommended")) {
+        return jsonResponse({ estimates: feeEstimates, source: "recommended", status: "online" });
+      }
+      if (url.includes("/api/wallets/wallet-1/psbt")) {
+        return jsonResponse(
+          makePsbtResult({
+            changeAddress: null,
+            changeSats: 0,
+            inputs: [{ ...makePsbtResult().inputs[0]!, address: selected.address, txid: selected.txid, vout: selected.vout, outpoint: selected.outpoint, valueSats: selected.valueSats }],
+            outputs: [
+              {
+                address: recipientAddress,
+                chain: null,
+                index: null,
+                path: null,
+                type: "recipient",
+                valueSats: 10000
+              }
+            ],
+            totalInputSats: selected.valueSats
+          })
+        );
+      }
+      return jsonResponse({ error: "unexpected request" }, 500);
+    });
+
+    render(
+      <CreatePsbtBuilderPanel
+        apiUrl=""
+        balanceUnit="sats"
+        initialSelectedOutpoints={[selected.outpoint]}
+        wallet={makeWallet()}
+      />
+    );
+
+    await userEvent.type(screen.getByLabelText(/Recipient 1 address/i), recipientAddress);
+    await userEvent.type(screen.getByLabelText(/^Amount$/i), "10000");
+    await userEvent.click(screen.getByRole("button", { name: /Create unsigned PSBT/i }));
+
+    expect(await screen.findByText("Unsigned PSBT ready")).toBeInTheDocument();
+    expect(screen.getAllByText(/No change output/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatSecurityAddressDisplay(recipientAddress)).length).toBeGreaterThan(0);
   });
 
   it("maps fee presets to high medium and low priorities", () => {
@@ -417,6 +518,106 @@ describe("PSBT and fee UI regression", () => {
     expect(await screen.findByRole("dialog", { name: /Scan signed PSBT QR/i })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Use Paste fallback/i }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: /Scan signed PSBT QR/i })).not.toBeInTheDocument());
+  });
+
+  it("shows feedback for unsupported signed PSBT QR payloads", async () => {
+    installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+    await waitFor(() => expect(signedScannerMock.callback).not.toBeNull());
+
+    signedScannerMock.callback?.({ getText: () => "not a psbt" });
+
+    expect(await screen.findByText(/not a supported signed PSBT payload/i)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /Scan signed PSBT QR/i })).toBeInTheDocument();
+  });
+
+  it("shows invalid feedback for malformed PSBT-like QR payloads", async () => {
+    const fetchMock = installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+    await waitFor(() => expect(signedScannerMock.callback).not.toBeNull());
+
+    signedScannerMock.callback?.({ getText: () => "cHNidP8B!!!!" });
+
+    expect(await screen.findByText(/Invalid PSBT QR payload/i)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /Scan signed PSBT QR/i })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/psbt/verify"), expect.anything());
+  });
+
+  it("shows decoder feedback for malformed signed PSBT UR QR payloads", async () => {
+    const fetchMock = installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+    await waitFor(() => expect(signedScannerMock.callback).not.toBeNull());
+
+    signedScannerMock.callback?.({ getText: () => "ur:crypto-psbt/1-3/lpaoaxlfaohhaadaao" });
+
+    const decoderMessages = await screen.findAllByText(/Invalid Checksum/i);
+    expect(decoderMessages.length).toBeGreaterThan(0);
+    expect(screen.getByRole("dialog", { name: /Scan signed PSBT QR/i })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/psbt/verify"), expect.anything());
+  });
+
+  it("shows explicit unsupported feedback for signed PSBT BBQr payloads", async () => {
+    const fetchMock = installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+    await waitFor(() => expect(signedScannerMock.callback).not.toBeNull());
+
+    signedScannerMock.callback?.({ getText: () => "B$2P0100ABCDEF" });
+
+    expect(await screen.findByText(/Multipart signed PSBT QR detected, but this format is not supported yet/i)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /Scan signed PSBT QR/i })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/psbt/verify"), expect.anything());
+  });
+
+  it("verifies a valid single-frame signed PSBT QR scan", async () => {
+    const fetchMock = installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+    await waitFor(() => expect(signedScannerMock.callback).not.toBeNull());
+
+    signedScannerMock.callback?.({ getText: () => "cHNidP8Bsigned" });
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Scan signed PSBT QR/i })).not.toBeInTheDocument());
+    expect(await screen.findByText(/Verification result/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/wallets/wallet-1/psbt/verify"),
+      expect.objectContaining({
+        body: expect.stringContaining('"psbtBase64":"cHNidP8Bsigned"')
+      })
+    );
+  });
+
+  it("verifies a signed PSBT QR scan with a psbt prefix", async () => {
+    const fetchMock = installVerifyFetch();
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+
+    render(<VerifyPsbtPanel apiUrl="" balanceUnit="sats" wallet={makeWallet()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scan signed PSBT QR/i }));
+    await waitFor(() => expect(signedScannerMock.callback).not.toBeNull());
+
+    signedScannerMock.callback?.({ getText: () => "psbt:\n cHNidP8Bsigned" });
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Scan signed PSBT QR/i })).not.toBeInTheDocument());
+    expect(await screen.findByText(/Verification result/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/wallets/wallet-1/psbt/verify"),
+      expect.objectContaining({
+        body: expect.stringContaining('"psbtBase64":"cHNidP8Bsigned"')
+      })
+    );
   });
 
   it("captures a partial multipart signed PSBT frame without verifying yet", async () => {

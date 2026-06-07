@@ -278,11 +278,33 @@ test("createWalletPsbt: change output is included when change >= dust", async ()
   assert.equal(changeOutput.chain, "change");
   assert.equal(changeOutput.index, 0);
   assert.equal(changeOutput.path, "m/84'/0'/0'/1/0");
+  assert.equal(changeOutput.usage, "unused");
+  assert.equal(result.changeAddressUsage, "unused");
+  assert.equal(result.changeAddressWarning, null);
   const recipientOutput = result.outputs.find((o) => o.type === "recipient");
   assert.ok(recipientOutput);
   assert.equal(recipientOutput.chain, null);
   assert.equal(recipientOutput.index, null);
   assert.equal(recipientOutput.path, null);
+  assert.equal(recipientOutput.usage, null);
+});
+
+test("createWalletPsbt: blocks change output when change address usage cannot be proven unused", async () => {
+  const fetchFn = makeFetchFn({ [receiveAddr0]: [confirmedUtxo50k] });
+
+  await assert.rejects(
+    () =>
+      createWalletPsbt(
+        baseWallet,
+        { recipientAddress: externalRecipient, amountSats: 10000, feeRateSatsPerVbyte: 1 },
+        { fetchUtxosFn: fetchFn, fetchAddressStatsFn: allUsedStatsFn }
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof InvalidPsbtParamsError);
+      assert.match(error.message, /No unused change address found/i);
+      return true;
+    }
+  );
 });
 
 test("createWalletPsbt: no change output when change is dust", async () => {

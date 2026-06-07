@@ -205,6 +205,8 @@ Atlas should not persist wallet metadata, xpubs, raw imports, labels, notes, PSB
 
 The browser is a convenience display, not the trusted wallet database. A compromised browser can change text, QR codes, clipboard contents, and form values before the user sees them. Atlas reduces server-side exposure, but it cannot make an untrusted browser safe.
 
+For the focused browser display and address substitution model, see [docs/browser-display-threat-model.md](docs/browser-display-threat-model.md).
+
 ## Backups And Exports
 
 `wallets.enc` is encrypted, but it is still sensitive. It may contain xpub, ypub, zpub, addresses, labels, UTXO notes, transaction notes, and other privacy-sensitive wallet metadata. Backups must be protected like wallet-history metadata.
