@@ -8,8 +8,7 @@ import { authConfig } from "../auth/config.js";
 import {
   checkMempoolHealth,
   discoverNextUnusedReceiveAddress,
-  lookupAddressBalanceRecords,
-  lookupAddressUsageRecords
+  lookupAddressBalanceRecords
 } from "../mempool/usage.js";
 import { lookupWalletTransactions } from "../mempool/transactions.js";
 import type { WalletTransactionsResult } from "../mempool/transactions.js";
@@ -28,7 +27,6 @@ import {
 import {
   deleteAddressLabels,
   deleteTransactionLabels,
-  deleteUtxoNotes,
   normalizeAddressLabelInput,
   normalizeAddressLabelDeleteInput,
   normalizeStoredAddressLabels,
@@ -36,11 +34,9 @@ import {
   normalizeStoredUtxoNotes,
   normalizeTransactionLabelInput,
   normalizeTransactionLabelDeleteInput,
-  normalizeUtxoNoteInput,
   normalizeWalletNotes,
   upsertAddressLabels,
-  upsertTransactionLabels,
-  upsertUtxoNotes
+  upsertTransactionLabels
 } from "./labels.js";
 import {
   createVaultEnvelope,
@@ -250,41 +246,6 @@ export async function deleteAddressLabel(
   return wallet;
 }
 
-export async function upsertUtxoNote(
-  id: string,
-  input: {
-    txid: unknown;
-    vout: unknown;
-    note?: unknown;
-  }
-): Promise<WalletRecord> {
-  const wallet = findWalletById(id);
-  const note = normalizeUtxoNoteInput(input);
-  wallet.utxoNotes = upsertUtxoNotes(
-    wallet.utxoNotes,
-    note,
-    new Date().toISOString()
-  );
-  wallet.updatedAt = new Date().toISOString();
-  await saveUnlockedVault();
-  return wallet;
-}
-
-export async function deleteUtxoNote(
-  id: string,
-  input: {
-    txid: unknown;
-    vout: unknown;
-  }
-): Promise<WalletRecord> {
-  const wallet = findWalletById(id);
-  const note = normalizeUtxoNoteInput({ ...input, note: null });
-  wallet.utxoNotes = deleteUtxoNotes(wallet.utxoNotes, note.txid, note.vout);
-  wallet.updatedAt = new Date().toISOString();
-  await saveUnlockedVault();
-  return wallet;
-}
-
 export async function upsertTransactionLabel(
   id: string,
   input: {
@@ -354,27 +315,6 @@ export function deriveWalletAddresses(
       chain: input.chain,
       limit: input.limit
     })
-  };
-}
-
-export async function deriveWalletAddressUsage(
-  id: string,
-  input: {
-    chain: AddressChain | "both";
-    limit: number;
-  }
-) {
-  const { wallet, result } = deriveWalletAddresses(id, input);
-  const usage = await lookupAddressUsageRecords(result.addresses);
-
-  return {
-    wallet,
-    result: {
-      ...result,
-      usageStatus: usage.lookupFailed ? "partial" : "ready",
-      addresses: usage.addresses,
-      lookupFailed: usage.lookupFailed
-    }
   };
 }
 

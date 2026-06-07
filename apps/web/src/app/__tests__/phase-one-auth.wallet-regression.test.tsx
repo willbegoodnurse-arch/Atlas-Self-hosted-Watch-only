@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AuthShell,
   DashboardBalanceHero,
+  formatSecurityAddressDisplay,
   formatTransactionStatus,
   normalizeSettingsLanguage,
   selectDefaultReceiveAddresses,
@@ -321,10 +322,9 @@ describe("wallet list and identity regression", () => {
 
     render(<AuthShell apiUrl="" />);
 
-    await waitFor(() =>
-      expect(document.querySelector(".dashboard-main .button-row > button.secondary-button.compact-button")).not.toBeNull()
-    );
-    await userEvent.click(document.querySelector(".dashboard-main .button-row > button.secondary-button.compact-button") as Element);
+    await waitFor(() => expect(document.querySelector(".dashboard-main .button-row")).not.toBeNull());
+    const toolbar = document.querySelector(".dashboard-main .button-row") as HTMLElement;
+    await userEvent.click(within(toolbar).getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByText("Watch-only mode enforced")).toBeInTheDocument();
   });
@@ -399,8 +399,8 @@ describe("wallet list and identity regression", () => {
 
     render(<AuthShell apiUrl="" />);
 
-    await waitFor(() => expect(document.querySelector(".sidebar-link")).not.toBeNull());
-    await userEvent.click(document.querySelector(".sidebar-link") as Element);
+    const navigation = await screen.findByLabelText("Navigation");
+    await userEvent.click(within(navigation).getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
     expect(window.location.hash).toBe("");
   });
@@ -669,10 +669,12 @@ describe("wallet list and identity regression", () => {
       />
     );
 
-    expect((await screen.findAllByText("bc1qunused10000000000000000000000000000")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("bc1qunused50000000000000000000000000000").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(formatSecurityAddressDisplay("bc1qunused10000000000000000000000000000"))).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatSecurityAddressDisplay("bc1qunused50000000000000000000000000000")).length).toBeGreaterThan(0);
     expect(screen.queryByText("bc1qusedempty0000000000000000000000000000")).not.toBeInTheDocument();
     expect(screen.getByText(/Used empty receive addresses are hidden/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Verify this receive address on your signing device before sending large amounts/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/The browser display is not the final authority/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText("#5").length).toBeGreaterThan(0);
     expect(screen.getByText("m/84'/0'/0'/0/5")).toBeInTheDocument();
   });

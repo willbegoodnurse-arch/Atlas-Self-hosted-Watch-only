@@ -234,7 +234,20 @@ Important variables:
 - `API_MODE`: currently `mempool` for normal operation. Fulcrum diagnostics exist, but balance and transaction lookups use a mempool-compatible HTTP API.
 - `BROADCAST_BACKEND`: `disabled` by default. Set to `core` only when Bitcoin Core RPC broadcast is intended.
 - `CORE_RPC_URL`, `CORE_RPC_USERNAME`, `CORE_RPC_PASSWORD`: Bitcoin Core RPC settings for optional broadcast. `CORE_RPC_URL` must use `http://` or `https://` and must not embed credentials. Keep credentials out of Git and never expose Core RPC publicly.
+- `MEMPOOL_WEB_URL`: optional browser-facing local mempool URL used only for transaction handoff links after Bitcoin Core accepts a broadcast.
 - `VAULT_AUTO_LOCK_MINUTES`: inactivity timeout for the unlocked vault.
+
+Broadcast remains disabled unless explicitly enabled on the Atlas host:
+
+```env
+BROADCAST_BACKEND=core
+CORE_RPC_URL=http://127.0.0.1:8332
+CORE_RPC_USERNAME=<your-rpc-user>
+CORE_RPC_PASSWORD=<your-rpc-password>
+MEMPOOL_WEB_URL=http://<your-local-mempool-url>
+```
+
+Atlas never stores seed phrases or private keys, cannot sign transactions, and broadcasts only externally signed PSBTs after verification by extracting raw transaction hex and submitting it to Bitcoin Core RPC `sendrawtransaction`.
 
 Do not put seed phrases, private keys, xprv values, WIF keys, real wallet xpubs, or RPC passwords in `.env.example` or committed docs.
 
@@ -294,6 +307,7 @@ This app does not sign transactions. Optional broadcast is Bitcoin Core RPC only
 - [Camera QR secure context guide](docs/camera-qr-secure-context.md)
 - [Same-origin API proxy guide](docs/same-origin-api-proxy.md)
 - [PSBT workflow guide](docs/psbt-workflow.md)
+- [Browser display and address substitution threat model](docs/browser-display-threat-model.md)
 - [Self-hosted mempool fee estimates](docs/mempool-fee-estimates.md)
 - [Release and smoke test checklist](docs/release-checklist.md)
 - [Security policy](SECURITY.md)

@@ -487,6 +487,7 @@ export type CreatePsbtResponse = {
     chain?: "receive" | "change" | null;
     index?: number | null;
     path?: string | null;
+    usage?: "used" | "unused" | "unknown" | null;
   }>;
   feeSats: number;
   feeRateSatsPerVbyte: number;
@@ -494,6 +495,8 @@ export type CreatePsbtResponse = {
   totalInputSats: number;
   changeAddress: string | null;
   changeSats: number;
+  changeAddressUsage?: "used" | "unused" | "unknown" | null;
+  changeAddressWarning?: string | null;
 };
 
 export type FeeEstimatesResponse = {
@@ -658,6 +661,127 @@ export const SIGNED_PSBT_UNSUPPORTED_UR_MESSAGE =
 
 export function isSignedPsbtSingleQrCandidate(payload: string): boolean {
   return payload.trim().length > 0 && payload.trim().length <= SIGNED_PSBT_SINGLE_QR_MAX_CHARS;
+}
+
+function extractSignedPsbtBase64Payload(payload: string): {
+  psbtBase64: string | null;
+  message: string;
+  unsupported: boolean;
+  invalid: boolean;
+} {
+  const trimmed = payload.trim();
+  const compact = trimmed.replace(/\s+/g, "");
+  const lower = trimmed.toLowerCase();
+
+  if (!trimmed) {
+    return {
+      psbtBase64: null,
+      message: "QR scan was empty. Keep the signed PSBT QR in view.",
+      unsupported: false,
+      invalid: true
+    };
+  }
+
+  if (lower.startsWith("ur:crypto-psbt")) {
+    return {
+      psbtBase64: null,
+      message: "Multipart signed PSBT QR detected, but this format is not supported yet. Use base64 PSBT QR, paste, or file import.",
+      unsupported: true,
+      invalid: false
+    };
+  }
+
+  if (trimmed.startsWith("B$")) {
+    return {
+      psbtBase64: null,
+      message: "Multipart signed PSBT QR detected, but this format is not supported yet. Use base64 PSBT QR, paste, or file import.",
+      unsupported: true,
+      invalid: false
+    };
+  }
+
+  const psbtPrefix = trimmed.match(/^psbt:\s*(.+)$/i);
+  if (psbtPrefix?.[1]) {
+    return classifySignedPsbtBase64Candidate(psbtPrefix[1], "Signed PSBT QR detected. Verifying signed PSBT...");
+  }
+
+  if (lower.startsWith("bitcoin:")) {
+    try {
+      const query = trimmed.includes("?") ? trimmed.slice(trimmed.indexOf("?")) : "";
+      const params = new URLSearchParams(query);
+      const psbt = params.get("psbt");
+      if (psbt) {
+        return classifySignedPsbtBase64Candidate(decodeURIComponent(psbt), "Signed PSBT QR detected. Verifying signed PSBT...");
+      }
+    } catch {
+      return {
+        psbtBase64: null,
+        message: "Invalid PSBT QR payload. Use base64 PSBT QR, paste, or file import.",
+        unsupported: false,
+        invalid: true
+      };
+    }
+  }
+
+  return classifySignedPsbtBase64Candidate(compact, "Signed PSBT QR detected. Verifying signed PSBT...");
+}
+
+function classifySignedPsbtBase64Candidate(candidate: string, successMessage: string) {
+  const compact = candidate.trim().replace(/\s+/g, "");
+  if (!compact.startsWith("cHNidP8B")) {
+    return {
+      psbtBase64: null,
+      message: "QR scanned, but it is not a supported signed PSBT payload. Use a base64 PSBT QR or paste/file import.",
+      unsupported: true,
+      invalid: false
+    };
+  }
+  if (!/^[A-Za-z0-9+/=]+$/.test(compact)) {
+    return {
+      psbtBase64: null,
+      message: "Invalid PSBT QR payload. Use base64 PSBT QR, paste, or file import.",
+      unsupported: false,
+      invalid: true
+    };
+  }
+  return {
+    psbtBase64: compact,
+    message: successMessage,
+    unsupported: false,
+    invalid: false
+  };
+}
+
+export function formatSecurityAddressDisplay(address: string): string {
+  const raw = address.trim();
+  if (!raw) return "";
+
+  const bech32Prefix = raw.match(/^(bc1|tb1|bcrt1)[qp]/i)?.[0] ?? "";
+  const prefix = bech32Prefix || (raw.length > 12 ? raw.slice(0, 4) : "");
+  const body = prefix ? raw.slice(prefix.length) : raw;
+  const sections = body.match(/.{1,8}/g) ?? [];
+  const groupedSections = sections.map((section) => section.match(/.{1,4}/g)?.join(" ") ?? section);
+
+  return [prefix, ...groupedSections].filter(Boolean).join(" · ");
+}
+
+function SecurityAddress({
+  address,
+  unavailableText = "address unavailable"
+}: {
+  address: string | null | undefined;
+  unavailableText?: string;
+}) {
+  const rawAddress = address?.trim() ?? "";
+  if (!rawAddress) {
+    return <span className="security-address security-address-unavailable">{unavailableText}</span>;
+  }
+
+  return (
+    <code className="security-address" data-raw-address={rawAddress} title={rawAddress}>
+      {formatSecurityAddressDisplay(rawAddress)}
+    </code>
+  );
 }
 
 type VerifyPsbtResponse = {
@@ -1026,19 +1150,6 @@ function StatusBadge({
   };
   return <span className={`status-badge status-${status}`}>{label} {statusText[status]}</span>;
 }
-
-function AtlasBrandMark({ compact = false }: { compact?: boolean }) {
-  return (
-    <div className={compact ? "atlas-brand compact" : "atlas-brand"} aria-hidden="true">
-      <svg className="atlas-brand-mark" viewBox="0 0 48 48" role="img" aria-hidden="true">
-        <circle cx="24" cy="17" r="11" fill="none" stroke="currentColor" strokeWidth="1.4" />
-        <path d="M14 17h20M24 6v22M16.5 11.5c4 2.4 11 2.4 15 0M16.5 22.5c4-2.4 11-2.4 15 0" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-        <path d="M13 42h22M17 40l7-14 7 14M20.5 34h7" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </div>
-  );
-}
-
 function TerminalSkeleton({ label, rows }: { label: string; rows: number }) {
   return (
     <div className="terminal-panel skeleton-panel" aria-busy="true">
@@ -1238,25 +1349,45 @@ function DashboardShell({
 }
 
 function AppSidebar({
-  initialWalletId,
+  activeItem,
   onOpenSettings
 }: {
-  initialWalletId?: string | null;
+  activeItem: "dashboard" | "import-wallet" | "settings" | null;
   onOpenSettings: () => void;
 }) {
+  const dashboardActive = activeItem === "dashboard";
+  const importWalletActive = activeItem === "import-wallet";
+  const settingsActive = activeItem === "settings";
+
   return (
     <aside className="app-sidebar" aria-label="Navigation">
       <nav className="sidebar-nav">
-        <a href="/">Dashboard</a>
-        <a href="/#import-wallet">Import wallet</a>
-        <button type="button" className="sidebar-link" onClick={onOpenSettings}>
+        <a
+          aria-current={dashboardActive ? "page" : undefined}
+          className={dashboardActive ? "sidebar-link is-active" : "sidebar-link"}
+          href="/"
+        >
+          Dashboard
+        </a>
+        <a
+          aria-current={importWalletActive ? "page" : undefined}
+          className={importWalletActive ? "sidebar-link is-active" : "sidebar-link"}
+          href="/#import-wallet"
+        >
+          Import wallet
+        </a>
+        <button
+          type="button"
+          aria-pressed={settingsActive}
+          className={settingsActive ? "sidebar-link is-active" : "sidebar-link"}
+          onClick={onOpenSettings}
+        >
           Settings
         </button>
       </nav>
     </aside>
   );
 }
-
 function VaultWorkspace({
   apiUrl,
   initialWalletId = null,
@@ -1282,10 +1413,21 @@ function VaultWorkspace({
   const [settingsLanguage, setSettingsLanguage] = useState<SettingsLanguage>("en");
   const [dashboardBalanceUnit, setDashboardBalanceUnit] = useState<BalanceUnit>("btc");
   const [showKrwEstimate, setShowKrwEstimate] = useState(true);
+  const [importContextActive, setImportContextActive] = useState(false);
   const detailWalletId = initialWalletId ? decodeURIComponent(initialWalletId) : null;
 
   useEffect(() => {
     void refreshVault();
+  }, []);
+
+  useEffect(() => {
+    function syncImportContext() {
+      setImportContextActive(window.location.hash === "#import-wallet");
+    }
+
+    syncImportContext();
+    window.addEventListener("hashchange", syncImportContext);
+    return () => window.removeEventListener("hashchange", syncImportContext);
   }, []);
 
   async function refreshVault() {
@@ -1487,7 +1629,7 @@ function VaultWorkspace({
   if (!status.initialized) {
     return (
       <div className="vault-gate">
-        <div className="toolbar-row">
+        <div className="toolbar-row dashboard-toolbar-panel">
           <p className="muted">Signed in as {session?.user?.username ?? "admin"}</p>
           <button className="secondary-button compact-button" disabled={shellBusy} type="button" onClick={onLogout}>
             Log out
@@ -1502,7 +1644,7 @@ function VaultWorkspace({
   if (!status.unlocked) {
     return (
       <div className="vault-gate">
-        <div className="toolbar-row">
+        <div className="toolbar-row dashboard-toolbar-panel">
           <p className="muted">Signed in as {session?.user?.username ?? "admin"}</p>
           <button className="secondary-button compact-button" disabled={shellBusy} type="button" onClick={onLogout}>
             Log out
@@ -1516,9 +1658,18 @@ function VaultWorkspace({
 
   return (
     <div className="dashboard-shell">
-      <AppSidebar initialWalletId={initialWalletId} onOpenSettings={() => setSettingsOpen(true)} />
+      <AppSidebar
+        activeItem={
+          settingsOpen
+            ? "settings"
+            : importContextActive
+              ? "import-wallet"
+              : "dashboard"
+        }
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
       <div className="dashboard-main">
-        <div className="toolbar-row">
+        <div className="toolbar-row dashboard-toolbar-panel">
           <p className="muted">Signed in as {session?.user?.username ?? "admin"}</p>
           <div className="button-row">
             {initialWalletId ? (
@@ -2430,11 +2581,18 @@ export function WalletCreateForm({
     try {
       const payload = assembleBbqrPayload(result.state);
       if (payload) {
+        const payloadDetection = detectImportMetadata(payload, network, "coldcard");
         setImportText(payload);
         setHideImportPayload(true);
         setSourceDevice("coldcard");
         setImportMethod(source === "camera" ? "qr" : "paste");
-        setScannerMessage(`All ${frame.total} BBQr frames captured. Decoding Coldcard Generic JSON...`);
+        if (payloadDetection.extendedPublicKey && !payloadDetection.privateInput && !payloadDetection.unsupportedReason) {
+          setScannerMessage(`All ${frame.total} BBQr frames captured. Import preview is loading.`);
+          stopScanner();
+          setScannerOpen(false);
+        } else {
+          setScannerMessage(payloadDetection.unsupportedReason ?? "Complete BBQr payload is not a supported Coldcard Generic JSON watch-only export.");
+        }
         return;
       }
       setScannerMessage(result.message);
@@ -3258,6 +3416,19 @@ export function PortalModal({
   panelClassName?: string;
   onClose: () => void;
 }) {
+  useEffect(() => {
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousDocumentOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousDocumentOverflow;
+    };
+  }, []);
+
   if (typeof document === "undefined") {
     return null;
   }
@@ -3590,7 +3761,6 @@ function WalletDetailView({
   const [balanceUnit, setBalanceUnit] = useState<"sats" | "btc">("sats");
   const [, setBalanceBadgeStatus] = useState<StatusKind>("degraded");
   const [, setTxBadgeStatus] = useState<StatusKind>("degraded");
-  const [, setUtxoBadgeStatus] = useState<StatusKind>("degraded");
   const [refreshToken, setRefreshToken] = useState(0);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [receivePanelOpen, setReceivePanelOpen] = useState(false);
@@ -3662,7 +3832,7 @@ function WalletDetailView({
             {deviceLabel(wallet.sourceDevice)} / {wallet.network} / {formatScriptType(wallet.scriptType)} / {accountPath} / fpr {wallet.masterFingerprint ?? "not provided"}
           </p>
           <div className="hero-actions wallet-detail-actions">
-            <button className="primary-link-button" type="button" onClick={() => setReceivePanelOpen(true)}>
+            <button className="primary-link-button wallet-primary-action" type="button" onClick={() => setReceivePanelOpen(true)}>
               Receive
             </button>
             <button className="secondary-button" type="button" onClick={() => openPsbtWorkflow()}>
@@ -3779,299 +3949,6 @@ function WalletDetailView({
   );
 }
 
-function UtxoPanel({
-  apiUrl,
-  balanceUnit,
-  onUtxoStatusChange,
-  onCreatePsbt,
-  refreshToken,
-  wallet,
-  onWalletChange
-}: {
-  apiUrl: string;
-  balanceUnit: "sats" | "btc";
-  onUtxoStatusChange: (status: StatusKind) => void;
-  onCreatePsbt: (selectedOutpoints: string[]) => void;
-  refreshToken: number;
-  wallet: WalletRecord;
-  onWalletChange: (wallet: WalletRecord) => void;
-}) {
-  const [utxoResponse, setUtxoResponse] = useState<WalletUtxosResponse | null>(null);
-  const [utxoStatus, setUtxoStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
-  const [message, setMessage] = useState("");
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedOutpoints, setSelectedOutpoints] = useState<string[]>([]);
-  const [chain] = useState<"both" | "receive" | "change">("both");
-  const [addressLimit] = useState(20);
-  const [includeUnconfirmed] = useState(true);
-  const [editingUtxoOutpoint, setEditingUtxoOutpoint] = useState("");
-  const [utxoNoteDraft, setUtxoNoteDraft] = useState("");
-  const [utxoNoteSaving, setUtxoNoteSaving] = useState(false);
-  const [utxoNoteError, setUtxoNoteError] = useState("");
-
-  useEffect(() => {
-    if (selectionMode) {
-      void fetchUtxos();
-    }
-  }, [wallet.id, refreshToken, selectionMode]);
-
-  useEffect(() => {
-    function openSelectionFromHash() {
-      if (window.location.hash === "#utxo") {
-        setSelectionMode(true);
-      }
-    }
-
-    openSelectionFromHash();
-    window.addEventListener("hashchange", openSelectionFromHash);
-    return () => window.removeEventListener("hashchange", openSelectionFromHash);
-  }, []);
-
-  async function fetchUtxos() {
-    setUtxoStatus("loading");
-    setMessage("");
-    try {
-      const params = new URLSearchParams({
-        chain,
-        addressLimit: String(addressLimit),
-        includeUnconfirmed: String(includeUnconfirmed)
-      });
-      const response = await apiRequest<WalletUtxosResponse>(
-        apiUrl,
-        `/api/wallets/${wallet.id}/utxos?${params}`
-      );
-      setUtxoResponse(response);
-      setSelectedOutpoints((current) =>
-        current.filter((outpoint) => response.utxos.some((utxo) => utxo.outpoint === outpoint))
-      );
-      setUtxoStatus("loaded");
-      onUtxoStatusChange(
-        response.status === "online" ? "online" :
-        response.status === "offline" ? "offline" : "degraded"
-      );
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "UTXO lookup failed. Check the local backend connection.");
-      setUtxoResponse(null);
-      setUtxoStatus("error");
-      onUtxoStatusChange("offline");
-    }
-  }
-
-  function beginEditUtxoNote(utxo: WalletUtxo) {
-    const note = getUtxoNote(wallet, utxo.txid, utxo.vout);
-    setEditingUtxoOutpoint(utxo.outpoint);
-    setUtxoNoteDraft(note?.note ?? "");
-    setUtxoNoteError("");
-  }
-
-  function cancelEditUtxoNote() {
-    setEditingUtxoOutpoint("");
-    setUtxoNoteDraft("");
-    setUtxoNoteError("");
-  }
-
-  async function saveUtxoNote(utxo: WalletUtxo) {
-    setUtxoNoteSaving(true);
-    setUtxoNoteError("");
-    try {
-      const response = await apiRequest<{ wallet: WalletRecord }>(apiUrl, `/api/wallets/${wallet.id}/labels/utxo`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          txid: utxo.txid,
-          vout: utxo.vout,
-          note: utxoNoteDraft
-        })
-      });
-      onWalletChange(response.wallet);
-      cancelEditUtxoNote();
-    } catch (error) {
-      setUtxoNoteError(error instanceof Error ? error.message : "Unable to save UTXO note");
-    } finally {
-      setUtxoNoteSaving(false);
-    }
-  }
-
-  async function clearUtxoNote(utxo: WalletUtxo) {
-    setUtxoNoteSaving(true);
-    setUtxoNoteError("");
-    try {
-      const response = await apiRequest<{ wallet: WalletRecord }>(apiUrl, `/api/wallets/${wallet.id}/labels/utxo`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          txid: utxo.txid,
-          vout: utxo.vout,
-          note: ""
-        })
-      });
-      onWalletChange(response.wallet);
-      cancelEditUtxoNote();
-    } catch (error) {
-      setUtxoNoteError(error instanceof Error ? error.message : "Unable to clear UTXO note");
-    } finally {
-      setUtxoNoteSaving(false);
-    }
-  }
-
-  const utxos = utxoResponse?.utxos ?? [];
-  const selectedUtxos = utxos.filter((utxo) => selectedOutpoints.includes(utxo.outpoint));
-  const selectedTotalSats = selectedUtxos.reduce((sum, utxo) => sum + utxo.valueSats, 0);
-
-  function toggleUtxoSelection(utxo: WalletUtxo) {
-    setSelectedOutpoints((current) =>
-      current.includes(utxo.outpoint)
-        ? current.filter((outpoint) => outpoint !== utxo.outpoint)
-        : [...current, utxo.outpoint]
-    );
-  }
-
-  function exitSelectionMode() {
-    setSelectionMode(false);
-    setSelectedOutpoints([]);
-    setMessage("");
-  }
-
-  return (
-    <section id="utxo" className="utxo-selection-panel">
-      <div className="wallet-card-header">
-        <div>
-          <p className="terminal-heading">Receive</p>
-          {selectionMode ? (
-            <p className="muted">
-              {selectedOutpoints.length} selected / {formatBalance(selectedTotalSats, balanceUnit)}
-            </p>
-          ) : null}
-        </div>
-        <div className="button-row">
-          {selectionMode ? (
-            <>
-              <button
-                className="compact-button"
-                disabled={selectedOutpoints.length === 0}
-                type="button"
-                onClick={() => onCreatePsbt(selectedOutpoints)}
-              >
-                Send selected
-              </button>
-              <button
-                className="secondary-button compact-button"
-                disabled={selectedOutpoints.length === 0}
-                type="button"
-                onClick={() => setSelectedOutpoints([])}
-              >
-                Clear selection
-              </button>
-              <button className="secondary-button compact-button" type="button" onClick={exitSelectionMode}>
-                Cancel
-              </button>
-              <button
-                className="secondary-button compact-button"
-                disabled={utxoStatus === "loading"}
-                type="button"
-                onClick={() => void fetchUtxos()}
-              >
-                {utxoStatus === "loading" ? "Loading..." : "Refresh"}
-              </button>
-            </>
-          ) : (
-            <button
-              className="secondary-button compact-button"
-              type="button"
-              onClick={() => {
-                setSelectionMode(true);
-                void fetchUtxos();
-              }}
-            >
-              Select UTXOs
-            </button>
-          )}
-        </div>
-      </div>
-
-      {selectionMode ? (
-        <>
-          {utxoResponse && utxoResponse.status !== "online" ? (
-            <p className="status-message">
-              {utxoResponse.status === "offline"
-                ? "UTXO lookup failed. Check the local backend connection."
-                : "Some UTXOs could not be fetched. Selection may be incomplete."}
-            </p>
-          ) : null}
-          {message ? <p className="status-message">{message}</p> : null}
-          {utxoStatus === "loading" ? <TerminalSkeleton label="LOADING UTXOS" rows={4} /> : null}
-          {utxoStatus === "loaded" && utxos.length === 0 ? (
-            <p className="muted">No spendable UTXOs found.</p>
-          ) : null}
-          {utxos.length > 0 ? (
-            <div className="utxo-list selectable-utxo-list">
-              {utxos.map((utxo) => {
-                const addrLabel = getAddressLabel(wallet, utxo.chain, utxo.index);
-                const txLabel = getTransactionLabel(wallet, utxo.txid);
-                const utxoNote = getUtxoNote(wallet, utxo.txid, utxo.vout);
-                const isEditingNote = editingUtxoOutpoint === utxo.outpoint;
-                return (
-                  <div key={utxo.outpoint} className="utxo-row terminal-panel selectable-utxo-row">
-                    <label className="utxo-selection-label">
-                      <input
-                        checked={selectedOutpoints.includes(utxo.outpoint)}
-                        type="checkbox"
-                        onChange={() => toggleUtxoSelection(utxo)}
-                      />
-                      <span className="utxo-value">{formatBalance(utxo.valueSats, "sats")}</span>
-                      <span className="muted">({formatBalance(utxo.valueSats, "btc")})</span>
-                    </label>
-                    <div className="utxo-meta-line">
-                      <code className="utxo-outpoint">{truncateMiddle(utxo.txid, 24)}:{utxo.vout}</code>
-                      <span className={utxo.status === "confirmed" ? "status-badge status-online" : "status-badge status-degraded"}>
-                        {utxo.status}
-                      </span>
-                    </div>
-                    <div className="utxo-meta-line">
-                      <span className="utxo-address muted">{truncateMiddle(utxo.address, 24)}</span>
-                      <span className="muted">{utxo.chain} #{utxo.index}</span>
-                      {addrLabel ? <span className="label-pill">{addrLabel.label}</span> : null}
-                    </div>
-                    {utxoNote ? (
-                      <div className="utxo-note-line">
-                        <span className="terminal-meta">Note:</span> {utxoNote.note}
-                      </div>
-                    ) : null}
-                    {txLabel ? (
-                      <div className="utxo-tx-label muted">
-                        {txLabel.label ? txLabel.label : "transaction note"}
-                        {txLabel.notes ? `: ${txLabel.notes}` : ""}
-                      </div>
-                    ) : null}
-                    {isEditingNote ? (
-                      <InlineNoteEditor
-                        error={utxoNoteError}
-                        note={utxoNoteDraft}
-                        saving={utxoNoteSaving}
-                        onCancel={cancelEditUtxoNote}
-                        onClear={() => void clearUtxoNote(utxo)}
-                        onNoteChange={setUtxoNoteDraft}
-                        onSave={() => void saveUtxoNote(utxo)}
-                      />
-                    ) : (
-                      <div className="button-row">
-                        <button
-                          className="secondary-button compact-button"
-                          type="button"
-                          onClick={() => beginEditUtxoNote(utxo)}
-                        >
-                          Note
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : null}
-        </>
-      ) : null}
-    </section>
-  );
-}
 export function CreatePsbtBuilderPanel({
   apiUrl,
   balanceUnit,
@@ -4545,7 +4422,9 @@ export function CreatePsbtBuilderPanel({
                   <span className="muted"> ({formatBalance(utxo.valueSats, "btc")})</span>
                 </span>
                 <code>{truncateMiddle(utxo.txid, 18)}:{utxo.vout}</code>
-                <span className="muted">{truncateMiddle(utxo.address, 18)}</span>
+                <span className="muted address-inline">
+                  Source <SecurityAddress address={utxo.address} unavailableText="unknown source address" />
+                </span>
                 <span className={`status-badge ${utxo.status === "confirmed" ? "status-online" : "status-degraded"}`}>{utxo.status}</span>
                 <span className="muted">{utxo.chain} #{utxo.index}</span>
                 {addressLabel ? <span className="label-pill">{addressLabel.label}</span> : null}
@@ -4669,7 +4548,14 @@ export function CreatePsbtBuilderPanel({
               return (
                 <div className="spending-plan-line" key={utxo.outpoint}>
                   <strong>{formatBalance(utxo.valueSats, "btc")}</strong>
-                  <span className="muted">{formatBalance(utxo.valueSats, "sats")} / {truncateMiddle(utxo.outpoint, 18)}</span>
+                  <span className="muted">{formatBalance(utxo.valueSats, "sats")}</span>
+                  <span className="muted address-inline">
+                    Source <SecurityAddress address={utxo.address} unavailableText="source address unavailable" />
+                  </span>
+                  <details className="metadata-details psbt-advanced-input-details">
+                    <summary>Show outpoint</summary>
+                    <p className="muted technical-line">Outpoint (txid:vout): {utxo.outpoint}</p>
+                  </details>
                   {addressLabel ? <span className="label-pill">{addressLabel.label}</span> : null}
                   {utxoNote ? <span className="muted">{utxoNote.note}</span> : null}
                 </div>
@@ -4682,13 +4568,20 @@ export function CreatePsbtBuilderPanel({
             {draftPlan.recipients.map((recipient, index) => (
               <div className="spending-plan-line" key={`${recipient.address}-${index}`}>
                 <strong>Recipient {index + 1}: {formatBalance(recipient.amountSats, "btc")}</strong>
-                <span className="muted">{formatBalance(recipient.amountSats, "sats")} / {truncateMiddle(recipient.address, 22)}</span>
+                <span className="muted address-inline">
+                  {formatBalance(recipient.amountSats, "sats")} / <SecurityAddress address={recipient.address} />
+                </span>
               </div>
             ))}
             {draftPlan.changeSats !== null && draftPlan.changeSats >= 546 ? (
               <div className="spending-plan-line">
                 <strong>Change: {formatBalance(draftPlan.changeSats, "btc")}</strong>
                 <span className="muted">{formatBalance(draftPlan.changeSats, "sats")} / selected when created</span>
+              </div>
+            ) : draftPlan.changeSats !== null && selectedUtxos.length > 0 ? (
+              <div className="spending-plan-line">
+                <strong>No change output</strong>
+                <span className="muted">Change is zero or below dust and may be absorbed into the fee.</span>
               </div>
             ) : null}
             {draftPlan.estimatedFeeSats !== null ? (
@@ -4700,6 +4593,10 @@ export function CreatePsbtBuilderPanel({
           </div>
         </div>
         <p className="muted">Estimated fee may change after final signing.</p>
+        <p className="muted psbt-review-guidance">
+          Before signing, compare recipient address, amount, fee, and change output on your signing device.
+          If Atlas and the signer disagree, stop.
+        </p>
         {draftPlan.errors.map((error) => <p className="status-message" key={error}>{error}</p>)}
         {draftPlan.warnings.map((warning) => <p className="psbt-status-warning muted" key={warning}>{warning}</p>)}
       </div>
@@ -4739,26 +4636,71 @@ export function CreatePsbtBuilderPanel({
           </dl>
 
           {psbtResult.changeAddress ? (
-            <p className="muted psbt-change-addr">Unused change address: {psbtResult.changeAddress}</p>
+            <p className="muted psbt-change-addr address-inline">
+              Wallet change: <SecurityAddress address={psbtResult.changeAddress} />
+            </p>
+          ) : psbtResult.changeSats > 0 ? (
+            <p className="psbt-status-warning muted psbt-change-addr">
+              Change amount is present, but the change address is unavailable. Do not sign until this is resolved.
+            </p>
           ) : (
-            <p className="muted psbt-change-addr">No change output (dust absorbed into fee)</p>
+            <p className="muted psbt-change-addr">No change output. Change is zero or below dust and may be absorbed into the fee.</p>
           )}
+          {psbtResult.changeAddressWarning ? (
+            <p className="psbt-status-warning muted psbt-change-addr">{psbtResult.changeAddressWarning}</p>
+          ) : null}
 
-          <div className="spending-plan-line">
-            <p className="terminal-meta">Output classification</p>
-            {psbtResult.outputs.map((output, index) => (
-              <div className="tx-related-tag" key={`${output.type}-${output.address}-${index}`}>
-                <span className="terminal-meta">
-                  {output.type === "change" ? "Unused change address" : `Recipient ${index + 1}`}
-                </span>
-                <span className="terminal-meta">{formatBalance(output.valueSats, balanceUnit)}</span>
-                <code>{truncateMiddle(output.address, 22)}</code>
-                {output.type === "change" && output.path ? (
-                  <span className="muted">{output.chain} #{output.index} / {output.path}</span>
-                ) : null}
-              </div>
-            ))}
+          <div className="psbt-review-grid">
+            <div className="psbt-review-column">
+              <p className="terminal-meta">Input source addresses</p>
+              {psbtResult.inputs.map((input, index) => (
+                <div className="spending-plan-line" key={`${input.txid}:${input.vout}`}>
+                  <strong>Input {index + 1}: {formatBalance(input.valueSats, balanceUnit)}</strong>
+                  <span className="muted address-inline">
+                    Source <SecurityAddress address={input.address} unavailableText="source address unavailable" />
+                  </span>
+                  <span className="muted">{input.chain} #{input.index}{input.path ? ` / ${input.path}` : ""}</span>
+                  <details className="metadata-details psbt-advanced-input-details">
+                    <summary>Show outpoint</summary>
+                    <p className="muted technical-line">Outpoint (txid:vout): {input.txid}:{input.vout}</p>
+                  </details>
+                </div>
+              ))}
+            </div>
+            <div className="psbt-review-column">
+              <p className="terminal-meta">Output classification</p>
+              {psbtResult.outputs.map((output, index) => {
+                const recipientNumber = psbtResult.outputs
+                  .slice(0, index + 1)
+                  .filter((candidate) => candidate.type === "recipient").length;
+                return (
+                  <div className="spending-plan-line" key={`${output.type}-${output.address}-${index}`}>
+                    <strong>{output.type === "change" ? "Change address" : `Recipient ${recipientNumber}`}</strong>
+                    <span className="terminal-meta">{formatBalance(output.valueSats, balanceUnit)}</span>
+                    <SecurityAddress address={output.address} />
+                    {output.type === "change" ? (
+                      <span className="muted">
+                        {output.chain ?? "change"} {typeof output.index === "number" ? `#${output.index}` : ""}
+                        {output.path ? ` / ${output.path}` : ""}
+                        {output.usage ? ` / usage ${output.usage}` : ""}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+              {!psbtResult.outputs.some((output) => output.type === "change") ? (
+                <div className="spending-plan-line">
+                  <strong>No change output</strong>
+                  <span className="muted">No wallet change output exists in this unsigned PSBT.</span>
+                </div>
+              ) : null}
+            </div>
           </div>
+
+          <p className="muted psbt-review-guidance">
+            Before signing, compare recipient address, amount, fee, and change output on your signing device.
+            If Atlas and the signer disagree, stop.
+          </p>
 
           <div className="psbt-base64-block">
             <p className="terminal-heading">Export unsigned PSBT</p>
@@ -4940,12 +4882,14 @@ export function VerifyPsbtPanel({
           (result) => {
             if (!result) return;
             const scannedValue = result.getText().trim();
+            setSignedScannerMessage(`QR detected. Payload length ${scannedValue.length}. Classifying signed PSBT payload...`);
             const multipartFrame = parseMultipartPsbtFrame(scannedValue);
             if (multipartFrame) {
               const scannerResult = captureMultipartFrame(multipartFrame);
               setSignedScannerMessage(scannerResult.message);
               if (scannerResult.completePsbt) {
                 closeSignedScanner();
+                void verifySignedPsbt(scannerResult.completePsbt);
               }
               return;
             }
@@ -4968,8 +4912,14 @@ export function VerifyPsbtPanel({
               setSignedScannerMessage(SIGNED_PSBT_QR_TOO_LARGE_MESSAGE);
               return;
             }
-            setSignedPsbtInput(scannedValue, "Signed PSBT QR scanned. Review and verify before broadcast.");
+            const classification = extractSignedPsbtBase64Payload(scannedValue);
+            if (!classification.psbtBase64) {
+              setSignedScannerMessage(classification.message);
+              return;
+            }
+            setSignedPsbtInput(classification.psbtBase64, classification.message);
             closeSignedScanner();
+            void verifySignedPsbt(classification.psbtBase64);
           }
         );
         setSignedScannerMessage("Point the camera at a single-frame signed PSBT QR.");
@@ -5897,8 +5847,8 @@ export function VerifyPsbtPanel({
                   <div className={typeLabelClass} style={{ fontWeight: "bold", fontSize: "0.85em" }}>
                     #{i} {typeLabel}{matchNote}
                   </div>
-                  <div className="muted psbt-input-row" style={{ marginLeft: "1rem" }}>
-                    {out.address ?? "no address"}
+                  <div className="muted psbt-input-row address-inline" style={{ marginLeft: "1rem" }}>
+                    <SecurityAddress address={out.address} unavailableText="no address" />
                     {" · "}
                     {formatBalance(out.valueSats, "sats")} / {(out.valueSats / 1e8).toFixed(8)} BTC
                   </div>
@@ -5917,7 +5867,9 @@ export function VerifyPsbtPanel({
             <p className="terminal-heading">Inputs</p>
             {verifyResult.inputs.map((inp, i) => (
               <div key={i} className="muted psbt-input-row">
-                #{i} {truncateMiddle(`${inp.txid}:${inp.vout}`, 24)}
+                #{i} outpoint {truncateMiddle(`${inp.txid}:${inp.vout}`, 24)}
+                {" · "}
+                <SecurityAddress address={inp.address} unavailableText="unknown source address" />
                 {" · "}
                 {inp.valueSats !== null ? formatBalance(inp.valueSats, balanceUnit) : "?"}
                 {" · "}
@@ -6526,9 +6478,10 @@ export function WalletAddressPanel({
               {nextReceiveAddress.usage}
             </span>
             <AddressLabelPill label={getAddressLabel(wallet, nextReceiveAddress.chain, nextReceiveAddress.index)} />
-            <code>{nextReceiveAddress.address}</code>
+            <SecurityAddress address={nextReceiveAddress.address} />
             <span>{nextReceiveAddress.path}</span>
-            <span className="muted">Verify wallet name, source device, and path on your cold wallet before receiving funds.</span>
+            <span className="muted">Verify this receive address on your signing device before sending large amounts.</span>
+            <span className="muted">The browser display is not the final authority.</span>
             <div className="button-row">
               <button
                 className="secondary-button compact-button"
@@ -6588,8 +6541,8 @@ export function WalletAddressPanel({
       </div>
 
       <p className="psbt-safety-notice muted">
-        A compromised browser can visually change addresses, QR codes, or clipboard contents.
-        Treat Atlas as a watch-only view and verify receive addresses on your trusted signing device when possible.
+        Verify this receive address on your signing device before sending large amounts.
+        The browser display is not the final authority.
       </p>
 
       <div className="wallet-card-header compact-section-header">
@@ -7158,54 +7111,6 @@ function InlineLabelEditor({
   );
 }
 
-function InlineNoteEditor({
-  error,
-  note,
-  saving,
-  onCancel,
-  onClear,
-  onNoteChange,
-  onSave
-}: {
-  error: string;
-  note: string;
-  saving: boolean;
-  onCancel: () => void;
-  onClear: () => void;
-  onNoteChange: (value: string) => void;
-  onSave: () => void;
-}) {
-  return (
-    <div className="label-editor">
-      <label>
-        <span>note</span>
-        <textarea
-          maxLength={500}
-          placeholder="Tracked UTXO note"
-          rows={3}
-          value={note}
-          onChange={(event) => onNoteChange(event.target.value)}
-        />
-      </label>
-      <div className="button-row">
-        <button className="compact-button" disabled={saving} type="button" onClick={onSave}>
-          Save
-        </button>
-        <button className="secondary-button compact-button" disabled={saving} type="button" onClick={onClear}>
-          Clear
-        </button>
-        <button className="secondary-button compact-button" disabled={saving} type="button" onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-      {error ? <p className="status-message">{error}</p> : null}
-      <p className="label-privacy-hint muted">
-        Stored locally in the encrypted vault. Available for PSBT planning only.
-      </p>
-    </div>
-  );
-}
-
 function AddressLabelPill({ label }: { label: AddressLabel | null }) {
   if (!label) {
     return <span className="label-pill label-pill-empty">unlabeled</span>;
@@ -7300,7 +7205,7 @@ function AddressTable({
               </div>
               <div className="address-cell address-value">
                 <dt>Address</dt>
-                <code>{address.address}</code>
+                <SecurityAddress address={address.address} />
                 <span className="muted">{address.path}</span>
               </div>
               <div className="address-cell">
@@ -7411,7 +7316,9 @@ export function AddressQrPanel({
         {!dataUrl && !error ? <span className="muted">Rendering address QR...</span> : null}
         {error ? <span className="status-message">{error}</span> : null}
       </div>
-      <code className="address-qr-text">{address.address}</code>
+      <div className="address-qr-text">
+        <SecurityAddress address={address.address} />
+      </div>
       <div className="button-row">
         <button className="secondary-button compact-button" type="button" onClick={onCopy}>
           Copy address
@@ -8087,7 +7994,7 @@ function jsonImportCandidate(
   }
   if (typeof candidate === "object" && candidate !== null && !Array.isArray(candidate)) {
     const record = candidate as Record<string, unknown>;
-    const key = extractExtendedPublicKey(String(record.xpub ?? record.ypub ?? record.zpub ?? record.tpub ?? record.upub ?? record.vpub ?? record.value ?? ""));
+    const key = extractExtendedPublicKey(String(record._pub ?? record.xpub ?? record.ypub ?? record.zpub ?? record.tpub ?? record.upub ?? record.vpub ?? record.value ?? ""));
     const path = typeof record.deriv === "string"
       ? record.deriv
       : typeof record.derivation === "string"

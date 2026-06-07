@@ -6,6 +6,12 @@ Broadcast is disabled by default. Do not enable it until Bitcoin Core RPC is rea
 
 For the Raspberry Pi wiring checklist with exact operator commands, see [bitcoin-core-rpc-live-wiring.md](bitcoin-core-rpc-live-wiring.md).
 
+## What Atlas Can Broadcast
+
+Atlas never stores seed phrases or private keys. Atlas cannot sign transactions.
+
+Atlas can build unsigned PSBTs. After an external signer returns a signed PSBT, Atlas can verify it, extract the raw transaction hex, and broadcast that raw transaction through Bitcoin Core RPC `sendrawtransaction` when broadcast is enabled.
+
 ## Recommended Topology
 
 Run Atlas API and Bitcoin Core on the same Raspberry Pi or Linux host when possible:
@@ -38,9 +44,10 @@ If Atlas runs inside Docker and Bitcoin Core runs on the host or another contain
 ```env
 BROADCAST_BACKEND=core
 CORE_RPC_URL=http://127.0.0.1:8332
-CORE_RPC_USERNAME=your_rpc_user
-CORE_RPC_PASSWORD=your_rpc_password
+CORE_RPC_USERNAME=<your-rpc-user>
+CORE_RPC_PASSWORD=<your-rpc-password>
 CORE_RPC_TIMEOUT_MS=10000
+MEMPOOL_WEB_URL=http://<your-local-mempool-url>
 ```
 
 Rules:
@@ -49,6 +56,7 @@ Rules:
 - Only `BROADCAST_BACKEND=core` enables broadcast.
 - `CORE_RPC_URL` must use `http://` or `https://`.
 - Do not embed credentials in `CORE_RPC_URL`; use `CORE_RPC_USERNAME` and `CORE_RPC_PASSWORD`.
+- `MEMPOOL_WEB_URL` is optional and only builds a local `/tx/<txid>` handoff link after Bitcoin Core accepts a broadcast.
 - Keep `.env` out of Git.
 
 ## Safe Connectivity Checks

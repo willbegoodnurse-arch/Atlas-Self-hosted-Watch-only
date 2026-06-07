@@ -736,10 +736,27 @@ code {
   display: none;
 }
 
-.address-value code {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.security-address {
+  display: inline-block;
+  max-width: 100%;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.security-address-unavailable {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.address-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .address-qr-panel {
@@ -825,15 +842,53 @@ code {
   align-items: start;
 }
 
+.psbt-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.psbt-review-column {
+  min-width: 0;
+}
+
 .spending-plan-line {
   display: grid;
   gap: 2px;
+  min-width: 0;
   border-top: 1px solid var(--line);
   padding: 8px 0;
+  overflow-wrap: anywhere;
+}
+
+.spending-plan-line > * {
+  min-width: 0;
+}
+
+.psbt-advanced-input-details {
+  margin-top: 4px;
+}
+
+.psbt-advanced-input-details summary {
+  font-size: 12px;
+}
+
+.psbt-advanced-input-details .technical-line {
+  margin-top: 6px;
 }
 
 .fee-line {
   color: var(--amber);
+}
+
+.psbt-review-guidance {
+  border: 1px solid rgb(216 155 69 / 26%);
+  border-radius: 6px;
+  background: rgb(216 155 69 / 8%);
+  padding: 10px 12px;
 }
 
 .spending-plan-arrow {
@@ -1123,7 +1178,8 @@ label.tx-limit-select select {
     .qr-context,
   .address-row,
   .recipient-row,
-  .spending-plan-flow {
+  .spending-plan-flow,
+  .psbt-review-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1335,29 +1391,42 @@ h2 {
   gap: 6px;
 }
 
-.sidebar-nav a {
+.sidebar-nav .sidebar-link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 0;
   border: 1px solid transparent;
+  border-left: 3px solid transparent;
   border-radius: 8px;
-  color: var(--text);
-  padding: 10px 12px;
-  text-decoration: none;
-}
-
-.sidebar-nav button {
-  border: 1px solid transparent;
-  border-radius: 8px;
-  color: var(--text);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.2;
   padding: 10px 12px;
   text-align: left;
-  background: transparent;
+  text-decoration: none;
+  appearance: none;
+  box-shadow: none;
 }
 
-.sidebar-nav a:hover,
-.sidebar-nav button:hover,
-.sidebar-nav a:focus-visible {
+.sidebar-nav .sidebar-link:hover,
+.sidebar-nav .sidebar-link:focus-visible {
   border-color: var(--line-strong);
+  border-left-color: var(--line-strong);
   background: var(--panel-strong);
   outline: none;
+}
+
+.sidebar-nav .sidebar-link.is-active,
+.sidebar-nav .sidebar-link[aria-current="page"] {
+  border-color: rgb(216 155 69 / 34%);
+  border-left-color: var(--amber);
+  background: linear-gradient(90deg, rgb(216 155 69 / 13%), var(--panel-strong));
+  color: var(--text);
+  font-weight: 700;
 }
 
 .sidebar-security {
@@ -1551,6 +1620,20 @@ button:hover:not(:disabled),
 .secondary-button:focus-visible {
   border-color: #555;
   background: #121212;
+  color: #fff;
+  outline: none;
+}
+
+.wallet-detail-actions .wallet-primary-action {
+  border-color: rgb(216 155 69 / 56%);
+  background: rgb(216 155 69 / 14%);
+  color: var(--text);
+}
+
+.wallet-detail-actions .wallet-primary-action:hover:not(:disabled),
+.wallet-detail-actions .wallet-primary-action:focus-visible {
+  border-color: rgb(216 155 69 / 78%);
+  background: rgb(216 155 69 / 20%);
   color: #fff;
   outline: none;
 }
@@ -1789,18 +1872,23 @@ code,
 
 .portal-modal-root {
   z-index: 3000;
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .portal-modal-backdrop {
   position: absolute;
   inset: 0;
+  display: block;
   width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 0;
   border: 0;
   border-radius: 0;
   background: rgb(0 0 0 / 82%);
   color: transparent;
+  cursor: default;
   padding: 0;
 }
 
@@ -1815,6 +1903,141 @@ code,
 
 .portal-modal-panel {
   background: #0a0a0a;
+  overscroll-behavior: contain;
+}
+
+.dashboard-toolbar-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 14px 16px;
+  box-shadow: none;
+}
+
+.settings-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  overflow: hidden;
+  padding: 0;
+}
+
+.settings-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding: 18px 20px;
+}
+
+.settings-modal-header h2 {
+  margin-bottom: 0;
+}
+
+.settings-modal-body {
+  display: grid;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 20px 20px;
+}
+
+.settings-section {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 14px;
+}
+
+.settings-section h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+}
+
+.settings-row span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.settings-row strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.settings-toggle-row {
+  cursor: pointer;
+}
+
+.settings-toggle-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: #fff;
+}
+
+.settings-note {
+  margin: 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  padding-top: 10px;
+}
+
+.segmented-control {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.segmented-control .compact-button {
+  min-width: 64px;
+}
+
+@media (max-width: 640px) {
+  .portal-modal-root {
+    padding: 12px;
+  }
+
+  .settings-dialog {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+
+  .settings-modal-header,
+  .settings-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-row strong {
+    text-align: left;
+  }
+
+  .segmented-control {
+    justify-content: flex-start;
+  }
 }
 
 .settings-dialog {
@@ -1940,7 +2163,7 @@ code,
     padding-bottom: 2px;
   }
 
-  .sidebar-nav a {
+  .sidebar-nav .sidebar-link {
     white-space: nowrap;
   }
 

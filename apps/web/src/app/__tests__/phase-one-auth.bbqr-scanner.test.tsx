@@ -152,9 +152,10 @@ describe("watch-only BBQr scanner", () => {
       await scanFrame(frame!);
     }
 
-    expect((await screen.findAllByText(/format: bbqr .* frames: 7\/7/i)).length).toBeGreaterThan(0);
-    expect(screen.getByText(/All 7 BBQr frames captured. Decoding Coldcard Generic JSON/i)).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: /Scan watch-only import QR/i })).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("Coldcard Generic JSON BBQr captured. Full payload hidden.")).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("f23a9c1d")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Scan watch-only import QR/i })).not.toBeInTheDocument());
+    expect(screen.queryByText(payload)).not.toBeInTheDocument();
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/api/wallets/import-preview"),
       expect.objectContaining({ body: expect.stringContaining('"sourceDevice":"coldcard"') })
@@ -214,7 +215,8 @@ describe("watch-only BBQr scanner", () => {
 
     await scanFrame(frames[0]!);
 
-    expect(await screen.findByText(/Never enter private keys/i)).toBeInTheDocument();
+    const rejectionMessages = await screen.findAllByText(/This looks like a WIF private key\. Never enter private keys into this app\./i);
+    expect(rejectionMessages.length).toBeGreaterThan(0);
     expect(document.body.textContent ?? "").not.toContain(wif);
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
