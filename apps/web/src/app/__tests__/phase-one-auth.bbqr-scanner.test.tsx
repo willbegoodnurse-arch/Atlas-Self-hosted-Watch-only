@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { BrowserQRCodeReader } from "@zxing/browser";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WalletCreateForm } from "../phase-one-auth";
 import { jsonResponse, silenceApiLogs } from "./phase-one-auth.test-utils";
@@ -24,6 +25,12 @@ vi.mock("@zxing/browser", () => ({
       })
     };
   })
+}));
+
+vi.mock("../ur-encode", () => ({
+  createUrPsbtDecoder: vi.fn(() => ({})),
+  decodeUrPsbtPart: vi.fn(),
+  encodeUrPsbt: vi.fn()
 }));
 
 const FULL_ZPUB =
@@ -78,6 +85,7 @@ describe("watch-only BBQr scanner", () => {
     qrCallback = null;
     scannerVideoArg = null;
     scannerStartError = null;
+    vi.mocked(BrowserQRCodeReader).mockClear();
     stopScanner.mockClear();
     Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
     Object.defineProperty(navigator, "mediaDevices", {
@@ -97,6 +105,16 @@ describe("watch-only BBQr scanner", () => {
         warnings: []
       })
     );
+  });
+
+  it("starts ZXing with low-latency defaults and no forced camera constraints", async () => {
+    await openScanner();
+
+    expect(BrowserQRCodeReader).toHaveBeenCalledWith(undefined, {
+      delayBetweenScanAttempts: 100,
+      delayBetweenScanSuccess: 100
+    });
+    expect(scannerVideoArg).toBeInstanceOf(HTMLVideoElement);
   });
 
   it("increments captured BBQr frames from the first zero-based frame", async () => {

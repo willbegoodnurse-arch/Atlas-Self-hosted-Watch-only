@@ -2465,7 +2465,10 @@ export function WalletCreateForm({
 
     try {
       const { BrowserQRCodeReader } = await import("@zxing/browser");
-      const reader = new BrowserQRCodeReader();
+      const reader = new BrowserQRCodeReader(undefined, {
+        delayBetweenScanAttempts: 100,
+        delayBetweenScanSuccess: 100
+      });
       const videoElement = await waitForScannerVideo();
       scannerControls.current = await reader.decodeFromVideoDevice(
         undefined,
