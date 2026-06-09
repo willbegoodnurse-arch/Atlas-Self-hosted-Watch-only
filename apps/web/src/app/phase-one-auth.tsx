@@ -2470,14 +2470,8 @@ export function WalletCreateForm({
         delayBetweenScanSuccess: 100
       });
       const videoElement = await waitForScannerVideo();
-      scannerControls.current = await reader.decodeFromConstraints(
-        {
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          }
-        },
+      scannerControls.current = await reader.decodeFromVideoDevice(
+        undefined,
         videoElement,
         (result) => {
           if (!result) {
@@ -2919,10 +2913,7 @@ export function WalletCreateForm({
               Use File
             </button>
           </div>
-          <div className="scanner-preview scanner-preview--watch-only">
-            <video ref={scannerVideo} className="scanner-video scanner-video--watch-only" muted playsInline />
-            <div aria-hidden="true" className="scanner-guide" />
-          </div>
+          <video ref={scannerVideo} className="scanner-video" muted playsInline />
           {qrFrameFormat ? (
             <p className="muted">
               format: {qrFrameFormat}{qrFrameFormat === "bbqr" ? ` • type: ${bbqrFileTypeLabel}` : ""} &bull; frames: {qrFrameFormat === "bbqr" ? capturedBbqrFrames : qrFrames.length}{qrFrameTotal ? `/${qrFrameTotal}` : ""}

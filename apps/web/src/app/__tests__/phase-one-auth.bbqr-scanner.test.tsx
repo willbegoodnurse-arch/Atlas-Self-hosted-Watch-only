@@ -9,32 +9,20 @@ type QrCallback = (result: { getText: () => string } | null) => void;
 
 let qrCallback: QrCallback | null = null;
 let scannerVideoArg: unknown = null;
-let scannerConstraintsArg: unknown = null;
 let scannerStartError: Error | null = null;
-const decodeFromConstraints = vi.fn(async (_constraints, _video, callback: QrCallback) => {
-  if (scannerStartError) {
-    throw scannerStartError;
-  }
-  scannerConstraintsArg = _constraints;
-  scannerVideoArg = _video;
-  qrCallback = callback;
-  return { stop: stopScanner };
-});
-const decodeFromVideoDevice = vi.fn(async (_deviceId, _video, callback: QrCallback) => {
-  if (scannerStartError) {
-    throw scannerStartError;
-  }
-  scannerVideoArg = _video;
-  qrCallback = callback;
-  return { stop: stopScanner };
-});
 const stopScanner = vi.fn();
 
 vi.mock("@zxing/browser", () => ({
   BrowserQRCodeReader: vi.fn(function BrowserQRCodeReader() {
     return {
-      decodeFromConstraints,
-      decodeFromVideoDevice
+      decodeFromVideoDevice: vi.fn(async (_deviceId, _video, callback: QrCallback) => {
+        if (scannerStartError) {
+          throw scannerStartError;
+        }
+        scannerVideoArg = _video;
+        qrCallback = callback;
+        return { stop: stopScanner };
+      })
     };
   })
 }));
@@ -96,11 +84,8 @@ describe("watch-only BBQr scanner", () => {
     silenceApiLogs();
     qrCallback = null;
     scannerVideoArg = null;
-    scannerConstraintsArg = null;
     scannerStartError = null;
     vi.mocked(BrowserQRCodeReader).mockClear();
-    decodeFromConstraints.mockClear();
-    decodeFromVideoDevice.mockClear();
     stopScanner.mockClear();
     Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
     Object.defineProperty(navigator, "mediaDevices", {
@@ -122,38 +107,14 @@ describe("watch-only BBQr scanner", () => {
     );
   });
 
-  it("starts ZXing with low-latency defaults and centered camera constraints", async () => {
+  it("starts ZXing with low-latency defaults and no forced camera constraints", async () => {
     await openScanner();
 
     expect(BrowserQRCodeReader).toHaveBeenCalledWith(undefined, {
       delayBetweenScanAttempts: 100,
       delayBetweenScanSuccess: 100
     });
-    expect(decodeFromVideoDevice).not.toHaveBeenCalled();
-    expect(scannerConstraintsArg).toEqual({
-      video: {
-        facingMode: { ideal: "environment" },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      }
-    });
-    expect(scannerConstraintsArg).not.toEqual(expect.objectContaining({
-      video: expect.objectContaining({
-        height: expect.objectContaining({ ideal: 1080 })
-      })
-    }));
     expect(scannerVideoArg).toBeInstanceOf(HTMLVideoElement);
-  });
-
-  it("renders the watch-only scanner with a centered non-cropping preview guide", async () => {
-    await openScanner();
-
-    const dialog = screen.getByRole("dialog", { name: /Scan watch-only import QR/i });
-    const video = dialog.querySelector("video");
-    expect(video).toHaveClass("scanner-video");
-    expect(video).toHaveClass("scanner-video--watch-only");
-    expect(dialog.querySelector(".scanner-preview--watch-only")).toBeInTheDocument();
-    expect(dialog.querySelector(".scanner-guide")).toBeInTheDocument();
   });
 
   it("increments captured BBQr frames from the first zero-based frame", async () => {

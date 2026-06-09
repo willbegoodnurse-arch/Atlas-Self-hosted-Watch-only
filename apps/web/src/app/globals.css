@@ -994,18 +994,6 @@ code {
   gap: 10px;
 }
 
-.scanner-preview {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
-}
-
 .scanner-video {
   width: 100%;
   aspect-ratio: 4 / 3;
@@ -1013,27 +1001,6 @@ code {
   border-radius: 4px;
   background: var(--bg);
   object-fit: cover;
-}
-
-.scanner-preview .scanner-video {
-  height: 100%;
-  border: 0;
-  border-radius: 0;
-}
-
-.scanner-video--watch-only {
-  object-fit: contain;
-}
-
-.scanner-guide {
-  position: absolute;
-  inset: 18%;
-  border: 2px solid rgb(255 255 255 / 72%);
-  border-radius: 8px;
-  box-shadow:
-    0 0 0 1px rgb(0 0 0 / 35%),
-    0 0 0 999px rgb(0 0 0 / 14%);
-  pointer-events: none;
 }
 
 dl {
