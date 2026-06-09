@@ -15,7 +15,6 @@ const stopScanner = vi.fn();
 vi.mock("@zxing/browser", () => ({
   BrowserQRCodeReader: vi.fn(function BrowserQRCodeReader() {
     return {
-      decodeFromConstraints: vi.fn(),
       decodeFromVideoDevice: vi.fn(async (_deviceId, _video, callback: QrCallback) => {
         if (scannerStartError) {
           throw scannerStartError;
@@ -110,30 +109,12 @@ describe("watch-only BBQr scanner", () => {
 
   it("starts ZXing with low-latency defaults and no forced camera constraints", async () => {
     await openScanner();
-    const reader = vi.mocked(BrowserQRCodeReader).mock.results[0]?.value as {
-      decodeFromConstraints: ReturnType<typeof vi.fn>;
-      decodeFromVideoDevice: ReturnType<typeof vi.fn>;
-    };
 
     expect(BrowserQRCodeReader).toHaveBeenCalledWith(undefined, {
       delayBetweenScanAttempts: 100,
       delayBetweenScanSuccess: 100
     });
-    expect(reader.decodeFromVideoDevice).toHaveBeenCalled();
-    expect(reader.decodeFromConstraints).not.toHaveBeenCalled();
     expect(scannerVideoArg).toBeInstanceOf(HTMLVideoElement);
-  });
-
-  it("renders a watch-only lower-left BBQr alignment guide without changing the video class", async () => {
-    await openScanner();
-
-    const dialog = screen.getByRole("dialog", { name: /Scan watch-only import QR/i });
-    const video = dialog.querySelector("video");
-    expect(video).toHaveClass("scanner-video");
-    expect(video).not.toHaveClass("scanner-video--watch-only");
-    expect(dialog.querySelector(".scanner-preview--watch-only-bbqr")).toBeInTheDocument();
-    expect(dialog.querySelector(".scanner-guide--lower-left")).toBeInTheDocument();
-    expect(screen.getByText(/Tip: for Coldcard Q BBQr, align the QR with the lower-left corner of the camera preview\./i)).toBeInTheDocument();
   });
 
   it("increments captured BBQr frames from the first zero-based frame", async () => {

@@ -1003,48 +1003,6 @@ code {
   object-fit: cover;
 }
 
-.scanner-preview--watch-only-bbqr {
-  position: relative;
-  width: 100%;
-}
-
-.scanner-preview--watch-only-bbqr .scanner-video {
-  display: block;
-}
-
-.scanner-guide--lower-left {
-  position: absolute;
-  left: 10%;
-  bottom: 10%;
-  width: 34%;
-  aspect-ratio: 1;
-  border: 2px solid rgb(255 255 255 / 78%);
-  border-radius: 6px;
-  box-shadow:
-    0 0 0 1px rgb(0 0 0 / 42%),
-    0 0 18px rgb(0 0 0 / 48%);
-  pointer-events: none;
-}
-
-.scanner-guide--lower-left::before,
-.scanner-guide--lower-left::after {
-  position: absolute;
-  left: -2px;
-  bottom: -2px;
-  content: "";
-  background: rgb(255 255 255 / 92%);
-}
-
-.scanner-guide--lower-left::before {
-  width: 40%;
-  height: 2px;
-}
-
-.scanner-guide--lower-left::after {
-  width: 2px;
-  height: 40%;
-}
-
 dl {
   display: grid;
   gap: 14px;
