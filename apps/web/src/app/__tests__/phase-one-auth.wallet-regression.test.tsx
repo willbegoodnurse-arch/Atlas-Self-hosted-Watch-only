@@ -17,6 +17,12 @@ import {
 } from "../phase-one-auth";
 import { jsonResponse, makeAddress, makeWallet, silenceApiLogs } from "./phase-one-auth.test-utils";
 
+vi.mock("../ur-encode", () => ({
+  createUrPsbtDecoder: vi.fn(() => ({})),
+  decodeUrPsbtPart: vi.fn(),
+  encodeUrPsbt: vi.fn()
+}));
+
 const FULL_ZPUB =
   "zpub6rtpJPNNq6CeKuycgiXu7RBRDzQcPG9uJWbKQ4NCiuVzP3wW6WspGjCD3h1gUKKwZRgo8Mzm21GEkD2HpUUHkfPrwyfcRaaWA93NSnnKTaP";
 
@@ -601,6 +607,47 @@ describe("wallet list and identity regression", () => {
     ]);
   });
 
+  it("selects receive index 37 after zero-balance used history through index 36 with gap limit 20", () => {
+    const addresses = [
+      ...Array.from({ length: 37 }, (_, index) =>
+        makeAddress({
+          index,
+          path: `m/84'/0'/0'/0/${index}`,
+          totalBalance: 0,
+          usage: "used"
+        })
+      ),
+      ...Array.from({ length: 20 }, (_, offset) => {
+        const index = 37 + offset;
+        return makeAddress({
+          index,
+          path: `m/84'/0'/0'/0/${index}`,
+          usage: "unused"
+        });
+      })
+    ];
+
+    const selected = selectDefaultReceiveAddresses(addresses, 20);
+
+    expect(selected.map((address) => address.index)).toEqual(Array.from({ length: 20 }, (_, offset) => 37 + offset));
+    expect(selected[0]?.path).toBe("m/84'/0'/0'/0/37");
+  });
+
+  it("starts receive discovery at index 0 when no receive address has history", () => {
+    const selected = selectDefaultReceiveAddresses(
+      Array.from({ length: 20 }, (_, index) =>
+        makeAddress({
+          index,
+          path: `m/84'/0'/0'/0/${index}`,
+          usage: "unused"
+        })
+      ),
+      20
+    );
+
+    expect(selected[0]?.index).toBe(0);
+  });
+
   it("keeps used receive addresses visible when they still hold balance", () => {
     const selected = selectDefaultReceiveAddresses(
       [
@@ -636,7 +683,7 @@ describe("wallet list and identity regression", () => {
     ];
 
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      expect(String(input)).toContain("limit=25");
+      expect(String(input)).toContain("limit=5");
       return jsonResponse({
         addresses,
         changeBalance: { confirmedBalance: 0, totalBalance: 0, unconfirmedBalance: 0 },
@@ -677,6 +724,80 @@ describe("wallet list and identity regression", () => {
     expect(screen.getAllByText(/The browser display is not the final authority/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText("#5").length).toBeGreaterThan(0);
     expect(screen.getByText("m/84'/0'/0'/0/5")).toBeInTheDocument();
+  });
+
+  it("renders receive index 37 before change addresses when used zero-balance receive rows are hidden", async () => {
+    const wallet = makeWallet({ gapLimit: 20 });
+    const receiveAddresses = [
+      ...Array.from({ length: 37 }, (_, index) =>
+        makeAddress({
+          address: `bc1qusedreceive${index.toString().padStart(2, "0")}0000000000000000000000`,
+          index,
+          path: `m/84'/0'/0'/0/${index}`,
+          totalBalance: 0,
+          usage: "used"
+        })
+      ),
+      ...Array.from({ length: 20 }, (_, offset) => {
+        const index = 37 + offset;
+        return makeAddress({
+          address: `bc1qunusedreceive${index.toString().padStart(2, "0")}00000000000000000000`,
+          index,
+          path: `m/84'/0'/0'/0/${index}`,
+          usage: "unused"
+        });
+      })
+    ];
+    const changeAddresses = Array.from({ length: 3 }, (_, index) =>
+      makeAddress({
+        address: `bc1qunusedchange${index.toString().padStart(2, "0")}000000000000000000000`,
+        chain: "change",
+        index,
+        path: `m/84'/0'/0'/1/${index}`,
+        usage: "unused"
+      })
+    );
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toContain("limit=20");
+      return jsonResponse({
+        addresses: [...receiveAddresses, ...changeAddresses],
+        changeBalance: { confirmedBalance: 0, totalBalance: 0, unconfirmedBalance: 0 },
+        confirmedBalance: 0,
+        discovery: { checkedCount: 57, complete: true, gapLimit: 20, maxDiscoveryLimit: 100 },
+        failedAddresses: [],
+        lookupError: null,
+        nextReceiveLookupError: null,
+        nextUnusedReceiveAddress: receiveAddresses[37],
+        receiveBalance: { confirmedBalance: 0, totalBalance: 0, unconfirmedBalance: 0 },
+        status: "online",
+        totalBalance: 0,
+        unconfirmedBalance: 0,
+        unit: "sats",
+        usageStatus: "ready",
+        walletId: wallet.id
+      });
+    });
+
+    render(
+      <WalletAddressPanel
+        apiUrl=""
+        balanceUnit="sats"
+        mempoolBadgeStatus="online"
+        refreshToken={0}
+        setBalanceUnit={() => undefined}
+        wallet={wallet}
+        onBalanceStatusChange={() => undefined}
+        onWalletChange={() => undefined}
+      />
+    );
+
+    expect((await screen.findAllByText("m/84'/0'/0'/0/37")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("m/84'/0'/0'/0/36")).not.toBeInTheDocument();
+    expect(screen.getByText(/Used empty receive addresses are hidden/i)).toBeInTheDocument();
+
+    const bodyText = document.body.textContent ?? "";
+    expect(bodyText.indexOf("m/84'/0'/0'/0/37")).toBeLessThan(bodyText.indexOf("m/84'/0'/0'/1/0"));
   });
 
   it("shows a specific setup-state login error instead of a generic forbidden message", async () => {

@@ -14,7 +14,6 @@ import {
   deleteWallet,
   deriveWalletAddresses,
   deriveWalletBalance,
-  deriveWalletNextReceiveAddress,
   getVaultStatus,
   getWalletTransactions,
   getWalletUtxos,
@@ -363,10 +362,7 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
           request.params.id,
           validation.value
         );
-        const nextReceive =
-          validation.value.chain === "receive" || validation.value.chain === "both"
-            ? await deriveWalletNextReceiveAddress(request.params.id)
-            : null;
+        const receiveDiscovery = result.receiveDiscovery;
 
         return reply.send({
           walletId: wallet.id,
@@ -383,24 +379,27 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
           addresses: result.addresses,
           failedAddresses: result.failedAddresses,
           nextUnusedReceiveAddress:
-            nextReceive?.result.nextUnusedReceiveAddress ?? null,
-          discovery: nextReceive
+            receiveDiscovery?.nextUnusedReceiveAddress ?? null,
+          discovery: receiveDiscovery
             ? {
-                checkedCount: nextReceive.result.checkedCount,
-                gapLimit: nextReceive.result.gapLimit,
-                maxDiscoveryLimit: nextReceive.result.maxDiscoveryLimit,
-                complete: nextReceive.result.discoveryComplete
+                checkedCount: receiveDiscovery.checkedCount,
+                gapLimit: receiveDiscovery.gapLimit,
+                maxDiscoveryLimit: receiveDiscovery.maxDiscoveryLimit,
+                complete: receiveDiscovery.discoveryComplete
               }
             : null,
           mempool: {
             ...getMempoolApiConfig(),
             lookupFailed:
-              result.lookupFailed || Boolean(nextReceive?.result.lookupFailed)
+              result.lookupFailed || Boolean(receiveDiscovery?.lookupFailed)
           },
           lookupError: result.lookupFailed ? "balance lookup failed" : null,
-          nextReceiveLookupError: nextReceive?.result.lookupFailed
-            ? "next receive lookup incomplete"
-            : null
+          nextReceiveLookupError:
+            receiveDiscovery?.lookupFailed
+              ? "next receive lookup incomplete"
+              : receiveDiscovery && !receiveDiscovery.discoveryComplete
+                ? "receive address discovery reached the safety cap before finding the configured unused gap"
+                : null
         });
       } catch (error) {
         return handleVaultError(error, reply);

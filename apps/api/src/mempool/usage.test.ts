@@ -553,6 +553,130 @@ test("discovers next unused receive address and stops after the configured gap",
   assert.equal(discovery.checkedCount, 5);
 });
 
+test("discovers next receive after used zero-balance history through index 36", async () => {
+  const derived = Array.from({ length: 57 }, (_, index) => ({
+    chain: "receive" as const,
+    index,
+    path: `m/84'/0'/0'/0/${index}`,
+    address: `bc1qsyntheticreceive${index}`,
+    usage: "unknown" as const
+  }));
+
+  const discovery = await discoverNextUnusedReceiveAddress(derived, 20, 57, {
+    fetchAddressStats: async (candidate) => {
+      const index = Number(candidate.replace("bc1qsyntheticreceive", ""));
+      const used = index >= 0 && index <= 36;
+      return {
+        chain_stats: {
+          tx_count: used ? 1 : 0,
+          funded_txo_sum: used ? 1000 : 0,
+          spent_txo_sum: used ? 1000 : 0
+        },
+        mempool_stats: {
+          tx_count: 0,
+          funded_txo_sum: 0,
+          spent_txo_sum: 0
+        }
+      };
+    }
+  });
+
+  assert.equal(discovery.nextUnusedReceiveAddress?.index, 37);
+  assert.equal(discovery.discoveryComplete, true);
+  assert.equal(discovery.checkedCount, 57);
+});
+
+test("discovers next receive after used history through index 120 without increasing gap limit", async () => {
+  const derived = Array.from({ length: 141 }, (_, index) => ({
+    chain: "receive" as const,
+    index,
+    path: `m/84'/0'/0'/0/${index}`,
+    address: `bc1qsynthetichigh${index}`,
+    usage: "unknown" as const
+  }));
+
+  const discovery = await discoverNextUnusedReceiveAddress(derived, 20, 141, {
+    fetchAddressStats: async (candidate) => {
+      const index = Number(candidate.replace("bc1qsynthetichigh", ""));
+      return {
+        chain_stats: {
+          tx_count: index <= 120 ? 1 : 0,
+          funded_txo_sum: index <= 120 ? 2000 : 0,
+          spent_txo_sum: index <= 120 ? 2000 : 0
+        },
+        mempool_stats: {
+          tx_count: 0,
+          funded_txo_sum: 0,
+          spent_txo_sum: 0
+        }
+      };
+    }
+  });
+
+  assert.equal(discovery.nextUnusedReceiveAddress?.index, 121);
+  assert.equal(discovery.discoveryComplete, true);
+  assert.equal(discovery.checkedCount, 141);
+});
+
+test("reports incomplete discovery when the safety cap prevents finding the unused gap", async () => {
+  const derived = Array.from({ length: 200 }, (_, index) => ({
+    chain: "receive" as const,
+    index,
+    path: `m/84'/0'/0'/0/${index}`,
+    address: `bc1qsyntheticcapped${index}`,
+    usage: "unknown" as const
+  }));
+
+  const discovery = await discoverNextUnusedReceiveAddress(derived, 20, 200, {
+    fetchAddressStats: async () => ({
+      chain_stats: {
+        tx_count: 1,
+        funded_txo_sum: 3000,
+        spent_txo_sum: 3000
+      },
+      mempool_stats: {
+        tx_count: 0,
+        funded_txo_sum: 0,
+        spent_txo_sum: 0
+      }
+    })
+  });
+
+  assert.equal(discovery.nextUnusedReceiveAddress, null);
+  assert.equal(discovery.discoveryComplete, false);
+  assert.equal(discovery.checkedCount, 200);
+  assert.equal(discovery.maxDiscoveryLimit, 200);
+});
+
+test("discovers receive index 0 when no receive address has history", async () => {
+  const derived = Array.from({ length: 20 }, (_, index) => ({
+    chain: "receive" as const,
+    index,
+    path: `m/84'/0'/0'/0/${index}`,
+    address: `bc1qsyntheticempty${index}`,
+    usage: "unknown" as const
+  }));
+
+  const discovery = await discoverNextUnusedReceiveAddress(derived, 20, 20, {
+    fetchAddressStats: async () => ({
+      chain_stats: {
+        tx_count: 0,
+        funded_txo_sum: 0,
+        spent_txo_sum: 0
+      },
+      mempool_stats: {
+        tx_count: 0,
+        funded_txo_sum: 0,
+        spent_txo_sum: 0
+      }
+    })
+  });
+
+  assert.equal(discovery.nextUnusedReceiveAddress?.index, 0);
+  assert.equal(discovery.discoveryComplete, true);
+  assert.equal(discovery.checkedCount, 20);
+});
+
 test("does not return a next unused address when lookup only returns unknown", async () => {
   const derived = Array.from({ length: 3 }, (_, index) => ({
     chain: "receive" as const,

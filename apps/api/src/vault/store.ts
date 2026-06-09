@@ -10,6 +10,7 @@ import {
   discoverNextUnusedReceiveAddress,
   lookupAddressBalanceRecords
 } from "../mempool/usage.js";
+import type { NextUnusedReceiveResult } from "../mempool/usage.js";
 import { lookupWalletTransactions } from "../mempool/transactions.js";
 import type { WalletTransactionsResult } from "../mempool/transactions.js";
 import { lookupWalletUtxos } from "../mempool/utxos.js";
@@ -55,6 +56,7 @@ import type {
 } from "./types.js";
 
 const walletsFilePath = path.join(authConfig.dataDir, "wallets.enc");
+const maxAddressDiscoveryLimit = 200;
 
 const VAULT_AUTO_LOCK_MS = Number(process.env.VAULT_AUTO_LOCK_MINUTES ?? 30) * 60 * 1000;
 let lastActivityMs = 0;
@@ -325,7 +327,6 @@ export async function deriveWalletNextReceiveAddress(id: string) {
     throw new WalletNotFoundError();
   }
 
-  const maxDiscoveryLimit = Math.min(200, Math.max(wallet.gapLimit * 5, wallet.gapLimit));
   const result = deriveAddresses({
     extendedPublicKey: wallet.extendedPublicKey,
     type: wallet.type,
@@ -333,12 +334,12 @@ export async function deriveWalletNextReceiveAddress(id: string) {
     accountPath: wallet.accountPath ?? wallet.derivationPath,
     network: wallet.network,
     chain: "receive",
-    limit: maxDiscoveryLimit
+    limit: maxAddressDiscoveryLimit
   });
   const discovery = await discoverNextUnusedReceiveAddress(
     result.addresses,
     wallet.gapLimit,
-    maxDiscoveryLimit
+    maxAddressDiscoveryLimit
   );
 
   return {
@@ -358,7 +359,8 @@ export async function deriveWalletBalance(
     limit: number;
   }
 ) {
-  const { wallet, result } = deriveWalletAddresses(id, input);
+  const wallet = findWalletById(id);
+  const result = await deriveBalanceAddressWindow(wallet, input);
   const balance = await lookupAddressBalanceRecords(result.addresses);
   const receiveBalance = balance.addresses.filter((address) => address.chain === "receive");
   const changeBalance = balance.addresses.filter((address) => address.chain === "change");
@@ -380,8 +382,65 @@ export async function deriveWalletBalance(
       balance: balance.balance,
       receiveBalance: sumAddressBalances(receiveBalance),
       changeBalance: sumAddressBalances(changeBalance),
-      addresses: balance.addresses
+      addresses: balance.addresses,
+      receiveDiscovery: result.receiveDiscovery
     }
+  };
+}
+
+async function deriveBalanceAddressWindow(
+  wallet: WalletRecord,
+  input: {
+    chain: AddressChain | "both";
+    limit: number;
+  }
+): Promise<{
+  network: BitcoinNetwork;
+  scriptType: ScriptType;
+  usageStatus: "unknown";
+  addresses: DerivedAddress[];
+  receiveDiscovery: NextUnusedReceiveResult | null;
+}> {
+  const scriptType = derivableScriptType(wallet);
+  const common = {
+    extendedPublicKey: wallet.extendedPublicKey,
+    type: wallet.type,
+    scriptType,
+    accountPath: wallet.accountPath ?? wallet.derivationPath,
+    network: wallet.network
+  };
+  const addresses: DerivedAddress[] = [];
+  let receiveDiscovery: NextUnusedReceiveResult | null = null;
+
+  if (input.chain === "receive" || input.chain === "both") {
+    const receiveResult = deriveAddresses({
+      ...common,
+      chain: "receive",
+      limit: maxAddressDiscoveryLimit
+    });
+    receiveDiscovery = await discoverNextUnusedReceiveAddress(
+      receiveResult.addresses,
+      wallet.gapLimit,
+      maxAddressDiscoveryLimit
+    );
+    addresses.push(...receiveResult.addresses.slice(0, receiveDiscovery.checkedCount));
+  }
+
+  if (input.chain === "change" || input.chain === "both") {
+    const changeResult = deriveAddresses({
+      ...common,
+      chain: "change",
+      limit: input.limit
+    });
+    addresses.push(...changeResult.addresses);
+  }
+
+  return {
+    network: wallet.network,
+    scriptType,
+    usageStatus: "unknown",
+    addresses,
+    receiveDiscovery
   };
 }
 

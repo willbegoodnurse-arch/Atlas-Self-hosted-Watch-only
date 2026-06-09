@@ -6279,7 +6279,7 @@ export function WalletAddressPanel({
     setCopyMessage("");
 
     try {
-      const scanLimit = Math.min(200, Math.max(wallet.gapLimit, wallet.gapLimit + 20));
+      const scanLimit = Math.max(1, wallet.gapLimit);
       const response = await apiRequest<WalletBalanceResponse>(
         apiUrl,
         `/api/wallets/${wallet.id}/balance?chain=${chain}&limit=${scanLimit}`
