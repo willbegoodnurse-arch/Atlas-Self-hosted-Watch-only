@@ -174,9 +174,17 @@ type WalletBalanceResponse = {
     error: string;
   }>;
   nextUnusedReceiveAddress?: DerivedAddress | null;
+  nextUnusedChangeAddress?: DerivedAddress | null;
   lookupError?: string | null;
   nextReceiveLookupError?: string | null;
+  nextChangeLookupError?: string | null;
   discovery?: {
+    checkedCount: number;
+    gapLimit: number;
+    maxDiscoveryLimit: number;
+    complete: boolean;
+  } | null;
+  changeDiscovery?: {
     checkedCount: number;
     gapLimit: number;
     maxDiscoveryLimit: number;
@@ -577,7 +585,11 @@ export function feeEstimateSourceLabel(source: FeeEstimatesResponse["source"]): 
 }
 
 export function isUsedEmptyReceiveAddress(address: DerivedAddress): boolean {
-  if (address.chain !== "receive" || address.usage !== "used") {
+  return isUsedEmptyBranchAddress(address, "receive");
+}
+
+export function isUsedEmptyBranchAddress(address: DerivedAddress, chain: "receive" | "change"): boolean {
+  if (address.chain !== chain || address.usage !== "used") {
     return false;
   }
 
@@ -591,16 +603,17 @@ export function isUsedEmptyReceiveAddress(address: DerivedAddress): boolean {
   return totalBalance === 0;
 }
 
-export function selectDefaultReceiveAddresses(
+export function selectDefaultBranchAddresses(
   addresses: DerivedAddress[],
+  chain: "receive" | "change",
   displayLimit: number,
   startIndex?: number | null
 ): DerivedAddress[] {
   const limit = Math.max(0, displayLimit);
-  const visibleReceiveAddresses = addresses
-    .filter((address) => address.chain === "receive" && !isUsedEmptyReceiveAddress(address))
+  const visibleBranchAddresses = addresses
+    .filter((address) => address.chain === chain && !isUsedEmptyBranchAddress(address, chain))
     .sort((a, b) => a.index - b.index);
-  const unused = visibleReceiveAddresses.filter(
+  const unused = visibleBranchAddresses.filter(
     (address) => address.usage === "unused" && (startIndex == null || address.index >= startIndex)
   );
 
@@ -611,10 +624,10 @@ export function selectDefaultReceiveAddresses(
   const selected = [...unused];
   const fallbackAddresses =
     startIndex == null
-      ? visibleReceiveAddresses
+      ? visibleBranchAddresses
       : [
-          ...visibleReceiveAddresses.filter((address) => address.index >= startIndex),
-          ...visibleReceiveAddresses.filter((address) => address.index < startIndex)
+          ...visibleBranchAddresses.filter((address) => address.index >= startIndex),
+          ...visibleBranchAddresses.filter((address) => address.index < startIndex)
         ];
   for (const address of fallbackAddresses) {
     if (selected.length >= limit) {
@@ -627,30 +640,43 @@ export function selectDefaultReceiveAddresses(
   return selected;
 }
 
-function receiveDisplayRefillLimit(
+export function selectDefaultReceiveAddresses(
+  addresses: DerivedAddress[],
+  displayLimit: number,
+  startIndex?: number | null
+): DerivedAddress[] {
+  return selectDefaultBranchAddresses(addresses, "receive", displayLimit, startIndex);
+}
+
+function branchDisplayRefillLimit(
   response: WalletBalanceResponse,
   requestedLimit: number,
   displayLimit: number,
   chain: "both" | "receive" | "change"
 ): number | null {
-  if (chain === "change") {
-    return null;
-  }
-  const nextReceive = response.nextUnusedReceiveAddress;
-  if (!nextReceive || nextReceive.chain !== "receive") {
-    return null;
-  }
-  if (response.discovery && !response.discovery.complete) {
-    return null;
+  const candidates: number[] = [];
+
+  if (chain === "receive" || chain === "both") {
+    const nextReceive = response.nextUnusedReceiveAddress;
+    if (nextReceive?.chain === "receive" && (!response.discovery || response.discovery.complete)) {
+      const selected = selectDefaultBranchAddresses(response.addresses ?? [], "receive", displayLimit, nextReceive.index);
+      if (selected.length < displayLimit) {
+        candidates.push(Math.min(response.discovery?.maxDiscoveryLimit ?? 200, nextReceive.index + displayLimit));
+      }
+    }
   }
 
-  const selected = selectDefaultReceiveAddresses(response.addresses ?? [], displayLimit, nextReceive.index);
-  if (selected.length >= displayLimit) {
-    return null;
+  if (chain === "change" || chain === "both") {
+    const nextChange = response.nextUnusedChangeAddress;
+    if (nextChange?.chain === "change" && (!response.changeDiscovery || response.changeDiscovery.complete)) {
+      const selected = selectDefaultBranchAddresses(response.addresses ?? [], "change", displayLimit, nextChange.index);
+      if (selected.length < displayLimit) {
+        candidates.push(Math.min(response.changeDiscovery?.maxDiscoveryLimit ?? 200, nextChange.index + displayLimit));
+      }
+    }
   }
 
-  const safetyLimit = response.discovery?.maxDiscoveryLimit ?? 200;
-  const refillLimit = Math.min(safetyLimit, nextReceive.index + displayLimit);
+  const refillLimit = Math.max(...candidates, 0);
   return refillLimit > requestedLimit ? refillLimit : null;
 }
 
@@ -6240,11 +6266,13 @@ export function WalletAddressPanel({
   const [usageTab, setUsageTab] = useState<"all" | "used" | "unused" | "unknown">("all");
   const [addresses, setAddresses] = useState<DerivedAddress[]>([]);
   const [nextReceiveAddress, setNextReceiveAddress] = useState<DerivedAddress | null>(null);
+  const [nextChangeAddress, setNextChangeAddress] = useState<DerivedAddress | null>(null);
   const [balance, setBalance] = useState<BalanceSummary | null>(null);
   const [receiveBalance, setReceiveBalance] = useState<BalanceSummary | null>(null);
   const [changeBalance, setChangeBalance] = useState<BalanceSummary | null>(null);
   const [usageLookupNote, setUsageLookupNote] = useState("");
   const [nextReceiveLookupNote, setNextReceiveLookupNote] = useState("");
+  const [nextChangeLookupNote, setNextChangeLookupNote] = useState("");
   const [balanceFailedCount, setBalanceFailedCount] = useState(0);
   const [message, setMessage] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
@@ -6321,7 +6349,7 @@ export function WalletAddressPanel({
         apiUrl,
         `/api/wallets/${wallet.id}/balance?chain=${chain}&limit=${scanLimit}`
       );
-      const refillLimit = receiveDisplayRefillLimit(response, scanLimit, wallet.gapLimit, chain);
+      const refillLimit = branchDisplayRefillLimit(response, scanLimit, wallet.gapLimit, chain);
       if (refillLimit !== null) {
         response = await apiRequest<WalletBalanceResponse>(
           apiUrl,
@@ -6330,6 +6358,7 @@ export function WalletAddressPanel({
       }
       setAddresses(response.addresses ?? []);
       setNextReceiveAddress(response.nextUnusedReceiveAddress ?? null);
+      setNextChangeAddress(response.nextUnusedChangeAddress ?? null);
       setBalance({
         confirmedBalance: response.confirmedBalance,
         unconfirmedBalance: response.unconfirmedBalance,
@@ -6339,6 +6368,7 @@ export function WalletAddressPanel({
       setChangeBalance(response.changeBalance ?? null);
       setUsageLookupNote(response.lookupError ?? "");
       setNextReceiveLookupNote(response.nextReceiveLookupError ?? "");
+      setNextChangeLookupNote(response.nextChangeLookupError ?? "");
       setBalanceFailedCount(response.failedAddresses?.length ?? 0);
       setDiscovery(response.discovery ?? null);
       onBalanceStatusChange(
@@ -6352,11 +6382,13 @@ export function WalletAddressPanel({
       setMessage(error instanceof Error ? error.message : "Balance lookup failed — API server may be unreachable");
       setAddresses([]);
       setNextReceiveAddress(null);
+      setNextChangeAddress(null);
       setBalance(null);
       setReceiveBalance(null);
       setChangeBalance(null);
       setUsageLookupNote("");
       setNextReceiveLookupNote("");
+      setNextChangeLookupNote("");
       setBalanceFailedCount(0);
       setDiscovery(null);
       onBalanceStatusChange("offline");
@@ -6437,14 +6469,21 @@ export function WalletAddressPanel({
       ? addresses
       : addresses.filter((address) => address.usage === usageTab);
   const receiveDisplayLimit = Math.max(1, wallet.gapLimit);
+  const changeDisplayLimit = Math.max(1, wallet.gapLimit);
   const nextReceiveIndex = nextReceiveAddress?.chain === "receive" ? nextReceiveAddress.index : null;
+  const nextChangeIndex = nextChangeAddress?.chain === "change" ? nextChangeAddress.index : null;
   const receiveAddresses =
     usageTab === "all"
-      ? selectDefaultReceiveAddresses(visibleAddresses, receiveDisplayLimit, nextReceiveIndex)
+      ? selectDefaultBranchAddresses(visibleAddresses, "receive", receiveDisplayLimit, nextReceiveIndex)
       : visibleAddresses.filter((address) => address.chain === "receive");
-  const changeAddresses = visibleAddresses.filter((address) => address.chain === "change");
+  const changeAddresses =
+    usageTab === "all"
+      ? selectDefaultBranchAddresses(visibleAddresses, "change", changeDisplayLimit, nextChangeIndex)
+      : visibleAddresses.filter((address) => address.chain === "change");
   const hiddenUsedEmptyReceiveCount =
     usageTab === "all" ? addresses.filter(isUsedEmptyReceiveAddress).length : 0;
+  const hiddenUsedEmptyChangeCount =
+    usageTab === "all" ? addresses.filter((address) => isUsedEmptyBranchAddress(address, "change")).length : 0;
   const unknownAddressCount = addresses.filter((address) => address.usage === "unknown").length;
   const usageLookupFailed = Boolean(usageLookupNote) || (unknownAddressCount === addresses.length && addresses.length > 0);
   const emptyUsageMessage = getEmptyUsageMessage({
@@ -6455,7 +6494,7 @@ export function WalletAddressPanel({
   const nextReceiveMessage = getNextReceiveMessage({
     loading,
     mempoolBadgeStatus,
-    usageLookupFailed: usageLookupFailed || Boolean(nextReceiveLookupNote)
+    usageLookupFailed: usageLookupFailed || Boolean(nextReceiveLookupNote) || Boolean(nextChangeLookupNote)
   });
   const nextReceiveQrPanelKey = nextReceiveAddress ? addressQrPanelKey("next-receive", nextReceiveAddress) : "";
 
@@ -6468,6 +6507,8 @@ export function WalletAddressPanel({
           {balanceFailedCount} address lookup(s) failed — balance total may be incomplete. API may be rate-limiting or unreachable.
         </p>
       ) : null}
+
+      {nextChangeLookupNote ? <p className="status-message">{nextChangeLookupNote}</p> : null}
 
       <div className="balance-summary">
         <div className="wallet-card-header">
@@ -6698,6 +6739,10 @@ export function WalletAddressPanel({
         </>
       ) : null}
       {changeAddresses.length ? (
+        <>
+        {hiddenUsedEmptyChangeCount > 0 ? (
+          <p className="muted technical-line">Used empty change addresses are hidden from this list. Actual index and path values are preserved.</p>
+        ) : null}
         <AddressTable
           addresses={changeAddresses}
           balanceUnit={balanceUnit}
@@ -6722,6 +6767,7 @@ export function WalletAddressPanel({
           onSaveLabel={saveAddressLabel}
           onShowQr={(address) => openAddressQr(address, addressQrPanelKey("table", address))}
         />
+        </>
       ) : null}
 
     </section>

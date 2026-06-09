@@ -7,10 +7,11 @@ import path from "node:path";
 import { authConfig } from "../auth/config.js";
 import {
   checkMempoolHealth,
+  discoverNextUnusedAddress,
   discoverNextUnusedReceiveAddress,
   lookupAddressBalanceRecords
 } from "../mempool/usage.js";
-import type { NextUnusedReceiveResult } from "../mempool/usage.js";
+import type { NextUnusedAddressResult, NextUnusedReceiveResult } from "../mempool/usage.js";
 import { lookupWalletTransactions } from "../mempool/transactions.js";
 import type { WalletTransactionsResult } from "../mempool/transactions.js";
 import { lookupWalletUtxos } from "../mempool/utxos.js";
@@ -383,7 +384,8 @@ export async function deriveWalletBalance(
       receiveBalance: sumAddressBalances(receiveBalance),
       changeBalance: sumAddressBalances(changeBalance),
       addresses: balance.addresses,
-      receiveDiscovery: result.receiveDiscovery
+      receiveDiscovery: result.receiveDiscovery,
+      changeDiscovery: result.changeDiscovery
     }
   };
 }
@@ -400,6 +402,7 @@ async function deriveBalanceAddressWindow(
   usageStatus: "unknown";
   addresses: DerivedAddress[];
   receiveDiscovery: NextUnusedReceiveResult | null;
+  changeDiscovery: NextUnusedAddressResult | null;
 }> {
   const scriptType = derivableScriptType(wallet);
   const common = {
@@ -411,6 +414,7 @@ async function deriveBalanceAddressWindow(
   };
   const addresses: DerivedAddress[] = [];
   let receiveDiscovery: NextUnusedReceiveResult | null = null;
+  let changeDiscovery: NextUnusedAddressResult | null = null;
 
   if (input.chain === "receive" || input.chain === "both") {
     const receiveResult = deriveAddresses({
@@ -430,9 +434,14 @@ async function deriveBalanceAddressWindow(
     const changeResult = deriveAddresses({
       ...common,
       chain: "change",
-      limit: input.limit
+      limit: maxAddressDiscoveryLimit
     });
-    addresses.push(...changeResult.addresses);
+    changeDiscovery = await discoverNextUnusedAddress(
+      changeResult.addresses,
+      wallet.gapLimit,
+      maxAddressDiscoveryLimit
+    );
+    addresses.push(...changeResult.addresses.slice(0, changeDiscovery.checkedCount));
   }
 
   return {
@@ -440,7 +449,8 @@ async function deriveBalanceAddressWindow(
     scriptType,
     usageStatus: "unknown",
     addresses,
-    receiveDiscovery
+    receiveDiscovery,
+    changeDiscovery
   };
 }
 

@@ -4,6 +4,7 @@ import {
   aggregateBalance,
   checkMempoolHealth,
   classifyMempoolAddressStats,
+  discoverNextUnusedAddress,
   discoverNextUnusedReceiveAddress,
   isMempoolDebugEnabled,
   lookupAddressStats,
@@ -675,6 +676,100 @@ test("discovers receive index 0 when no receive address has history", async () =
   assert.equal(discovery.nextUnusedReceiveAddress?.index, 0);
   assert.equal(discovery.discoveryComplete, true);
   assert.equal(discovery.checkedCount, 20);
+});
+
+test("discovers next change after used zero-balance history through index 5", async () => {
+  const derived = Array.from({ length: 26 }, (_, index) => ({
+    chain: "change" as const,
+    index,
+    path: `m/84'/0'/0'/1/${index}`,
+    address: `bc1qsyntheticchange${index}`,
+    usage: "unknown" as const
+  }));
+
+  const discovery = await discoverNextUnusedAddress(derived, 20, 26, {
+    fetchAddressStats: async (candidate) => {
+      const index = Number(candidate.replace("bc1qsyntheticchange", ""));
+      const used = index >= 0 && index <= 5;
+      return {
+        chain_stats: {
+          tx_count: used ? 1 : 0,
+          funded_txo_sum: used ? 1000 : 0,
+          spent_txo_sum: used ? 1000 : 0
+        },
+        mempool_stats: {
+          tx_count: 0,
+          funded_txo_sum: 0,
+          spent_txo_sum: 0
+        }
+      };
+    }
+  });
+
+  assert.equal(discovery.nextUnusedAddress?.chain, "change");
+  assert.equal(discovery.nextUnusedAddress?.index, 6);
+  assert.equal(discovery.discoveryComplete, true);
+  assert.equal(discovery.checkedCount, 26);
+});
+
+test("discovers change index 0 when no change address has history", async () => {
+  const derived = Array.from({ length: 20 }, (_, index) => ({
+    chain: "change" as const,
+    index,
+    path: `m/84'/0'/0'/1/${index}`,
+    address: `bc1qsyntheticemptychange${index}`,
+    usage: "unknown" as const
+  }));
+
+  const discovery = await discoverNextUnusedAddress(derived, 20, 20, {
+    fetchAddressStats: async () => ({
+      chain_stats: {
+        tx_count: 0,
+        funded_txo_sum: 0,
+        spent_txo_sum: 0
+      },
+      mempool_stats: {
+        tx_count: 0,
+        funded_txo_sum: 0,
+        spent_txo_sum: 0
+      }
+    })
+  });
+
+  assert.equal(discovery.nextUnusedAddress?.chain, "change");
+  assert.equal(discovery.nextUnusedAddress?.index, 0);
+  assert.equal(discovery.discoveryComplete, true);
+  assert.equal(discovery.checkedCount, 20);
+});
+
+test("reports incomplete change discovery when the safety cap prevents finding the unused gap", async () => {
+  const derived = Array.from({ length: 200 }, (_, index) => ({
+    chain: "change" as const,
+    index,
+    path: `m/84'/0'/0'/1/${index}`,
+    address: `bc1qsyntheticcappedchange${index}`,
+    usage: "unknown" as const
+  }));
+
+  const discovery = await discoverNextUnusedAddress(derived, 20, 200, {
+    fetchAddressStats: async () => ({
+      chain_stats: {
+        tx_count: 1,
+        funded_txo_sum: 3000,
+        spent_txo_sum: 3000
+      },
+      mempool_stats: {
+        tx_count: 0,
+        funded_txo_sum: 0,
+        spent_txo_sum: 0
+      }
+    })
+  });
+
+  assert.equal(discovery.nextUnusedAddress, null);
+  assert.equal(discovery.discoveryComplete, false);
+  assert.equal(discovery.checkedCount, 200);
+  assert.equal(discovery.maxDiscoveryLimit, 200);
 });
 
 test("does not return a next unused address when lookup only returns unknown", async () => {

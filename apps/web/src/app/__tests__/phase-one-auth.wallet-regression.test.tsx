@@ -8,6 +8,7 @@ import {
   formatSecurityAddressDisplay,
   formatTransactionStatus,
   normalizeSettingsLanguage,
+  selectDefaultBranchAddresses,
   selectDefaultReceiveAddresses,
   SettingsModal,
   WalletAddressPanel,
@@ -648,6 +649,35 @@ describe("wallet list and identity regression", () => {
     expect(selected[0]?.index).toBe(0);
   });
 
+  it("selects change display addresses without letting used empty rows consume the gap-limit slots", () => {
+    const addresses = [
+      ...Array.from({ length: 6 }, (_, index) =>
+        makeAddress({
+          chain: "change",
+          index,
+          path: `m/84'/0'/0'/1/${index}`,
+          totalBalance: 0,
+          usage: "used"
+        })
+      ),
+      ...Array.from({ length: 20 }, (_, offset) => {
+        const index = 6 + offset;
+        return makeAddress({
+          chain: "change",
+          index,
+          path: `m/84'/0'/0'/1/${index}`,
+          usage: "unused"
+        });
+      })
+    ];
+
+    const selected = selectDefaultBranchAddresses(addresses, "change", 20, 6);
+
+    expect(selected.map((address) => address.index)).toEqual(Array.from({ length: 20 }, (_, offset) => 6 + offset));
+    expect(selected[0]?.path).toBe("m/84'/0'/0'/1/6");
+    expect(selected.at(-1)?.path).toBe("m/84'/0'/0'/1/25");
+  });
+
   it("keeps used receive addresses visible when they still hold balance", () => {
     const selected = selectDefaultReceiveAddresses(
       [
@@ -806,6 +836,169 @@ describe("wallet list and identity regression", () => {
     const bodyText = document.body.textContent ?? "";
     expect(bodyText.indexOf("m/84'/0'/0'/0/37")).toBeLessThan(bodyText.indexOf("m/84'/0'/0'/1/0"));
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("hides used empty change rows and fills visible change rows from nextChangeIndex", async () => {
+    const wallet = makeWallet({ gapLimit: 20 });
+    const changeAddresses = [
+      ...Array.from({ length: 6 }, (_, index) =>
+        makeAddress({
+          address: `bc1qusedchange${index.toString().padStart(2, "0")}00000000000000000000000`,
+          chain: "change",
+          index,
+          path: `m/84'/0'/0'/1/${index}`,
+          totalBalance: 0,
+          usage: "used"
+        })
+      ),
+      ...Array.from({ length: 20 }, (_, offset) => {
+        const index = 6 + offset;
+        return makeAddress({
+          address: `bc1qunusedchange${index.toString().padStart(2, "0")}000000000000000000000`,
+          chain: "change",
+          index,
+          path: `m/84'/0'/0'/1/${index}`,
+          usage: "unused"
+        });
+      })
+    ];
+
+    globalThis.fetch = vi.fn(async () =>
+      jsonResponse({
+        addresses: changeAddresses,
+        changeBalance: { confirmedBalance: 0, totalBalance: 0, unconfirmedBalance: 0 },
+        changeDiscovery: { checkedCount: 26, complete: true, gapLimit: 20, maxDiscoveryLimit: 200 },
+        confirmedBalance: 0,
+        discovery: null,
+        failedAddresses: [],
+        lookupError: null,
+        nextChangeLookupError: null,
+        nextReceiveLookupError: null,
+        nextUnusedChangeAddress: changeAddresses[6],
+        nextUnusedReceiveAddress: null,
+        receiveBalance: { confirmedBalance: 0, totalBalance: 0, unconfirmedBalance: 0 },
+        status: "online",
+        totalBalance: 0,
+        unconfirmedBalance: 0,
+        unit: "sats",
+        usageStatus: "ready",
+        walletId: wallet.id
+      })
+    );
+
+    render(
+      <WalletAddressPanel
+        apiUrl=""
+        balanceUnit="sats"
+        mempoolBadgeStatus="online"
+        refreshToken={0}
+        setBalanceUnit={() => undefined}
+        wallet={wallet}
+        onBalanceStatusChange={() => undefined}
+        onWalletChange={() => undefined}
+      />
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Change" }));
+
+    expect((await screen.findAllByText("m/84'/0'/0'/1/6")).length).toBeGreaterThan(0);
+    for (let index = 7; index <= 25; index += 1) {
+      expect(screen.getByText(`m/84'/0'/0'/1/${index}`)).toBeInTheDocument();
+    }
+    expect(screen.queryByText("m/84'/0'/0'/1/5")).not.toBeInTheDocument();
+    expect(screen.queryByText("m/84'/0'/0'/1/26")).not.toBeInTheDocument();
+    expect(screen.getByText(/Used empty change addresses are hidden/i)).toBeInTheDocument();
+  });
+
+  it("renders receive and change visible slots independently in all mode", async () => {
+    const wallet = makeWallet({ gapLimit: 20 });
+    const receiveAddresses = [
+      ...Array.from({ length: 37 }, (_, index) =>
+        makeAddress({
+          address: `bc1qusedreceive${index.toString().padStart(2, "0")}0000000000000000000000`,
+          index,
+          path: `m/84'/0'/0'/0/${index}`,
+          totalBalance: 0,
+          usage: "used"
+        })
+      ),
+      ...Array.from({ length: 20 }, (_, offset) => {
+        const index = 37 + offset;
+        return makeAddress({
+          address: `bc1qunusedreceive${index.toString().padStart(2, "0")}00000000000000000000`,
+          index,
+          path: `m/84'/0'/0'/0/${index}`,
+          usage: "unused"
+        });
+      })
+    ];
+    const changeAddresses = [
+      ...Array.from({ length: 6 }, (_, index) =>
+        makeAddress({
+          address: `bc1qusedchange${index.toString().padStart(2, "0")}00000000000000000000000`,
+          chain: "change",
+          index,
+          path: `m/84'/0'/0'/1/${index}`,
+          totalBalance: 0,
+          usage: "used"
+        })
+      ),
+      ...Array.from({ length: 20 }, (_, offset) => {
+        const index = 6 + offset;
+        return makeAddress({
+          address: `bc1qunusedchange${index.toString().padStart(2, "0")}000000000000000000000`,
+          chain: "change",
+          index,
+          path: `m/84'/0'/0'/1/${index}`,
+          usage: "unused"
+        });
+      })
+    ];
+
+    globalThis.fetch = vi.fn(async () =>
+      jsonResponse({
+        addresses: [...receiveAddresses, ...changeAddresses],
+        changeBalance: { confirmedBalance: 0, totalBalance: 0, unconfirmedBalance: 0 },
+        changeDiscovery: { checkedCount: 26, complete: true, gapLimit: 20, maxDiscoveryLimit: 200 },
+        confirmedBalance: 0,
+        discovery: { checkedCount: 57, complete: true, gapLimit: 20, maxDiscoveryLimit: 200 },
+        failedAddresses: [],
+        lookupError: null,
+        nextChangeLookupError: null,
+        nextReceiveLookupError: null,
+        nextUnusedChangeAddress: changeAddresses[6],
+        nextUnusedReceiveAddress: receiveAddresses[37],
+        receiveBalance: { confirmedBalance: 0, totalBalance: 0, unconfirmedBalance: 0 },
+        status: "online",
+        totalBalance: 0,
+        unconfirmedBalance: 0,
+        unit: "sats",
+        usageStatus: "ready",
+        walletId: wallet.id
+      })
+    );
+
+    render(
+      <WalletAddressPanel
+        apiUrl=""
+        balanceUnit="sats"
+        mempoolBadgeStatus="online"
+        refreshToken={0}
+        setBalanceUnit={() => undefined}
+        wallet={wallet}
+        onBalanceStatusChange={() => undefined}
+        onWalletChange={() => undefined}
+      />
+    );
+
+    expect((await screen.findAllByText("m/84'/0'/0'/0/37")).length).toBeGreaterThan(0);
+    expect(screen.getByText("m/84'/0'/0'/0/56")).toBeInTheDocument();
+    expect(screen.getByText("m/84'/0'/0'/1/6")).toBeInTheDocument();
+    expect(screen.getByText("m/84'/0'/0'/1/25")).toBeInTheDocument();
+    expect(screen.queryByText("m/84'/0'/0'/1/5")).not.toBeInTheDocument();
+
+    const bodyText = document.body.textContent ?? "";
+    expect(bodyText.indexOf("m/84'/0'/0'/0/37")).toBeLessThan(bodyText.indexOf("m/84'/0'/0'/1/6"));
   });
 
   it("shows a specific setup-state login error instead of a generic forbidden message", async () => {

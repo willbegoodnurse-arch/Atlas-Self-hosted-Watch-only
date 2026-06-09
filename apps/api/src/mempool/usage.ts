@@ -54,6 +54,15 @@ export type NextUnusedReceiveResult = {
   lookupFailed: boolean;
 };
 
+export type NextUnusedAddressResult = {
+  nextUnusedAddress: AddressUsageRecord | null;
+  checkedCount: number;
+  gapLimit: number;
+  maxDiscoveryLimit: number;
+  discoveryComplete: boolean;
+  lookupFailed: boolean;
+};
+
 type FetchAddressStats = (address: string) => Promise<unknown>;
 
 export type FailedAddressLookup = {
@@ -246,7 +255,27 @@ export async function discoverNextUnusedReceiveAddress(
     fetchAddressStats?: FetchAddressStats;
   } = {}
 ): Promise<NextUnusedReceiveResult> {
-  const limitedAddresses = receiveAddresses.slice(0, maxDiscoveryLimit);
+  const discovery = await discoverNextUnusedAddress(receiveAddresses, gapLimit, maxDiscoveryLimit, options);
+
+  return {
+    nextUnusedReceiveAddress: discovery.nextUnusedAddress,
+    checkedCount: discovery.checkedCount,
+    gapLimit: discovery.gapLimit,
+    maxDiscoveryLimit: discovery.maxDiscoveryLimit,
+    discoveryComplete: discovery.discoveryComplete,
+    lookupFailed: discovery.lookupFailed
+  };
+}
+
+export async function discoverNextUnusedAddress(
+  branchAddresses: DerivedAddress[],
+  gapLimit: number,
+  maxDiscoveryLimit: number,
+  options: {
+    fetchAddressStats?: FetchAddressStats;
+  } = {}
+): Promise<NextUnusedAddressResult> {
+  const limitedAddresses = branchAddresses.slice(0, maxDiscoveryLimit);
   const checked: AddressUsageRecord[] = [];
   let lastUsedIndex = -1;
   let consecutiveUnused = 0;
@@ -279,11 +308,11 @@ export async function discoverNextUnusedReceiveAddress(
   }
 
   const nextIndex = lastUsedIndex + 1;
-  const nextUnusedReceiveAddress =
+  const nextUnusedAddress =
     checked.find((address) => address.index === nextIndex && address.usage === "unused") ?? null;
 
   return {
-    nextUnusedReceiveAddress,
+    nextUnusedAddress,
     checkedCount: checked.length,
     gapLimit,
     maxDiscoveryLimit,

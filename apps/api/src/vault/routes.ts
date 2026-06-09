@@ -363,6 +363,7 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
           validation.value
         );
         const receiveDiscovery = result.receiveDiscovery;
+        const changeDiscovery = result.changeDiscovery;
 
         return reply.send({
           walletId: wallet.id,
@@ -380,6 +381,8 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
           failedAddresses: result.failedAddresses,
           nextUnusedReceiveAddress:
             receiveDiscovery?.nextUnusedReceiveAddress ?? null,
+          nextUnusedChangeAddress:
+            changeDiscovery?.nextUnusedAddress ?? null,
           discovery: receiveDiscovery
             ? {
                 checkedCount: receiveDiscovery.checkedCount,
@@ -388,10 +391,18 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
                 complete: receiveDiscovery.discoveryComplete
               }
             : null,
+          changeDiscovery: changeDiscovery
+            ? {
+                checkedCount: changeDiscovery.checkedCount,
+                gapLimit: changeDiscovery.gapLimit,
+                maxDiscoveryLimit: changeDiscovery.maxDiscoveryLimit,
+                complete: changeDiscovery.discoveryComplete
+              }
+            : null,
           mempool: {
             ...getMempoolApiConfig(),
             lookupFailed:
-              result.lookupFailed || Boolean(receiveDiscovery?.lookupFailed)
+              result.lookupFailed || Boolean(receiveDiscovery?.lookupFailed) || Boolean(changeDiscovery?.lookupFailed)
           },
           lookupError: result.lookupFailed ? "balance lookup failed" : null,
           nextReceiveLookupError:
@@ -399,6 +410,12 @@ export async function registerVaultRoutes(server: FastifyInstance): Promise<void
               ? "next receive lookup incomplete"
               : receiveDiscovery && !receiveDiscovery.discoveryComplete
                 ? "receive address discovery reached the safety cap before finding the configured unused gap"
+                : null,
+          nextChangeLookupError:
+            changeDiscovery?.lookupFailed
+              ? "next change lookup incomplete"
+              : changeDiscovery && !changeDiscovery.discoveryComplete
+                ? "change address discovery reached the safety cap before finding the configured unused gap"
                 : null
         });
       } catch (error) {
