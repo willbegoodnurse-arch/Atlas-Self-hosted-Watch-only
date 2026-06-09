@@ -2913,7 +2913,11 @@ export function WalletCreateForm({
               Use File
             </button>
           </div>
-          <video ref={scannerVideo} className="scanner-video" muted playsInline />
+          <div className="scanner-preview--watch-only-bbqr">
+            <video ref={scannerVideo} className="scanner-video" muted playsInline />
+            <div aria-hidden="true" className="scanner-guide--lower-left" />
+          </div>
+          <p className="muted">Tip: for Coldcard Q BBQr, align the QR with the lower-left corner of the camera preview.</p>
           {qrFrameFormat ? (
             <p className="muted">
               format: {qrFrameFormat}{qrFrameFormat === "bbqr" ? ` • type: ${bbqrFileTypeLabel}` : ""} &bull; frames: {qrFrameFormat === "bbqr" ? capturedBbqrFrames : qrFrames.length}{qrFrameTotal ? `/${qrFrameTotal}` : ""}
