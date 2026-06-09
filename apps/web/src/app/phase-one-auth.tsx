@@ -593,20 +593,30 @@ export function isUsedEmptyReceiveAddress(address: DerivedAddress): boolean {
 
 export function selectDefaultReceiveAddresses(
   addresses: DerivedAddress[],
-  displayLimit: number
+  displayLimit: number,
+  startIndex?: number | null
 ): DerivedAddress[] {
   const limit = Math.max(0, displayLimit);
-  const visibleReceiveAddresses = addresses.filter(
-    (address) => address.chain === "receive" && !isUsedEmptyReceiveAddress(address)
+  const visibleReceiveAddresses = addresses
+    .filter((address) => address.chain === "receive" && !isUsedEmptyReceiveAddress(address))
+    .sort((a, b) => a.index - b.index);
+  const unused = visibleReceiveAddresses.filter(
+    (address) => address.usage === "unused" && (startIndex == null || address.index >= startIndex)
   );
-  const unused = visibleReceiveAddresses.filter((address) => address.usage === "unused");
 
   if (unused.length >= limit) {
     return unused.slice(0, limit);
   }
 
   const selected = [...unused];
-  for (const address of visibleReceiveAddresses) {
+  const fallbackAddresses =
+    startIndex == null
+      ? visibleReceiveAddresses
+      : [
+          ...visibleReceiveAddresses.filter((address) => address.index >= startIndex),
+          ...visibleReceiveAddresses.filter((address) => address.index < startIndex)
+        ];
+  for (const address of fallbackAddresses) {
     if (selected.length >= limit) {
       break;
     }
@@ -615,6 +625,33 @@ export function selectDefaultReceiveAddresses(
     }
   }
   return selected;
+}
+
+function receiveDisplayRefillLimit(
+  response: WalletBalanceResponse,
+  requestedLimit: number,
+  displayLimit: number,
+  chain: "both" | "receive" | "change"
+): number | null {
+  if (chain === "change") {
+    return null;
+  }
+  const nextReceive = response.nextUnusedReceiveAddress;
+  if (!nextReceive || nextReceive.chain !== "receive") {
+    return null;
+  }
+  if (response.discovery && !response.discovery.complete) {
+    return null;
+  }
+
+  const selected = selectDefaultReceiveAddresses(response.addresses ?? [], displayLimit, nextReceive.index);
+  if (selected.length >= displayLimit) {
+    return null;
+  }
+
+  const safetyLimit = response.discovery?.maxDiscoveryLimit ?? 200;
+  const refillLimit = Math.min(safetyLimit, nextReceive.index + displayLimit);
+  return refillLimit > requestedLimit ? refillLimit : null;
 }
 
 export function formatTransactionStatus(tx: Pick<WalletTransaction, "status" | "confirmations">): string {
@@ -6280,10 +6317,17 @@ export function WalletAddressPanel({
 
     try {
       const scanLimit = Math.max(1, wallet.gapLimit);
-      const response = await apiRequest<WalletBalanceResponse>(
+      let response = await apiRequest<WalletBalanceResponse>(
         apiUrl,
         `/api/wallets/${wallet.id}/balance?chain=${chain}&limit=${scanLimit}`
       );
+      const refillLimit = receiveDisplayRefillLimit(response, scanLimit, wallet.gapLimit, chain);
+      if (refillLimit !== null) {
+        response = await apiRequest<WalletBalanceResponse>(
+          apiUrl,
+          `/api/wallets/${wallet.id}/balance?chain=${chain}&limit=${refillLimit}`
+        );
+      }
       setAddresses(response.addresses ?? []);
       setNextReceiveAddress(response.nextUnusedReceiveAddress ?? null);
       setBalance({
@@ -6393,9 +6437,10 @@ export function WalletAddressPanel({
       ? addresses
       : addresses.filter((address) => address.usage === usageTab);
   const receiveDisplayLimit = Math.max(1, wallet.gapLimit);
+  const nextReceiveIndex = nextReceiveAddress?.chain === "receive" ? nextReceiveAddress.index : null;
   const receiveAddresses =
     usageTab === "all"
-      ? selectDefaultReceiveAddresses(visibleAddresses, receiveDisplayLimit)
+      ? selectDefaultReceiveAddresses(visibleAddresses, receiveDisplayLimit, nextReceiveIndex)
       : visibleAddresses.filter((address) => address.chain === "receive");
   const changeAddresses = visibleAddresses.filter((address) => address.chain === "change");
   const hiddenUsedEmptyReceiveCount =

@@ -726,9 +726,9 @@ describe("wallet list and identity regression", () => {
     expect(screen.getByText("m/84'/0'/0'/0/5")).toBeInTheDocument();
   });
 
-  it("renders receive index 37 before change addresses when used zero-balance receive rows are hidden", async () => {
+  it("refills visible receive rows from nextReceiveIndex before rendering change addresses", async () => {
     const wallet = makeWallet({ gapLimit: 20 });
-    const receiveAddresses = [
+    const fullReceiveAddresses = [
       ...Array.from({ length: 37 }, (_, index) =>
         makeAddress({
           address: `bc1qusedreceive${index.toString().padStart(2, "0")}0000000000000000000000`,
@@ -748,6 +748,7 @@ describe("wallet list and identity regression", () => {
         });
       })
     ];
+    const partialReceiveAddresses = fullReceiveAddresses.slice(20, 40);
     const changeAddresses = Array.from({ length: 3 }, (_, index) =>
       makeAddress({
         address: `bc1qunusedchange${index.toString().padStart(2, "0")}000000000000000000000`,
@@ -758,17 +759,19 @@ describe("wallet list and identity regression", () => {
       })
     );
 
+    let requestCount = 0;
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      expect(String(input)).toContain("limit=20");
+      requestCount += 1;
+      expect(String(input)).toContain(requestCount === 1 ? "limit=20" : "limit=57");
       return jsonResponse({
-        addresses: [...receiveAddresses, ...changeAddresses],
+        addresses: [...(requestCount === 1 ? partialReceiveAddresses : fullReceiveAddresses), ...changeAddresses],
         changeBalance: { confirmedBalance: 0, totalBalance: 0, unconfirmedBalance: 0 },
         confirmedBalance: 0,
-        discovery: { checkedCount: 57, complete: true, gapLimit: 20, maxDiscoveryLimit: 100 },
+        discovery: { checkedCount: 57, complete: true, gapLimit: 20, maxDiscoveryLimit: 200 },
         failedAddresses: [],
         lookupError: null,
         nextReceiveLookupError: null,
-        nextUnusedReceiveAddress: receiveAddresses[37],
+        nextUnusedReceiveAddress: fullReceiveAddresses[37],
         receiveBalance: { confirmedBalance: 0, totalBalance: 0, unconfirmedBalance: 0 },
         status: "online",
         totalBalance: 0,
@@ -793,11 +796,16 @@ describe("wallet list and identity regression", () => {
     );
 
     expect((await screen.findAllByText("m/84'/0'/0'/0/37")).length).toBeGreaterThan(0);
+    for (let index = 38; index <= 56; index += 1) {
+      expect(screen.getByText(`m/84'/0'/0'/0/${index}`)).toBeInTheDocument();
+    }
     expect(screen.queryByText("m/84'/0'/0'/0/36")).not.toBeInTheDocument();
+    expect(screen.queryByText("m/84'/0'/0'/0/57")).not.toBeInTheDocument();
     expect(screen.getByText(/Used empty receive addresses are hidden/i)).toBeInTheDocument();
 
     const bodyText = document.body.textContent ?? "";
     expect(bodyText.indexOf("m/84'/0'/0'/0/37")).toBeLessThan(bodyText.indexOf("m/84'/0'/0'/1/0"));
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 
   it("shows a specific setup-state login error instead of a generic forbidden message", async () => {
